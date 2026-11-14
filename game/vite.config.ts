@@ -7,5 +7,8 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: { "@": path.resolve(__dirname, "./src") },
+    // Windows: a lower-case drive letter in the cwd (e.g. "c:\\") vs __dirname ("C:\\")
+    // otherwise makes the bundler include React twice and hooks crash.
+    dedupe: ["react", "react-dom"],
   },
 })
