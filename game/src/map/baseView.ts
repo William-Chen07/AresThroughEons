@@ -36,8 +36,10 @@ export interface BaseView {
   showGhost: (ghost: Ghost | null) => void
   /** Fades the whole base so crew inside the modules show through. */
   setSeeThrough: (on: boolean) => void
-  /** Fades just these modules (by id), e.g. ones the player clicked to look inside. */
+  /** Fades just these modules (by id), e.g. ones with crew inside. */
   setOpenModules: (ids: string[]) => void
+  /** Fades the tubes, e.g. while crew are inside the base and could be walking along them. */
+  setTubesSeeThrough: (on: boolean) => void
   /**
    * The module cell drawn at a map point (roof or south wall), or null. A module is drawn taller
    * than its footprint, so this is what a click on it means, rather than the ground cell there.
@@ -91,9 +93,11 @@ export function createBaseView(terrain: VoxelTerrain, era = 1): BaseView {
   let pieces = new Map<string, Container>()
   let wholeBaseFaded = false
   let openModules = new Set<string>()
-  /** Fades the whole base, or else just the opened modules. */
+  let tubesFaded = false
+  /** Fades the whole base, or else just the opened modules and the tubes. */
   const applyFade = () => {
     view.filters = wholeBaseFaded ? [fade] : []
+    tubes.filters = !wholeBaseFaded && tubesFaded ? [fade] : []
     for (const [id, piece] of pieces) piece.filters = !wholeBaseFaded && openModules.has(id) ? [fade] : []
   }
 
@@ -234,6 +238,11 @@ export function createBaseView(terrain: VoxelTerrain, era = 1): BaseView {
     applyFade()
   }
 
+  const setTubesSeeThrough: BaseView["setTubesSeeThrough"] = (on) => {
+    tubesFaded = on
+    applyFade()
+  }
+
   const moduleCellAt: BaseView["moduleCellAt"] = (x, y) => {
     for (const rect of drawnRects) {
       const corner = footprintCorner(rect)
@@ -270,5 +279,5 @@ export function createBaseView(terrain: VoxelTerrain, era = 1): BaseView {
     }
   }
 
-  return { view, ghost, draw, showGhost, setSeeThrough, setOpenModules, moduleCellAt }
+  return { view, ghost, draw, showGhost, setSeeThrough, setOpenModules, setTubesSeeThrough, moduleCellAt }
 }

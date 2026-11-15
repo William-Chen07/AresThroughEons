@@ -50,7 +50,10 @@ import type { Weather } from "@/sim/weather"
  * The base map screen: the ground around the expedition's landing site, built
  * from NASA imagery and elevation (see map/), with the lander and the base on
  * it. For now the base (modules, and the tubes between them) is built by hand
- * from the dev tools panel (the Dev tools button or the ` key).
+ * from the Build panel (the Build button or the ` key).
+ * Modules and tubes turn see-through so the crew inside can be seen and clicked: a module with
+ * someone in it, the tubes while anyone is inside, and every module while an astronaut is
+ * selected or after a click on a module (another click closes them up again).
  * The crew are placeholders: three astronauts who appear beside the lander once
  * it's down. Click one, then click where to send them (sim/pathing moves them).
  * Where they stand isn't saved yet, so they start beside the lander each time the map opens.
@@ -201,11 +204,11 @@ export function GameMap({
   onSendExploring: (placeId: string, crewIds: string[]) => void
   /** The weather event going on right now, or null in calm weather. */
   weather: Weather
-  /** Starts a weather event now, or with null ends the one going on (from the dev tools). */
+  /** Starts a weather event now, or with null ends the one going on (from the Build panel). */
   onWeather: (id: WeatherId | null) => void
   /**
    * Starts the expedition over at the same landing site, as if opened for the first time (from
-   * the dev tools). This whole screen is then thrown away and built again, so the landing replays.
+   * the Build panel). This whole screen is then thrown away and built again, so the landing replays.
    */
   onResetMap: () => void
   /** Which era the expedition is in (see sim/saves.ts). Modules from an earlier era are drawn worn down. */
@@ -214,7 +217,7 @@ export function GameMap({
   landers: LanderSpot[]
   /**
    * Ends this era and starts the next on the same map, with a new crew in a new lander (from the
-   * game over screen or the dev tools). This screen is then built again, so the new landing plays.
+   * game over screen or the Build panel). This screen is then built again, so the new landing plays.
    */
   onNextEra: () => void
   /**
@@ -253,8 +256,8 @@ export function GameMap({
   const crewRef = useRef<{ terrain: VoxelTerrain; world: World } | null>(null)
   const [selectedCrew, setSelectedCrew] = useState<string[]>([])
   const [crewMessage, setCrewMessage] = useState<string | null>(null)
-  /** Modules the player clicked open to see inside (see-through), by id. */
-  const [openModules, setOpenModules] = useState<string[]>([])
+  /** True once the player has clicked a module to see inside the base: every module is see-through until the next click on one. */
+  const [baseOpen, setBaseOpen] = useState(false)
 
   // What's on screen belongs to this site and this try; anything else is still loading.
   const key = `${site.lat},${site.lon},${attempt}`
@@ -297,18 +300,14 @@ export function GameMap({
     if (!tool) {
       const crew = crewRef.current?.world
       if (!crew) return
-      // With nobody selected, clicking a module (not an astronaut in it) opens it up to see inside, or closes it again.
-      const clickedModule = moduleAt(modules, cell)
+      // With nobody selected, clicking a module (not an astronaut in it) opens up every module to
+      // see inside, or closes them all again.
       const tile = { x: cell.col, y: cell.row }
-      if (clickedModule && crew.selectedPawnIds.length === 0 && pawnsAt(crew, tile).length === 0) {
-        const name = moduleType(clickedModule.type).name
-        if (openModules.includes(clickedModule.id)) {
-          setOpenModules(openModules.filter((id) => id !== clickedModule.id))
-          setCrewMessage(`Closed up the ${name}.`)
-        } else {
-          setOpenModules([...openModules, clickedModule.id])
-          setCrewMessage(`You can see inside the ${name} now. Click it again to close it up.`)
-        }
+      if (moduleAt(modules, cell) && crew.selectedPawnIds.length === 0 && pawnsAt(crew, tile).length === 0) {
+        setBaseOpen(!baseOpen)
+        setCrewMessage(
+          baseOpen ? "Closed up the modules." : "You can see inside every module now. Click a module again to close them up.",
+        )
         return
       }
       setCrewMessage(describeClick(crew, handleClick(crew, { x: cell.col, y: cell.row }, { shift: keys.shift })))
@@ -469,7 +468,9 @@ export function GameMap({
   const stormRef = useRef(weather !== null)
   const someoneAwayRef = useRef(trips.length > 0)
   const gameOverRef = useRef(gameOver)
+  const modulesRef = useRef(modules)
   useEffect(() => {
+    modulesRef.current = modules
     onTimePassedRef.current = onTimePassed
     stormRef.current = weather !== null
     someoneAwayRef.current = trips.length > 0
@@ -482,6 +483,27 @@ export function GameMap({
     // Game time that has gone by but isn't in the save yet. The save is written to the browser's
     // storage on every change, so time is handed over about once a second, not on every frame.
     const unsaved = { hours: 0, ms: 0 }
+    /** What was last made see-through for the crew inside, so the map is only told when it changes. */
+    let shownInside = ""
+    /** Fades every module someone is in, and the tubes while anyone is inside the base at all. */
+    const showCrewInside = (crew: World) => {
+      const occupied = new Set<string>()
+      let anyoneInside = false
+      for (const mover of Object.values(crew.movers)) {
+        const x = Math.round(mover.pos.x)
+        const y = Math.round(mover.pos.y)
+        if (getZone(crew.grid, x, y) === "outside") continue
+        anyoneInside = true
+        const inModule = moduleAt(modulesRef.current, { col: x, row: y })
+        if (inModule) occupied.add(inModule.id)
+      }
+      const ids = [...occupied].sort()
+      const next = `${anyoneInside}:${ids.join(",")}`
+      if (next === shownInside) return
+      shownInside = next
+      view.setOpenModules(ids)
+      view.setTubesSeeThrough(anyoneInside)
+    }
     const handOver = () => {
       const world = crewRef.current?.world
       const cells = pressurizedRef.current
@@ -516,6 +538,7 @@ export function GameMap({
         if (unsaved.ms >= 1000) handOver()
       }
       view.drawCrew(crew, CREW_COLORS)
+      showCrewInside(crew)
       const said = events.map(describeEvent).filter((line) => line !== null)
       if (said.length > 0) setCrewMessage(said[said.length - 1])
     })
@@ -525,17 +548,14 @@ export function GameMap({
     }
   }, [view])
 
-  // While any astronaut is selected the base turns see-through, so crew inside can be seen and clicked.
+  // While any astronaut is selected, or after a click on a module, the whole base turns
+  // see-through, so crew inside can be seen and clicked.
   const anySelected = selectedCrew.length > 0
   useEffect(() => {
-    view?.setSeeThrough(anySelected)
-  }, [view, anySelected])
-  // Modules clicked open stay see-through on their own.
-  useEffect(() => {
-    view?.setOpenModules(openModules)
-  }, [view, openModules])
+    view?.setSeeThrough(anySelected || baseOpen)
+  }, [view, anySelected, baseOpen])
 
-  // While a tool that builds is picked in the dev tools panel, the map shows what a click would build.
+  // While a tool that builds is picked in the Build panel, the map shows what a click would build.
   useEffect(() => {
     if (!view || !terrain || !grid) return
     const { size } = terrain
@@ -709,7 +729,7 @@ export function GameMap({
                 <p className="mt-2 text-[11px] text-white/50">
                   Click an astronaut (or a name here), then click where to go, or a module to go in and work. Shift-click to pick more or
                   to queue an order. Crew go in and out of a module by its door, on the front wall. With nobody selected, click a module
-                  to see inside it. Click a selected astronaut again (or press Esc) to let go. Crew breathe the base's
+                  to see inside them all. Click a selected astronaut again (or press Esc) to let go. Crew breathe the base's
                   oxygen twice as fast outside the modules joined to an Airlock (by tubes, or wall to wall).
                 </p>
                 {crewMessage && <p className="mt-2 text-xs text-orange-200">{crewMessage}</p>}
@@ -724,10 +744,10 @@ export function GameMap({
                 Back to menu
               </button>
             </div>
-            {/* Opens the dev tools panel; the ` key toggles it too. */}
+            {/* Opens the Build panel; the ` key toggles it too. */}
             {!buildOpen && terrain && (
               <button type="button" onClick={() => setBuildOpen(true)} className={buttonClass}>
-                Dev tools
+                Build
               </button>
             )}
             {terrain && (
