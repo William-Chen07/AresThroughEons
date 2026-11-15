@@ -19,15 +19,16 @@ export interface WorkResult {
   task: string
 }
 
+/**
+ * Role = the task a crewmate is assigned to right now. Anyone can do any role;
+ * crewmates whose occupation trained them for it work faster (see workSpeed).
+ */
 export interface RoleDef {
   id: RoleId
+  /** Also the name of the skill for this role, e.g. "Building". */
   name: string
   /** Kid-facing, one sentence. */
   description: string
-  /** Suit color. Same pawn template, different color per role. */
-  color: string
-  /** Skill name shown in the UI, e.g. "Building". */
-  skillName: string
   work: (ctx: WorkContext) => WorkResult
 }
 
@@ -55,12 +56,10 @@ function workOnQueue(
 }
 
 export const ROLES: Record<RoleId, RoleDef> = {
-  engineer: {
-    id: "engineer",
-    name: "Engineer",
-    description: "Builds and fixes the base's modules.",
-    color: "#f97316",
-    skillName: "Building",
+  building: {
+    id: "building",
+    name: "Building",
+    description: "Builds the base's modules from the build queue.",
     work: (ctx) =>
       workOnQueue(
         ctx,
@@ -72,12 +71,10 @@ export const ROLES: Record<RoleId, RoleDef> = {
       ),
   },
 
-  researcher: {
-    id: "researcher",
-    name: "Researcher",
+  researching: {
+    id: "researching",
+    name: "Researching",
     description: "Studies Mars to unlock new blueprints and technology.",
-    color: "#3b82f6",
-    skillName: "Research",
     work: (ctx) =>
       workOnQueue(
         ctx,
@@ -89,12 +86,10 @@ export const ROLES: Record<RoleId, RoleDef> = {
       ),
   },
 
-  scout: {
-    id: "scout",
-    name: "Scout",
+  scouting: {
+    id: "scouting",
+    name: "Scouting",
     description: "Explores outside the base to find metal, stone, and ice.",
-    color: "#22c55e",
-    skillName: "Exploring",
     work: (ctx) => {
       const { pawn, mission, rng, hours, speed, log } = ctx
       const { weather, resources } = mission.colony
@@ -132,12 +127,10 @@ export const ROLES: Record<RoleId, RoleDef> = {
     },
   },
 
-  medic: {
-    id: "medic",
-    name: "Medic",
-    description: "Keeps the crew healthy by treating injuries and stress.",
-    color: "#e5e7eb",
-    skillName: "Medicine",
+  healing: {
+    id: "healing",
+    name: "Healing",
+    description: "Treats the crew's injuries and stress.",
     work: (ctx) => {
       const { pawn, mission, hours, speed, log } = ctx
 

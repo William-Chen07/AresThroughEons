@@ -1,5 +1,18 @@
 import { useEffect } from "react"
-import { NASA_DATA, ROLES, STATUSES, TRAITS, type NeedId, type Pawn, type ResourceId } from "@/sim"
+import {
+  isTrainedFor,
+  NASA_DATA,
+  OCCUPATIONS,
+  ROLE_IDS,
+  ROLES,
+  STATUSES,
+  TRAITS,
+  TUNING,
+  type NeedId,
+  type Pawn,
+  type ResourceId,
+  type RoleId,
+} from "@/sim"
 import { useMissionStore } from "@/stores/missionStore"
 
 /**
@@ -41,7 +54,10 @@ function Bar({ label, value }: { label: string; value: number }) {
 
 function PawnCard({ pawn }: { pawn: Pawn }) {
   const setOrders = useMissionStore((s) => s.setOrders)
-  const role = ROLES[pawn.role]
+  const setRole = useMissionStore((s) => s.setRole)
+  const occupation = OCCUPATIONS[pawn.occupation]
+  const trained = isTrainedFor(pawn)
+  const bonusPct = Math.round((TUNING.occupationMatchBonus - 1) * 100)
   const doseLimit = useMissionStore((s) => s.mission.colony.evaDoseBudgetMsv)
 
   return (
@@ -51,10 +67,40 @@ function PawnCard({ pawn }: { pawn: Pawn }) {
       <header className="flex items-center gap-2">
         <span className="size-3 rounded-full" style={{ background: pawn.color }} />
         <h3 className="font-semibold">{pawn.name}</h3>
-        <span className="text-xs text-white/60" title={role.description}>
-          {role.name} · {role.skillName} {pawn.skill}
+        <span className="text-xs text-white/60" title={occupation.description}>
+          {occupation.name}
         </span>
       </header>
+
+      <div className="flex flex-wrap items-center gap-2 text-[11px]">
+        <label className="flex items-center gap-1 text-white/60">
+          Task
+          <select
+            className="bg-black/40 px-1 text-white"
+            value={pawn.role}
+            disabled={!!pawn.evacuated}
+            onChange={(e) => setRole(pawn.id, e.target.value as RoleId)}
+          >
+            {ROLE_IDS.map((r) => (
+              <option key={r} value={r}>
+                {ROLES[r].name} (skill {pawn.skills[r].level}){isTrainedFor(pawn, r) ? " ★" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+        {trained ? (
+          <span
+            className="border border-emerald-400/50 px-1.5 text-emerald-200"
+            title={`${occupation.name}s are trained for ${ROLES[pawn.role].name}, so they work ${bonusPct}% faster.`}
+          >
+            ★ Trained +{bonusPct}%
+          </span>
+        ) : (
+          <span className="text-white/40" title={`${occupation.name}s are trained for ${ROLES[occupation.role].name}.`}>
+            Not trained for this
+          </span>
+        )}
+      </div>
       <p className="text-xs text-orange-200/90">{pawn.task}</p>
 
       <div className="flex flex-col gap-1">
@@ -96,7 +142,7 @@ function PawnCard({ pawn }: { pawn: Pawn }) {
             />
             On duty
           </label>
-          {pawn.role === "scout" && (
+          {pawn.role === "scouting" && (
             <>
               <select
                 className="bg-black/40 px-1"

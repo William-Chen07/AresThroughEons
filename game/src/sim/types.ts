@@ -1,4 +1,14 @@
-export type RoleId = "engineer" | "scout" | "researcher" | "medic"
+/** Permanent job a crewmate trained for. Set at spawn. */
+export type OccupationId = "engineer" | "scout" | "researcher" | "medic"
+
+/** The task a crewmate is currently assigned to. The player can change it any time. */
+export type RoleId = "building" | "scouting" | "researching" | "healing"
+
+export interface Skill {
+  level: number
+  /** Progress toward the next level. */
+  xp: number
+}
 
 export type NeedId = "oxygen" | "water" | "food" | "rest" | "morale"
 
@@ -41,15 +51,18 @@ export type Activity = "working" | "eva" | "sleeping" | "idle"
 export interface PawnOrders {
   /** Turned off = pawn stays off duty (still eats and sleeps). */
   enabled: boolean
-  /** Scouts only: what to look for outside. */
+  /** When scouting: what to look for outside. */
   scoutTarget: ResourceId | "any"
-  /** Scouts only: stay inside while a dust storm is blowing. */
+  /** When scouting: stay inside while a dust storm is blowing. */
   holdDuringStorms: boolean
 }
 
 export interface Pawn {
   id: string
   name: string
+  /** Permanent. What they trained for. */
+  occupation: OccupationId
+  /** Current task assignment. Matching the occupation gives a work bonus. */
   role: RoleId
   color: string
   traits: TraitId[]
@@ -59,8 +72,8 @@ export interface Pawn {
   activity: Activity
   /** Plain-language line for the UI, e.g. "Building Greenhouse" or "Waiting: nothing to build". */
   task: string
-  skill: number
-  xp: number
+  /** One skill per role, so a medic who builds levels up Building, not Healing. */
+  skills: Record<RoleId, Skill>
   /** Radiation picked up this mission (mSv). Resets each era. */
   missionDoseMsv: number
   /** Radiation picked up over the whole career (mSv). Carries across eras. */

@@ -1,8 +1,9 @@
-import { NASA_DATA } from "./constants"
 import { createRng, type Rng } from "./rng"
-import { ROLES, ROLE_IDS } from "./roles"
+import { OCCUPATIONS, OCCUPATION_IDS } from "./occupations"
+import { ROLE_IDS } from "./roles"
+import { NASA_DATA, TUNING } from "./constants"
 import { TRAITS, TRAIT_IDS } from "./traits"
-import type { Colony, Mission, Pawn, RoleId, TraitId } from "./types"
+import type { Colony, Mission, OccupationId, Pawn, RoleId, Skill, TraitId } from "./types"
 
 const NAMES = [
   "Ada", "Ben", "Cleo", "Dev", "Esme", "Femi", "Gus", "Hana",
@@ -23,20 +24,27 @@ export function rollTraits(rng: Rng, count = 2): TraitId[] {
   return picked
 }
 
-export function createPawn(rng: Rng, role: RoleId, name: string, index: number): Pawn {
+export function createPawn(rng: Rng, occupation: OccupationId, name: string, index: number): Pawn {
+  const trainedRole = OCCUPATIONS[occupation].role
+  const skills = Object.fromEntries(
+    ROLE_IDS.map((r) => [
+      r,
+      { level: r === trainedRole ? TUNING.startingSkill.trained : TUNING.startingSkill.untrained, xp: 0 },
+    ]),
+  ) as Record<RoleId, Skill>
   return {
     id: `pawn-${index}`,
     name,
-    role,
-    color: ROLES[role].color,
+    occupation,
+    role: trainedRole, // everyone starts on the job they trained for
+    color: OCCUPATIONS[occupation].color,
     traits: rollTraits(rng),
     needs: { oxygen: 100, water: 100, food: 100, rest: 100, morale: 70 },
     health: 100,
     statuses: [],
     activity: "idle",
     task: "Just landed",
-    skill: 2,
-    xp: 0,
+    skills,
     missionDoseMsv: 0,
     careerDoseMsv: 0,
     orders: { enabled: true, scoutTarget: "any", holdDuringStorms: true },
@@ -44,12 +52,12 @@ export function createPawn(rng: Rng, role: RoleId, name: string, index: number):
   }
 }
 
-/** Roles are fixed at spawn: one pawn per role by default. */
-export function createCrew(rng: Rng, roles: RoleId[] = ROLE_IDS): Pawn[] {
+/** Occupations are fixed at spawn: one pawn per occupation by default. */
+export function createCrew(rng: Rng, occupations: OccupationId[] = OCCUPATION_IDS): Pawn[] {
   const names = [...NAMES]
-  return roles.map((role, i) => {
+  return occupations.map((occupation, i) => {
     const name = names.splice(Math.floor(rng.next() * names.length), 1)[0]
-    return createPawn(rng, role, name, i)
+    return createPawn(rng, occupation, name, i)
   })
 }
 
@@ -71,9 +79,9 @@ export function createColony(crewSize: number, daysOfSupplies = 10): Colony {
   }
 }
 
-export function createMission(seed: number, roles: RoleId[] = ROLE_IDS): Mission {
+export function createMission(seed: number, occupations: OccupationId[] = OCCUPATION_IDS): Mission {
   const rng = createRng(seed)
-  const crew = createCrew(rng, roles)
+  const crew = createCrew(rng, occupations)
   return {
     hour: 0,
     crew,

@@ -5,6 +5,7 @@ import {
   gainXp,
   hasStatus,
   isActive,
+  isTrainedFor,
   removeStatus,
   traitMultiplier,
   traitSum,
@@ -13,7 +14,7 @@ import {
 import { createRng } from "./rng"
 import { ROLES } from "./roles"
 import { STATUSES } from "./statuses"
-import type { LogEntry, Mission, Pawn, StatusId } from "./types"
+import type { LogEntry, Mission, Pawn, RoleId, StatusId } from "./types"
 
 const MAX_LOG = 100
 
@@ -49,8 +50,9 @@ export function stepMission(prev: Mission, hours = 1): Mission {
     })
     pawn.activity = result.activity
     pawn.task = result.task
-    if (result.activity !== "idle" && gainXp(pawn, hours)) {
-      log("good", `${pawn.name} got better at ${ROLES[pawn.role].skillName} (skill ${pawn.skill}).`, pawn.id)
+    if (result.activity !== "idle" && gainXp(pawn, pawn.role, hours)) {
+      const skill = pawn.skills[pawn.role].level
+      log("good", `${pawn.name} got better at ${ROLES[pawn.role].name} (skill ${skill}).`, pawn.id)
     }
   }
   for (const pawn of crew) updateBody(pawn, mission, hours, log)
@@ -58,6 +60,22 @@ export function stepMission(prev: Mission, hours = 1): Mission {
   mission.hour += hours
   mission.rngState = rng.state
   if (mission.log.length > MAX_LOG) mission.log = mission.log.slice(-MAX_LOG)
+  return mission
+}
+
+/**
+ * Give a crewmate a new task. Their occupation never changes; only matching
+ * roles get the occupation bonus. Pure: returns a new Mission.
+ */
+export function assignRole(prev: Mission, pawnId: string, role: RoleId): Mission {
+  const pawn = prev.crew.find((p) => p.id === pawnId)
+  if (!pawn || pawn.evacuated || pawn.role === role) return prev
+  const mission = structuredClone(prev)
+  const target = mission.crew.find((p) => p.id === pawnId)!
+  target.role = role
+  target.task = `Switching to ${ROLES[role].name}`
+  const note = isTrainedFor(target) ? " (trained for it!)" : ""
+  mission.log.push({ hour: mission.hour, kind: "info", text: `${target.name} is now ${ROLES[role].name}${note}.`, pawnId })
   return mission
 }
 

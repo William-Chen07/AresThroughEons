@@ -1,5 +1,5 @@
 import { create } from "zustand"
-import { createMission, stepMission, type Job, type Mission, type PawnOrders } from "@/sim"
+import { assignRole, createMission, stepMission, type Job, type Mission, type PawnOrders, type RoleId } from "@/sim"
 
 interface MissionStore {
   mission: Mission
@@ -10,6 +10,8 @@ interface MissionStore {
   setPaused: (paused: boolean) => void
   setSpeed: (speed: number) => void
   setOrders: (pawnId: string, orders: Partial<PawnOrders>) => void
+  /** Change a crewmate's current task. Their occupation stays the same. */
+  setRole: (pawnId: string, role: RoleId) => void
   queueConstruction: (job: Omit<Job, "workDone">) => void
   queueResearch: (job: Omit<Job, "workDone">) => void
   setWeather: (weather: Partial<Mission["colony"]["weather"]>) => void
@@ -37,6 +39,7 @@ export const useMissionStore = create<MissionStore>((set) => ({
         if (pawn) Object.assign(pawn.orders, orders)
       }),
     })),
+  setRole: (pawnId, role) => set((s) => ({ mission: assignRole(s.mission, pawnId, role) })),
   queueConstruction: (job) =>
     set((s) => ({ mission: edit(s.mission, (m) => void m.colony.constructionQueue.push({ ...job, workDone: 0 })) })),
   queueResearch: (job) =>

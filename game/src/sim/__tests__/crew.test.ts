@@ -1,22 +1,29 @@
 import { describe, expect, it } from "vitest"
 import {
   advanceMission,
+  assignRole,
   createMission,
   hasStatus,
+  isTrainedFor,
   NASA_DATA,
+  OCCUPATION_IDS,
+  OCCUPATIONS,
   ROLE_IDS,
   stepMission,
   TRAITS,
+  TUNING,
+  workSpeed,
   type Mission,
+  type OccupationId,
   type Pawn,
-  type RoleId,
 } from "@/sim"
 
-const byRole = (m: Mission, role: RoleId): Pawn => m.crew.find((p) => p.role === role)!
+/** Find the crewmate with this (permanent) occupation. */
+const byOcc = (m: Mission, occupation: OccupationId): Pawn => m.crew.find((p) => p.occupation === occupation)!
 
-/** A mission where nobody gets tired or hurt by traits, so role behavior is easy to check. */
-function cleanMission(seed = 1, roles?: RoleId[]): Mission {
-  const m = createMission(seed, roles)
+/** A mission with no traits, so occupation and role behavior is easy to check. */
+function cleanMission(seed = 1, occupations?: OccupationId[]): Mission {
+  const m = createMission(seed, occupations)
   for (const p of m.crew) p.traits = []
   return m
 }
@@ -24,14 +31,14 @@ function cleanMission(seed = 1, roles?: RoleId[]): Mission {
 /** Expert scout so resource finds are near-certain within a few hours. */
 function scoutMission(seed: number): Mission {
   const m = cleanMission(seed)
-  byRole(m, "scout").skill = 10
+  byOcc(m, "scout").skills.scouting.level = 10
   return m
 }
 
 describe("spawning", () => {
-  it("creates one pawn per role, each with 2 non-conflicting traits", () => {
+  it("creates one pawn per occupation, each with 2 non-conflicting traits", () => {
     const m = createMission(42)
-    expect(m.crew.map((p) => p.role).sort()).toEqual([...ROLE_IDS].sort())
+    expect(m.crew.map((p) => p.occupation).sort()).toEqual([...OCCUPATION_IDS].sort())
     for (const p of m.crew) {
       expect(p.traits).toHaveLength(2)
       const [a, b] = p.traits
@@ -46,7 +53,7 @@ describe("spawning", () => {
   })
 })
 
-describe("engineer", () => {
+describe("building", () => {
   it("builds the first queued module and reports completion", () => {
     let m = cleanMission()
     m.colony.constructionQueue.push({ id: "greenhouse", name: "Greenhouse", workRequired: 5, workDone: 0 })
@@ -58,12 +65,12 @@ describe("engineer", () => {
 
   it("idles with a reason when there is nothing to build", () => {
     const m = stepMission(cleanMission())
-    expect(byRole(m, "engineer").activity).toBe("idle")
-    expect(byRole(m, "engineer").task).toMatch(/nothing to build/)
+    expect(byOcc(m, "engineer").activity).toBe("idle")
+    expect(byOcc(m, "engineer").task).toMatch(/nothing to build/)
   })
 })
 
-describe("researcher", () => {
+describe("researching", () => {
   it("researches the first queued project", () => {
     let m = cleanMission()
     m.colony.researchQueue.push({ id: "rover", name: "Rover", workRequired: 4, workDone: 0 })
@@ -71,7 +78,7 @@ describe("researcher", () => {
     expect(m.colony.completed.research).toEqual(["rover"])
   })
 
-  it("only the researcher contributes research", () => {
+  it("nobody researches unless someone is assigned to it", () => {
     let m = cleanMission(1, ["engineer", "scout", "medic"])
     m.colony.researchQueue.push({ id: "rover", name: "Rover", workRequired: 4, workDone: 0 })
     m = advanceMission(m, 8)
@@ -79,28 +86,29 @@ describe("researcher", () => {
   })
 })
 
-describe("scout", () => {
+describe("scouting", () => {
   it("goes outside, finds resources, and takes more radiation than crew inside", () => {
     let m = scoutMission(3)
+    expect(byOcc(stepMission(m), "scout").activity).toBe("eva")
     m = advanceMission(m, 12)
-    const scout = byRole(m, "scout")
-    const engineer = byRole(m, "engineer")
-    expect(scout.activity).toBe("eva")
+    const scout = byOcc(m, "scout")
+    const engineer = byOcc(m, "engineer")
     const r = m.colony.resources
     expect(r.metal + r.stone + r.ice).toBeGreaterThan(0)
     expect(scout.missionDoseMsv).toBeGreaterThan(engineer.missionDoseMsv * 1.5)
   })
 
   it("accumulates dose at the real Curiosity RAD surface rate while outside", () => {
-    let m = scoutMission(3)
-    m = advanceMission(m, 10)
-    const expected = (NASA_DATA.surfaceDoseMsvPerDay / 24) * 10
-    expect(byRole(m, "scout").missionDoseMsv).toBeCloseTo(expected, 5)
+    // One hour outside, then compare: deterministic regardless of random injuries later.
+    const m = stepMission(scoutMission(3))
+    const expected = NASA_DATA.surfaceDoseMsvPerDay / 24
+    expect(byOcc(m, "scout").activity).toBe("eva")
+    expect(byOcc(m, "scout").missionDoseMsv).toBeCloseTo(expected, 8)
   })
 
   it("only looks for the ordered resource", () => {
     let m = scoutMission(5)
-    byRole(m, "scout").orders.scoutTarget = "ice"
+    byOcc(m, "scout").orders.scoutTarget = "ice"
     m = advanceMission(m, 14)
     expect(m.colony.resources.ice).toBeGreaterThan(0)
     expect(m.colony.resources.metal + m.colony.resources.stone).toBe(0)
@@ -108,21 +116,21 @@ describe("scout", () => {
 
   it("is grounded once the mission radiation budget is used up", () => {
     let m = cleanMission()
-    byRole(m, "scout").missionDoseMsv = m.colony.evaDoseBudgetMsv
+    byOcc(m, "scout").missionDoseMsv = m.colony.evaDoseBudgetMsv
     m = advanceMission(m, 2)
-    const scout = byRole(m, "scout")
+    const scout = byOcc(m, "scout")
     expect(hasStatus(scout, "grounded")).toBe(true)
     expect(scout.activity).toBe("idle")
     expect(scout.task).toMatch(/Radiation Limit/)
   })
 
   it("waits out dust storms when told to, and goes out anyway when not", () => {
-    let m = cleanMission()
+    const m = cleanMission()
     m.colony.weather.dustStorm = true
-    expect(byRole(stepMission(m), "scout").task).toMatch(/dust storm/)
+    expect(byOcc(stepMission(m), "scout").task).toMatch(/dust storm/)
 
-    byRole(m, "scout").orders.holdDuringStorms = false
-    expect(byRole(stepMission(m), "scout").activity).toBe("eva")
+    byOcc(m, "scout").orders.holdDuringStorms = false
+    expect(byOcc(stepMission(m), "scout").activity).toBe("eva")
   })
 
   it("a solar particle event makes going outside far more dangerous than staying in", () => {
@@ -131,44 +139,44 @@ describe("scout", () => {
     spe.colony.weather.solarParticleEvent = true
     calm = advanceMission(calm, 3)
     spe = advanceMission(spe, 3)
-    expect(byRole(spe, "scout").missionDoseMsv).toBeGreaterThan(byRole(calm, "scout").missionDoseMsv * 10)
+    expect(byOcc(spe, "scout").missionDoseMsv).toBeGreaterThan(byOcc(calm, "scout").missionDoseMsv * 10)
   })
 })
 
-describe("medic", () => {
+describe("healing", () => {
   it("treats an injured crewmate much faster than natural healing", () => {
     let m = cleanMission()
-    const engineer = byRole(m, "engineer")
+    const engineer = byOcc(m, "engineer")
     engineer.statuses.push({ id: "injured", sinceHour: 0, treatmentProgress: 0 })
     m = advanceMission(m, 12)
-    expect(hasStatus(byRole(m, "engineer"), "injured")).toBe(false)
+    expect(hasStatus(byOcc(m, "engineer"), "injured")).toBe(false)
     expect(m.log.some((e) => e.text.includes("treated") && e.text.includes(engineer.name))).toBe(true)
   })
 
   it("treats injuries before stress", () => {
     let m = cleanMission()
-    byRole(m, "engineer").statuses.push({ id: "stressed", sinceHour: 0, treatmentProgress: 0 })
-    byRole(m, "scout").statuses.push({ id: "injured", sinceHour: 0, treatmentProgress: 0 })
+    byOcc(m, "engineer").statuses.push({ id: "stressed", sinceHour: 0, treatmentProgress: 0 })
+    byOcc(m, "scout").statuses.push({ id: "injured", sinceHour: 0, treatmentProgress: 0 })
     m = stepMission(m)
-    expect(byRole(m, "medic").task).toMatch(/Injured/)
+    expect(byOcc(m, "medic").task).toMatch(/Injured/)
   })
 
   it("counseling a stressed pawn raises their morale", () => {
     let m = cleanMission()
-    const eng = byRole(m, "engineer")
+    const eng = byOcc(m, "engineer")
     eng.needs.morale = 20
     eng.statuses.push({ id: "stressed", sinceHour: 0, treatmentProgress: 0 })
     m = advanceMission(m, 6)
-    expect(hasStatus(byRole(m, "engineer"), "stressed")).toBe(false)
-    expect(byRole(m, "engineer").needs.morale).toBeGreaterThan(40)
+    expect(hasStatus(byOcc(m, "engineer"), "stressed")).toBe(false)
+    expect(byOcc(m, "engineer").needs.morale).toBeGreaterThan(40)
   })
 
   it("cannot fix need-based problems like low oxygen", () => {
     let m = cleanMission()
     m.colony.supplies.oxygenKg = 0
     m = advanceMission(m, 20)
-    expect(hasStatus(byRole(m, "engineer"), "hypoxic")).toBe(true)
-    expect(byRole(m, "medic").task).not.toMatch(/Low Oxygen/)
+    expect(hasStatus(byOcc(m, "engineer"), "hypoxic")).toBe(true)
+    expect(byOcc(m, "medic").task).not.toMatch(/Low Oxygen/)
   })
 })
 
@@ -183,14 +191,14 @@ describe("needs, supplies, and evacuation", () => {
 
   it("pawns go to sleep when tired and wake up rested", () => {
     let m = cleanMission()
-    byRole(m, "engineer").needs.rest = 10
+    byOcc(m, "engineer").needs.rest = 10
     m = stepMission(m)
-    expect(byRole(m, "engineer").activity).toBe("sleeping")
+    expect(byOcc(m, "engineer").activity).toBe("sleeping")
     m = advanceMission(m, 6) // 8 h sleep restores rest to full
-    expect(byRole(m, "engineer").activity).toBe("sleeping")
+    expect(byOcc(m, "engineer").activity).toBe("sleeping")
     m = stepMission(m)
-    expect(byRole(m, "engineer").activity).not.toBe("sleeping")
-    expect(byRole(m, "engineer").needs.rest).toBeGreaterThan(90)
+    expect(byOcc(m, "engineer").activity).not.toBe("sleeping")
+    expect(byOcc(m, "engineer").needs.rest).toBeGreaterThan(90)
   })
 
   it("running out of oxygen leads to evacuation, not death", () => {
@@ -209,17 +217,17 @@ describe("needs, supplies, and evacuation", () => {
   it("off-duty pawns don't work", () => {
     let m = cleanMission()
     m.colony.constructionQueue.push({ id: "x", name: "X", workRequired: 100, workDone: 0 })
-    byRole(m, "engineer").orders.enabled = false
+    byOcc(m, "engineer").orders.enabled = false
     m = advanceMission(m, 4)
     expect(m.colony.constructionQueue[0].workDone).toBe(0)
-    expect(byRole(m, "engineer").task).toBe("Off duty")
+    expect(byOcc(m, "engineer").task).toBe("Off duty")
   })
 
   it("working raises skill over time", () => {
     let m = cleanMission()
     m.colony.constructionQueue.push({ id: "x", name: "X", workRequired: 1000, workDone: 0 })
-    m = advanceMission(m, 40)
-    expect(byRole(m, "engineer").skill).toBeGreaterThan(2)
+    m = advanceMission(m, 60)
+    expect(byOcc(m, "engineer").skills.building.level).toBeGreaterThan(TUNING.startingSkill.trained)
   })
 
   it("does not mutate the previous mission state", () => {
@@ -227,5 +235,84 @@ describe("needs, supplies, and evacuation", () => {
     const snapshot = structuredClone(m)
     stepMission(m)
     expect(m).toEqual(snapshot)
+  })
+})
+
+describe("occupations and roles", () => {
+  it("everyone starts on the role their occupation trained them for, with a higher skill there", () => {
+    const m = createMission(11)
+    for (const p of m.crew) {
+      expect(p.role).toBe(OCCUPATIONS[p.occupation].role)
+      expect(isTrainedFor(p)).toBe(true)
+      for (const r of ROLE_IDS) {
+        const expected = r === p.role ? TUNING.startingSkill.trained : TUNING.startingSkill.untrained
+        expect(p.skills[r].level).toBe(expected)
+      }
+    }
+  })
+
+  it("assigning a new role changes the task but never the occupation", () => {
+    let m = cleanMission()
+    const medic = byOcc(m, "medic")
+    m = assignRole(m, medic.id, "scouting")
+    const after = byOcc(m, "medic")
+    expect(after.occupation).toBe("medic")
+    expect(after.role).toBe("scouting")
+    expect(after.color).toBe(OCCUPATIONS.medic.color)
+    expect(isTrainedFor(after)).toBe(false)
+    expect(m.log.at(-1)!.text).toMatch(/is now Scouting/)
+  })
+
+  it("any occupation can do any role: a medic sent scouting goes outside", () => {
+    let m = cleanMission()
+    m = assignRole(m, byOcc(m, "medic").id, "scouting")
+    m = stepMission(m)
+    expect(byOcc(m, "medic").activity).toBe("eva")
+  })
+
+  it("a matching occupation gives exactly the match bonus at equal skill", () => {
+    const m = cleanMission()
+    const engineer = byOcc(m, "engineer")
+    const medic = byOcc(m, "medic")
+    medic.skills.building.level = engineer.skills.building.level
+    medic.needs.morale = engineer.needs.morale
+    medic.role = "building"
+    expect(workSpeed(engineer) / workSpeed(medic)).toBeCloseTo(TUNING.occupationMatchBonus, 8)
+  })
+
+  it("a trained engineer builds faster than an untrained crewmate", () => {
+    const build = (occupation: OccupationId) => {
+      let m = cleanMission(1, [occupation])
+      m = assignRole(m, m.crew[0].id, "building")
+      m.colony.constructionQueue.push({ id: "x", name: "X", workRequired: 1000, workDone: 0 })
+      return advanceMission(m, 6).colony.constructionQueue[0].workDone
+    }
+    expect(build("engineer")).toBeGreaterThan(build("researcher"))
+  })
+
+  it("experience goes to the skill of the role being done, not the occupation's", () => {
+    let m = cleanMission()
+    const medic = byOcc(m, "medic")
+    m = assignRole(m, medic.id, "building")
+    m.colony.constructionQueue.push({ id: "x", name: "X", workRequired: 1000, workDone: 0 })
+    m = advanceMission(m, 12)
+    const after = byOcc(m, "medic")
+    expect(after.skills.building.level).toBeGreaterThan(TUNING.startingSkill.untrained)
+    expect(after.skills.healing.level).toBe(TUNING.startingSkill.trained)
+    expect(after.skills.healing.xp).toBe(0)
+  })
+
+  it("trait bonuses follow the role, not the occupation", () => {
+    const m = cleanMission()
+    const scout = byOcc(m, "scout")
+    const base = workSpeed(scout, "researching")
+    scout.traits = ["curious"]
+    expect(workSpeed(scout, "researching") / base).toBeCloseTo(TRAITS.curious.modifiers.roleBonus!.researching!, 8)
+  })
+
+  it("ignores role changes for evacuated crew", () => {
+    const m = cleanMission()
+    byOcc(m, "medic").evacuated = { hour: 0, reason: "test" }
+    expect(assignRole(m, byOcc(m, "medic").id, "building")).toBe(m)
   })
 })

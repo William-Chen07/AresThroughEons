@@ -75,7 +75,11 @@ export const TUNING = {
   stormInjuryChancePerHour: 0.05,
   injuryNaturalHealHours: 96,
 
-  // --- Skills
+  // --- Occupations, roles, and skills
+  /** Work speed multiplier when a crewmate's role matches their occupation. */
+  occupationMatchBonus: 1.2,
+  /** Starting skill in the role their occupation trained them for, and in every other role. */
+  startingSkill: { trained: 3, untrained: 1 },
   maxSkill: 10,
   /** Work hours needed to go from skill N to N+1 is N * this. */
   xpPerSkillLevel: 12,

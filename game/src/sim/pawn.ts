@@ -1,4 +1,5 @@
 import { TUNING } from "./constants"
+import { OCCUPATIONS } from "./occupations"
 import { STATUSES } from "./statuses"
 import { TRAITS, type TraitModifiers } from "./traits"
 import type { Pawn, RoleId, StatusId } from "./types"
@@ -33,27 +34,32 @@ export const canGoOnEva = (pawn: Pawn) => !pawn.statuses.some((s) => STATUSES[s.
 
 export const isActive = (pawn: Pawn) => pawn.evacuated === null
 
+/** True when the role is the one the pawn's occupation trained them for. */
+export const isTrainedFor = (pawn: Pawn, role: RoleId = pawn.role) => OCCUPATIONS[pawn.occupation].role === role
+
 /**
- * Work points per hour for a pawn doing their role's job.
- * 1.0 is an average crew member at skill 5 with no problems.
+ * Work points per hour for a pawn doing a role (defaults to their current one).
+ * 1.0 is an average crew member at skill 5 with no problems and no occupation match.
  */
 export function workSpeed(pawn: Pawn, role: RoleId = pawn.role): number {
-  const skill = 0.6 + 0.08 * pawn.skill
+  const skill = 0.6 + 0.08 * pawn.skills[role].level
+  const trained = isTrainedFor(pawn, role) ? TUNING.occupationMatchBonus : 1
   const traits =
     traitMultiplier(pawn, (m) => m.workSpeed) * traitMultiplier(pawn, (m) => m.roleBonus?.[role])
   const statuses = pawn.statuses.reduce((acc, s) => acc * STATUSES[s.id].workMultiplier, 1)
   const morale = pawn.needs.morale < 25 ? 0.75 : pawn.needs.morale > 75 ? 1.1 : 1
-  return skill * traits * statuses * morale
+  return skill * trained * traits * statuses * morale
 }
 
-/** Adds experience; returns true if the pawn levelled up. */
-export function gainXp(pawn: Pawn, hours: number): boolean {
-  if (pawn.skill >= TUNING.maxSkill) return false
-  pawn.xp += hours * traitMultiplier(pawn, (m) => m.xpGain)
+/** Adds experience to one role's skill; returns true if it levelled up. */
+export function gainXp(pawn: Pawn, role: RoleId, hours: number): boolean {
+  const skill = pawn.skills[role]
+  if (skill.level >= TUNING.maxSkill) return false
+  skill.xp += hours * traitMultiplier(pawn, (m) => m.xpGain)
   let levelled = false
-  while (pawn.skill < TUNING.maxSkill && pawn.xp >= pawn.skill * TUNING.xpPerSkillLevel) {
-    pawn.xp -= pawn.skill * TUNING.xpPerSkillLevel
-    pawn.skill += 1
+  while (skill.level < TUNING.maxSkill && skill.xp >= skill.level * TUNING.xpPerSkillLevel) {
+    skill.xp -= skill.level * TUNING.xpPerSkillLevel
+    skill.level += 1
     levelled = true
   }
   return levelled

@@ -3,7 +3,7 @@ import type { NeedId, RoleId, TraitId } from "./types"
 export interface TraitModifiers {
   /** Multiplies all work speed. */
   workSpeed?: number
-  /** Multiplies work speed only when doing this role's job. */
+  /** Multiplies work speed only while assigned to this role. */
   roleBonus?: Partial<Record<RoleId, number>>
   /** Multiplies how fast a need drains. */
   needDecay?: Partial<Record<NeedId, number>>
@@ -46,7 +46,7 @@ export const TRAITS: Record<TraitId, TraitDef> = {
     id: "curious",
     name: "Curious",
     description: "Loves discovering things: better at research and scouting.",
-    modifiers: { roleBonus: { researcher: 1.25, scout: 1.15 } },
+    modifiers: { roleBonus: { researching: 1.25, scouting: 1.15 } },
   },
   tough: {
     id: "tough",
@@ -85,7 +85,7 @@ export const TRAITS: Record<TraitId, TraitDef> = {
     id: "steadyHands",
     name: "Steady Hands",
     description: "Careful and precise: better at healing and building.",
-    modifiers: { roleBonus: { medic: 1.25, engineer: 1.15 } },
+    modifiers: { roleBonus: { healing: 1.25, building: 1.15 } },
     conflictsWith: ["clumsy"],
   },
   quickLearner: {
