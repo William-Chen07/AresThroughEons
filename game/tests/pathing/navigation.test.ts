@@ -6,7 +6,7 @@
  */
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { checkModule, connectedGroups, occupancy, tubeOpenings, type Base, type PlacedModule } from "@/sim/base"
+import { checkModule, checkTubes, connectedGroups, occupancy, tubeOpenings, type Base, type PlacedModule } from "@/sim/base"
 import { buildNavigation, moduleStationId, pressurizedCells, syncNavigation, type NavigationTerrain } from "@/sim/navigation"
 import {
   addPawn, getZone, handleClick, issueOrder, scaleFor, stepPathing, PATHING_TUNING, getCost, BLOCKED,
@@ -125,38 +125,54 @@ test("a module built on top of a crewmate nudges them out onto open ground", () 
   assert.equal(at(w, w.movers.b.pos.x, w.movers.b.pos.y), "outside")
 })
 
-test("crew go in and out of a module only through its door, in the middle of the south wall", () => {
-  // Habitat at cols 2-4, rows 2-4: door at (3,4), stepping out to (3,5).
-  const w = buildNavigation(flat(), { modules: [mod("hab", "habitat", 2, 2)], tubes: [] })
-  addPawn(w, "a", { x: 3, y: 0 }) // north of it, outside
-  assert.ok(issueOrder(w, "a", { kind: "move", target: { x: 3, y: 3 } }).ok)
-  const path = [{ x: 3, y: 0 }, ...w.movers.a.path]
-  for (let i = 1; i < path.length; i++) {
-    const [p, q] = [path[i - 1], path[i]]
-    if (at(w, p.x, p.y) !== at(w, q.x, q.y)) {
-      assert.deepEqual([p, q], [{ x: 3, y: 5 }, { x: 3, y: 4 }], "only crosses at the door")
+test("crew go in and out of a module only through its doorways, one in the middle of each side", () => {
+  // Habitat at cols 2-4, rows 2-4. Doorways: north (3,2)↔(3,1), east (4,3)↔(5,3),
+  // south (3,4)↔(3,5), west (2,3)↔(1,3).
+  const doorways = [
+    [{ x: 3, y: 1 }, { x: 3, y: 2 }],
+    [{ x: 5, y: 3 }, { x: 4, y: 3 }],
+    [{ x: 3, y: 5 }, { x: 3, y: 4 }],
+    [{ x: 1, y: 3 }, { x: 2, y: 3 }],
+  ]
+  for (const [start, door] of [
+    [{ x: 3, y: 0 }, doorways[0]],
+    [{ x: 8, y: 3 }, doorways[1]],
+    [{ x: 3, y: 8 }, doorways[2]],
+    [{ x: 0, y: 3 }, doorways[3]],
+  ] as const) {
+    const w = buildNavigation(flat(), { modules: [mod("hab", "habitat", 2, 2)], tubes: [] })
+    addPawn(w, "a", start)
+    assert.ok(issueOrder(w, "a", { kind: "move", target: { x: 3, y: 3 } }).ok)
+    const path = [start, ...w.movers.a.path]
+    for (let i = 1; i < path.length; i++) {
+      const [p, q] = [path[i - 1], path[i]]
+      if (at(w, p.x, p.y) !== at(w, q.x, q.y)) assert.deepEqual([p, q], door, "in by the nearest doorway")
     }
+    runUntil(w, arrivedEvent)
+    assert.equal(w.movers.a.exposure, "inside")
   }
-  runUntil(w, arrivedEvent)
-  assert.equal(w.movers.a.exposure, "inside")
 })
 
-test("a module whose door is blocked can't be walked into from outside", () => {
-  // Storage at cols 2-3, rows 2-3: its door (3,3) opens onto (3,4), where the lab stands
-  // wall to wall instead (lab door at (4,5) → (4,6) is fine, so go in that way)...
-  const joined = buildNavigation(flat(), { modules: [mod("st", "storage", 2, 2), mod("lab", "research", 3, 4)], tubes: [] })
-  addPawn(joined, "a", { x: 10, y: 10 })
-  assert.ok(issueOrder(joined, "a", { kind: "work", stationId: moduleStationId("st") }).ok, "in through the lab")
-  // ...but with its door against the map's south edge there's no way in.
-  const edge = buildNavigation(flat(), { modules: [mod("st", "storage", 2, SIZE - 2)], tubes: [] })
-  addPawn(edge, "a", { x: 10, y: 10 })
-  assert.equal(issueOrder(edge, "a", { kind: "work", stationId: moduleStationId("st") }).ok, false)
+test("with a tube on one doorway, crew still get in and out by the others", () => {
+  // A tube runs south from the habitat's south doorway (3,5) to (3,8), joined to nothing else.
+  const tubes = [5, 6, 7, 8].map((row) => ({ col: 3, row }))
+  const w = buildNavigation(flat(), { modules: [mod("hab", "habitat", 2, 2)], tubes })
+  addPawn(w, "a", { x: 3, y: 3 })
+  assert.ok(issueOrder(w, "a", { kind: "move", target: { x: 10, y: 3 } }).ok, "out by the east doorway")
+  runUntil(w, arrivedEvent)
+  assert.equal(w.movers.a.exposure, "outside")
+  // The tube is part of the habitat, reached from inside.
+  assert.ok(issueOrder(w, "a", { kind: "move", target: { x: 3, y: 8 } }).ok, "to the end of the tube")
+  const path = w.movers.a.path
+  const intoTube = path.findIndex((t) => t.x === 3 && t.y === 5)
+  assert.deepEqual(path[intoTube - 1], { x: 3, y: 4 }, "into the tube from the habitat's south doorway")
 })
 
 test("tubes are hallways: walking between joined modules stays inside", () => {
-  // Habitat (cols 2-4, rows 2-4), a tube along row 3 from col 5 to col 9, storage at cols 10-11.
+  // Habitat (cols 2-4, rows 2-4), a tube along row 3 from its east doorway (5,3) to (9,3), the
+  // storage's west doorway (storage at cols 10-11, rows 2-3).
   const tubes = [5, 6, 7, 8, 9].map((col) => ({ col, row: 3 }))
-  const w = buildNavigation(flat(), { modules: [mod("hab", "habitat", 2, 2), mod("st", "storage", 10, 3)], tubes })
+  const w = buildNavigation(flat(), { modules: [mod("hab", "habitat", 2, 2), mod("st", "storage", 10, 2)], tubes })
   addPawn(w, "a", { x: 3, y: 2 })
   assert.ok(issueOrder(w, "a", { kind: "work", stationId: moduleStationId("st") }).ok)
   assert.ok(w.movers.a.path.every((t) => at(w, t.x, t.y) === "inside"), "never steps outside")
@@ -263,27 +279,33 @@ test("modules can only be placed on level ground, not across the edge of a step"
   assert.ok(!across.ok && /level/.test(across.reason), "across the step")
 })
 
-test("a tube joins a module only where it ends at its wall, not where it runs past", () => {
-  // Habitat at cols 2-4, rows 2-4 (door at (3,4), out to (3,5)). Storage at cols 9-10, rows 2-3.
-  // A tube along row 1 runs past the habitat's north wall, then down to the storage's west wall.
-  const tubes = [1, 2, 3, 4, 5, 6, 7, 8].map((col) => ({ col, row: 1 }))
-  tubes.push({ col: 8, row: 2 })
-  const base: Base = { modules: [mod("hab", "habitat", 2, 2), mod("st", "storage", 9, 2)], tubes }
+test("tubes can only meet a module at a doorway, in the middle of a side", () => {
+  // Habitat at cols 2-4, rows 2-4: doorways in front at (3,1), (5,3), (3,5) and (1,3).
+  const base: Base = { modules: [mod("hab", "habitat", 2, 2)], tubes: [] }
+  const grid = occupancy(SIZE, base)
+  const lay = (cells: { col: number; row: number }[]) => checkTubes(SIZE, grid, cells, base.modules)
+  assert.ok(lay([{ col: 5, row: 3 }, { col: 6, row: 3 }, { col: 7, row: 3 }]).ok, "out from the east doorway")
+  assert.ok(lay([{ col: 3, row: 1 }, { col: 3, row: 0 }]).ok, "out from the north doorway")
+  const alongWall = lay([{ col: 5, row: 2 }, { col: 5, row: 3 }, { col: 5, row: 4 }])
+  assert.ok(!alongWall.ok && /doorway/.test(alongWall.reason), "not along the east wall")
+  assert.equal(lay([{ col: 4, row: 5 }]).ok, false, "not against the south wall beside the doorway")
+  assert.ok(lay([{ col: 5, row: 5 }]).ok, "a corner doesn't touch a wall")
+
+  // A module can't be put down with a tube against its wall off a doorway either. A storage at
+  // cols 9-10, rows 3-4 has its west doorway at row 4, so a tube at (8,4) fits and (8,3) doesn't.
+  const tubeAt = (row: number) => occupancy(SIZE, { modules: [], tubes: [{ col: 8, row }] })
+  assert.ok(checkModule(SIZE, tubeAt(4), "storage", { col: 9, row: 3 }).ok, "tube at its west doorway")
+  const offDoorway = checkModule(SIZE, tubeAt(3), "storage", { col: 9, row: 3 })
+  assert.ok(!offDoorway.ok && /doorway/.test(offDoorway.reason), "tube against its wall off the doorway")
+})
+
+test("a tube in front of a doorway opens into that module", () => {
+  // Storage at cols 9-10, rows 2-3: west doorway (9,3) with (8,3) in front.
+  const base: Base = { modules: [mod("st", "storage", 9, 2)], tubes: [{ col: 8, row: 3 }, { col: 7, row: 3 }] }
   const grid = occupancy(SIZE, base)
   const i = (col: number, row: number) => row * SIZE + col
-  assert.deepEqual(tubeOpenings(SIZE, grid, i(3, 1)), [], "running past the habitat")
-  assert.deepEqual(tubeOpenings(SIZE, grid, i(8, 2)), [i(9, 2)], "the end of the run, at the storage's wall")
-  assert.equal(connectedGroups(SIZE, base, grid).length, 2, "the habitat isn't joined")
-
-  // Crew in the tube can't step through the habitat's wall: they go out through the storage and
-  // round to the habitat's door.
-  const w = buildNavigation(flat(), base)
-  addPawn(w, "a", { x: 3, y: 1 })
-  assert.ok(issueOrder(w, "a", { kind: "move", target: { x: 3, y: 3 } }).ok)
-  const path = [{ x: 3, y: 1 }, ...w.movers.a.path]
-  const enters = path.findIndex((t) => t.x >= 2 && t.x <= 4 && t.y >= 2 && t.y <= 4)
-  assert.deepEqual(path[enters], { x: 3, y: 4 }, "in by the habitat's door")
-  assert.deepEqual(path[enters - 1], { x: 3, y: 5 })
+  assert.deepEqual(tubeOpenings(SIZE, base, grid, i(8, 3)), [i(9, 3)])
+  assert.deepEqual(tubeOpenings(SIZE, base, grid, i(7, 3)), [], "further along the tube")
 })
 
 test("a single block of tube between two modules joins them both", () => {

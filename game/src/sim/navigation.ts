@@ -1,6 +1,6 @@
 import type { ModuleTypeId } from "@/content/modules"
 import type { VoxelTerrain } from "@/map/voxelTerrain"
-import { LANDER, MODULE, TUBE, cellsJoined, moduleDoor, moduleRect, occupancy, type Base } from "@/sim/base"
+import { LANDER, MODULE, TUBE, cellsJoined, moduleDoorways, moduleRect, occupancy, type Base } from "@/sim/base"
 import {
   BLOCKED,
   createStation,
@@ -21,9 +21,10 @@ import {
  *   module or tube               →  inside, flat floor (tubes are the hallways between modules)
  *   the lander                   →  blocked
  *
- * Crew go in and out of a module only through its door, in the middle of its south wall (see
- * moduleDoor in sim/base.ts). Tubes have no doors: they're the hallways between modules, and
- * modules standing wall to wall are walked between too. Routes between joined modules stay inside
+ * Crew go in and out of a module only through its four doorways, one in the middle of each side
+ * (see moduleDoorways in sim/base.ts): out onto open ground, or into a tube laid in front of one.
+ * Tubes have no doors of their own: they're the hallways between modules, and modules standing
+ * wall to wall are walked between too. Routes between joined modules stay inside
  * (see PATHING_TUNING.doorCrossingCost). Airlocks aren't needed to get in: an Airlock keeps the
  * modules joined to it pressurized (see pressurizedCells), so crew there don't use up oxygen.
  *
@@ -71,7 +72,7 @@ export function pressurizedCells(size: number, base: Base, built = occupancy(siz
     const row = Math.floor(i / size)
     const next = [col > 0 ? i - 1 : -1, col < size - 1 ? i + 1 : -1, row > 0 ? i - size : -1, row < size - 1 ? i + size : -1]
     for (const n of next) {
-      if (n < 0 || pressurized.has(n) || !cellsJoined(size, built, i, n)) continue
+      if (n < 0 || pressurized.has(n) || !cellsJoined(size, base, built, i, n)) continue
       pressurized.add(n)
       queue.push(n)
     }
@@ -103,24 +104,27 @@ export function syncNavigation(world: World, terrain: NavigationTerrain, base: B
   }
   const pressurized = pressurizedCells(size, base, built)
 
-  // A door leads outside only if the cell in front of it is open ground (not another module, a
-  // tube or the edge of the map).
+  // A doorway leads outside only if the cell in front of it is open ground (not another module,
+  // a tube, or off the edge of the map). One with a tube in front leads into the tube instead.
   const doors: number[] = []
+  const onMap = (cell: { col: number; row: number }) => cell.col >= 0 && cell.row >= 0 && cell.col < size && cell.row < size
   for (const module of base.modules) {
-    const { inside, outside } = moduleDoor(module)
-    if (outside.row >= size || inside.col < 0 || inside.col >= size || inside.row < 0) continue
-    if (built[inside.row * size + inside.col] !== MODULE || grid.zone[outside.row * size + outside.col] !== "outside") continue
-    doors.push(inside.row * size + inside.col, outside.row * size + outside.col)
+    for (const { inside, outside } of moduleDoorways(moduleRect(module))) {
+      if (!onMap(inside) || !onMap(outside)) continue
+      if (built[inside.row * size + inside.col] !== MODULE || grid.zone[outside.row * size + outside.col] !== "outside") continue
+      doors.push(inside.row * size + inside.col, outside.row * size + outside.col)
+    }
   }
   grid.doors = doors
 
-  // A tube that runs past a module (rather than ending at its wall) has a wall between them.
+  // A tube beside a module but not at one of its doorways (only in bases built before doorways)
+  // has a wall between them.
   const walls: number[] = []
   for (let i = 0; i < size * size; i++) {
     if (built[i] !== TUBE) continue
     const col = i % size
     for (const n of [col < size - 1 ? i + 1 : -1, i + size < size * size ? i + size : -1, col > 0 ? i - 1 : -1, i - size]) {
-      if (n < 0 || built[n] !== MODULE || cellsJoined(size, built, i, n)) continue
+      if (n < 0 || built[n] !== MODULE || cellsJoined(size, base, built, i, n)) continue
       walls.push(i, n)
     }
   }

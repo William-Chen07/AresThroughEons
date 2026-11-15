@@ -87,7 +87,7 @@ export function BuildPanel({
       : tool?.kind === "tube"
         ? tubeStarted
           ? "Click where the run ends. Tubes run straight, along a row or a column."
-          : "Click the block where a run of tube starts."
+          : "Click the block where a run of tube starts. Tubes meet a module at a doorway, the notch in the middle of each side."
         : tool?.kind === "remove"
           ? "Click a module or a block of tube to remove it."
           : "Pick a module or a tool, then click the map."
