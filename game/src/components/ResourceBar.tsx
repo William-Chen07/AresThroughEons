@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ResourceIcon } from "@/components/ResourceIcon";
 import {
   RESOURCE_TYPES,
   type ResourceId,
@@ -36,13 +37,7 @@ export function ResourceBar({ resources }: { resources: Resources }) {
           onBlur={() => close(type.id)}
           className="relative flex cursor-help items-center gap-1.5 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-orange-400"
         >
-          <span
-            aria-hidden
-            className="size-2.5 shrink-0 border border-black/60"
-            style={{
-              backgroundColor: `#${type.color.toString(16).padStart(6, "0")}`,
-            }}
-          />
+          <ResourceIcon id={type.id} color={type.color} />
           <span
             className={`text-xs font-semibold uppercase tracking-[0.15em] ${openId === type.id ? "text-white/90" : "text-white/50"} transition`}
           >
@@ -57,7 +52,8 @@ export function ResourceBar({ resources }: { resources: Resources }) {
             role="tooltip"
             className={`pointer-events-none absolute top-full z-20 mt-4 w-72 border border-white/15 bg-neutral-950/95 p-4 text-left ${openId === type.id ? "" : "hidden"} ${i < RESOURCE_TYPES.length / 2 ? "left-0" : "right-0"}`}
           >
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-orange-300/90">
+            <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.25em] text-orange-300/90">
+              <ResourceIcon id={type.id} color={type.color} />
               {type.name}
             </p>
             <p className="mt-2 text-sm text-white/90">{type.what}</p>
