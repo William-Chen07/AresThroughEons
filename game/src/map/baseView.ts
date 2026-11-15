@@ -1,7 +1,7 @@
 import { AlphaFilter, Container, Graphics, Text } from "pixi.js"
 import { moduleType } from "@/content/modules"
 import { CELL_PX, cellTopLeft, footprintTopLeft, type Cell, type VoxelTerrain } from "@/map/voxelTerrain"
-import { MODULE, TUBE, moduleRect, type Base, type PlacedModule, type Rect } from "@/sim/base"
+import { TUBE, moduleAt, moduleRect, tubeOpenings, type Base, type PlacedModule, type Rect } from "@/sim/base"
 
 /*
  * Draws the base on the map: tubes first, then the modules on top of them,
@@ -107,28 +107,47 @@ export function createBaseView(terrain: VoxelTerrain, era = 1): BaseView {
   ghost.visible = false
 
   /**
-   * Traces the tube network as line segments: a short one on every tube cell,
-   * so even a lone piece shows, and one to each neighbouring tube or module
-   * cell. Nothing is drawn toward the lander: tubes don't connect to it.
+   * Traces the tube network as line segments, for a stroke `width` wide with square ends: a short
+   * one on every tube cell, so even a lone piece shows, one to each neighbouring tube cell, and
+   * one up to the wall of each module the tube opens into (see tubeOpenings). It stops at the
+   * wall, so no tube shows inside a module when it's see-through, and a tube that only runs past
+   * a module doesn't reach into it. Nothing is drawn toward the lander: tubes don't connect to it.
    */
-  const traceTubes = (shape: Graphics, cells: Cell[], grid: Uint8Array) => {
-    for (const cell of cells) {
+  const traceTubes = (shape: Graphics, base: Base, grid: Uint8Array, width: number) => {
+    const half = width / 2
+    for (const cell of base.tubes) {
       const here = cellCenter(cell)
       shape.moveTo(here.x - 0.5, here.y).lineTo(here.x + 0.5, here.y)
+      // Each tube-to-tube link is drawn once, from its west or north end.
       for (const [dc, dr] of [
         [1, 0],
         [0, 1],
-        [-1, 0],
-        [0, -1],
       ]) {
         const next = { col: cell.col + dc, row: cell.row + dr }
-        if (next.col < 0 || next.row < 0 || next.col >= size || next.row >= size) continue
-        const what = grid[next.row * size + next.col]
-        // Each tube-to-tube link is drawn once, from its west or north end.
-        const link = what === MODULE || (what === TUBE && (dc === 1 || dr === 1))
-        if (!link) continue
+        if (next.col >= size || next.row >= size || grid[next.row * size + next.col] !== TUBE) continue
         const there = cellCenter(next)
         shape.moveTo(here.x, here.y).lineTo(there.x, there.y)
+      }
+      for (const opening of tubeOpenings(size, grid, cell.row * size + cell.col)) {
+        const into = { col: opening % size, row: Math.floor(opening / size) }
+        const module = moduleAt(base.modules, into)
+        if (!module) continue
+        // The module as drawn: its roof sits WALL_PX up from the footprint, its south wall below.
+        const rect = moduleRect(module)
+        const corner = footprintCorner(rect)
+        const left = corner.x + 1
+        const right = corner.x + rect.width * CELL_PX - 1
+        const top = corner.y + 1 - WALL_PX
+        const bottom = corner.y + rect.height * CELL_PX - 1
+        // Where the line ends so that its square end just meets the wall.
+        let end: { x: number; y: number }
+        if (into.col > cell.col) end = { x: left - half, y: here.y }
+        else if (into.col < cell.col) end = { x: right + half, y: here.y }
+        else if (into.row > cell.row) end = { x: here.x, y: top - half }
+        else end = { x: here.x, y: bottom + half }
+        // Only draw it if the wall is further away than the tube's own end already reaches.
+        const reach = (end.x - here.x) * (into.col - cell.col) + (end.y - here.y) * (into.row - cell.row)
+        if (reach > 0) shape.moveTo(here.x, here.y).lineTo(end.x, end.y)
       }
     }
   }
@@ -210,7 +229,7 @@ export function createBaseView(terrain: VoxelTerrain, era = 1): BaseView {
         [6, TUBE_COLOR],
         [2, TUBE_SHINE],
       ]) {
-        traceTubes(tubes, base.tubes, grid)
+        traceTubes(tubes, base, grid, width)
         tubes.stroke({ width, color, cap: "square", join: "miter" })
       }
     }
