@@ -1,18 +1,19 @@
 import type { PathingEvent, UrgentNeed } from "./events"
-import { BLOCKED, getZone, sameTile, tileOf, type Tile } from "./grid"
+import { BLOCKED, canCrossZones, getZone, sameTile, slopeFactor, tileOf, type Tile } from "./grid"
 import { endIdle, updateIdle } from "./idle"
 import { handleUrgentNeed } from "./needs"
 import { trafficAt } from "./crowd"
 import { finishOrder, plan, setRoute } from "./orders"
 import { isJobDone, type Station } from "./stations"
-import { PATHING_TUNING, WALK_TILES_PER_HOUR } from "./tuning"
+import { PATHING_TUNING, scaleFor } from "./tuning"
 import { costField, costLookup, findStation, type Mover, type World } from "./world"
 
 export interface StepOptions {
   /** Work points per game-hour a pawn puts into a station. Default 1. Hook up the crew rules here. */
   workRate?: (pawnId: string, station: Station) => number
   /**
-   * Tiles per game-hour on normal ground before the suit slowdown. Default WALK_TILES_PER_HOUR.
+   * Tiles per game-hour on flat normal ground before the suit slowdown. Default: walking speed
+   * from PATHING_TUNING for this map's tile size (scaleFor(grid).walkTilesPerHour).
    * Hook up injuries, storms, etc. here.
    */
   walkSpeed?: (pawnId: string) => number
@@ -33,7 +34,8 @@ export function stepPathing(world: World, dtHours: number, options: StepOptions 
   const events: PathingEvent[] = []
   const field = costField(world)
   const walkCost = costLookup(world, field)
-  const walkSpeed = options.walkSpeed ?? (() => WALK_TILES_PER_HOUR)
+  const defaultSpeed = scaleFor(world.grid).walkTilesPerHour
+  const walkSpeed = options.walkSpeed ?? (() => defaultSpeed)
   const workRate = options.workRate ?? (() => 1)
   const urgentNeed = options.urgentNeed ?? (() => null)
   const finishedStations = new Set<string>()
@@ -114,7 +116,15 @@ function walk(
     if (mover.path.length === 0) return
 
     const next = mover.path[0]
-    if (walkCost(next.x, next.y) === BLOCKED && !sameTile(next, tileOf(mover.pos))) {
+    // The step may have become impossible since the route was planned (something built on it,
+    // a module now standing where there was open ground, a changed map): plan again.
+    const stepFrom = tileOf(mover.pos)
+    const stepAllowed =
+      sameTile(next, stepFrom) ||
+      (walkCost(next.x, next.y) !== BLOCKED &&
+        canCrossZones(getZone(world.grid, stepFrom.x, stepFrom.y), getZone(world.grid, next.x, next.y)) &&
+        slopeFactor(world.grid, stepFrom.x, stepFrom.y, next.x, next.y) !== null)
+    if (!stepAllowed) {
       if (!mover.order) {
         // Idle stroll ran into something new: just stop; idle behaviour picks something else.
         setRoute(world, mover, [tileOf(mover.pos)])
@@ -161,7 +171,10 @@ function walk(
     const speed = baseSpeed * (mover.exposure === "outside" ? PATHING_TUNING.suitSpeedMultiplier : 1)
     const dx = next.x - mover.pos.x
     const dy = next.y - mover.pos.y
-    const hoursToNext = (Math.hypot(dx, dy) * Math.max(walkCost(next.x, next.y), 1)) / speed
+    // Route steps are one tile at a time, so the step began at the tile one step back from `next`.
+    const from = { x: next.x - Math.sign(Math.round(dx * 1e6)), y: next.y - Math.sign(Math.round(dy * 1e6)) }
+    const slope = slopeFactor(world.grid, from.x, from.y, next.x, next.y) ?? 1
+    const hoursToNext = (Math.hypot(dx, dy) * Math.max(walkCost(next.x, next.y), 1) * slope) / speed
     if (remaining < hoursToNext) {
       const fraction = remaining / hoursToNext
       mover.pos = { x: mover.pos.x + dx * fraction, y: mover.pos.y + dy * fraction }

@@ -12,7 +12,7 @@ import assert from "node:assert/strict"
 import {
   BLOCKED, addPawn, addStation, createStation, createWorld, findPath, handleClick, issueOrder,
   removeStation, setCost, stepPathing, costField, WALK_TILES_PER_HOUR, buildHabitat, getZone, setZone,
-  PATHING_TUNING, cancelOrder, selectInBox, orderGroup, tileOf,
+  PATHING_TUNING, cancelOrder, selectInBox, orderGroup, tileOf, scaleFor,
   type World, type Tile, type PathingEvent, type UrgentNeed,
 } from "../../src/sim/pathing/index.ts"
 
@@ -410,7 +410,8 @@ test("an idle pawn strolls around where it stopped, and stays on its side of the
     stepPathing(w, 0.01)
     const p = w.movers.w.pos
     seen.add(`${Math.round(p.x)},${Math.round(p.y)}`)
-    assert.ok(Math.abs(p.x - 9) <= PATHING_TUNING.wanderRadius + 0.01 && Math.abs(p.y - 6) <= PATHING_TUNING.wanderRadius + 0.01, "near its spot")
+    const r = scaleFor(w.grid).wanderRadius
+    assert.ok(Math.abs(p.x - 9) <= r + 0.01 && Math.abs(p.y - 6) <= r + 0.01, "near its spot")
     assert.equal(getZone(w.grid, Math.round(p.x), Math.round(p.y)), "inside", "never wanders into the airlock or outside")
   }
   assert.ok(seen.size > 3, `moved around (visited ${seen.size} tiles)`)

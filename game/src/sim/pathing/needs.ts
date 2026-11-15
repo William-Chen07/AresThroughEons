@@ -26,8 +26,8 @@ function findShelter(world: World, mover: Mover, field: number[]): Tile[] | null
       if (grid.zone[y * grid.width + x] === "inside" && field[y * grid.width + x] !== BLOCKED) goals.push({ x, y })
     }
   }
-  const { costAt, canStep } = routing(world, field, mover)
-  return findPath(costAt, grid.width, grid.height, tileOf(mover.pos), goals, { canStep })
+  const { costAt, rules } = routing(world, field, mover)
+  return findPath(costAt, grid.width, grid.height, tileOf(mover.pos), goals, rules)
 }
 
 /** Nearest station that takes care of the need, if one can be reached. */
@@ -35,8 +35,8 @@ function findNeedStation(world: World, mover: Mover, need: Exclude<UrgentNeed, "
   const candidates = world.stations.filter((s) => s.provides.includes(need) && !isJobDone(s))
   const goals = candidates.flatMap((s) => s.accessTiles)
   if (goals.length === 0) return null
-  const { costAt, canStep } = routing(world, field, mover)
-  const path = findPath(costAt, world.grid.width, world.grid.height, tileOf(mover.pos), goals, { canStep })
+  const { costAt, rules } = routing(world, field, mover)
+  const path = findPath(costAt, world.grid.width, world.grid.height, tileOf(mover.pos), goals, rules)
   if (!path) return null
   const end = path.length > 0 ? path[path.length - 1] : tileOf(mover.pos)
   return candidates.find((s) => s.accessTiles.some((t) => sameTile(t, end))) ?? null

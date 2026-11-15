@@ -12,6 +12,8 @@ export const MODULE_TYPES = [
   { id: "greenhouse", name: "Greenhouse", code: "GRN", width: 3, height: 2, color: 0x62b56c },
   { id: "power", name: "Power Plant", code: "PWR", width: 2, height: 2, color: 0xe0b040 },
   { id: "storage", name: "Storage", code: "STO", width: 2, height: 2, color: 0x9a8f86 },
+  // The only way between the base and the outside: crew walking out (or in) cycle through one.
+  { id: "airlock", name: "Airlock", code: "AIR", width: 2, height: 1, color: 0x7fb3c8 },
 ] as const
 
 export type ModuleType = (typeof MODULE_TYPES)[number]
