@@ -8,6 +8,9 @@ type Screen = "menu" | "game"
 
 function App() {
   const [screen, setScreen] = useState<Screen>("menu")
+  // Goes up when the map is reset from the dev tools or a new era starts. It is the map screen's
+  // key, so the screen is thrown away and built again from the changed save, landing and all.
+  const [mapResets, setMapResets] = useState(0)
   // The save the player picked in the menu (see sim/saves.ts).
   const save = useSaves((s) => (s.activeSlot === null ? null : s.slots[s.activeSlot]))
   const activeSlot = useSaves((s) => s.activeSlot)
@@ -16,6 +19,9 @@ function App() {
   const research = useSaves((s) => s.research)
   const passTime = useSaves((s) => s.passTime)
   const setWeather = useSaves((s) => s.setWeather)
+  const resetMap = useSaves((s) => s.resetMap)
+  const sendExploring = useSaves((s) => s.sendExploring)
+  const nextEra = useSaves((s) => s.nextEra)
 
   if (screen === "menu") {
     return <MainMenu onStart={() => setScreen("game")} />
@@ -25,6 +31,7 @@ function App() {
   if (save) {
     return (
       <GameMap
+        key={mapResets}
         name={save.name}
         site={devSiteOverride() ?? save.site}
         landed={save.landed}
@@ -35,8 +42,25 @@ function App() {
         researched={save.researched}
         resources={save.resources}
         health={save.health}
+        evacuated={save.evacuated}
+        trips={save.trips}
+        tripLog={save.tripLog}
+        tripNews={save.tripNews}
+        onSendExploring={(placeId, crewIds) => activeSlot !== null && sendExploring(activeSlot, placeId, crewIds)}
         weather={save.weather}
         onWeather={(id) => activeSlot !== null && setWeather(activeSlot, id)}
+        onResetMap={() => {
+          if (activeSlot === null) return
+          resetMap(activeSlot)
+          setMapResets((count) => count + 1)
+        }}
+        era={save.era}
+        landers={save.landers}
+        onNextEra={() => {
+          if (activeSlot === null) return
+          nextEra(activeSlot)
+          setMapResets((count) => count + 1)
+        }}
         onTimePassed={(hours, crew) => activeSlot !== null && passTime(activeSlot, hours, crew)}
         onResearch={(projectId) => activeSlot !== null && research(activeSlot, projectId)}
         onExit={() => setScreen("menu")}

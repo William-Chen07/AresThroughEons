@@ -27,6 +27,14 @@ export function healthOf(health: CrewHealth, astronautId: string) {
   return health[astronautId] ?? FULL_HEALTH
 }
 
+/**
+ * The astronauts among `crew` whose health has run out. They are evacuated: flown back to
+ * Earth to get well, and out of the expedition for good.
+ */
+export function needEvacuating(health: CrewHealth, crew: readonly CrewMember[]): string[] {
+  return crew.filter(({ id }) => healthOf(health, id) <= 0).map(({ id }) => id)
+}
+
 /** One astronaut during a stretch of time: who they are and whether they were out on the surface. */
 export interface CrewMember {
   id: string
@@ -37,7 +45,8 @@ export interface CrewMember {
  * What `hours` game-hours do to a base with these astronauts in it: they breathe the oxygen
  * down, and for any part of that time the oxygen has run out, each of them loses health.
  * `storm` is the weather during that time, if there was any: for `hours` of it, anyone outside
- * loses `healthLostPerHour`. Oxygen and health both stop at zero. Nothing brings health back up yet.
+ * loses `healthLostPerHour`. Oxygen and health both stop at zero (see needEvacuating for what
+ * happens then). Nothing brings health back up yet.
  */
 export function liveThrough(
   resources: Resources,

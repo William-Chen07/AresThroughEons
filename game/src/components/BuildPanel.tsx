@@ -5,7 +5,7 @@ import { MODULE_TYPES, type ModuleTypeId } from "@/content/modules"
  * exist yet: place modules, lay the tubes between them, and remove either.
  * Nothing connects by itself (see sim/base.ts). Shown as "Dev tools", opened
  * from the Dev tools button or the ` key on the base map. It can also start
- * and stop a radiation storm, for trying the weather out.
+ * and stop a radiation storm, for trying the weather out, and reset the map.
  */
 
 export type BuildTool = { kind: "place"; type: ModuleTypeId } | { kind: "tube" } | { kind: "remove" } | null
@@ -25,6 +25,8 @@ export function BuildPanel({
   message,
   stormActive,
   onStorm,
+  onResetMap,
+  onNextEra,
   onClear,
   onClose,
 }: {
@@ -44,6 +46,10 @@ export function BuildPanel({
   stormActive: boolean
   /** Starts a radiation storm, or ends the one going on. */
   onStorm: () => void
+  /** Starts the expedition over at the same landing site, as if opened for the first time: the landing replays. */
+  onResetMap: () => void
+  /** Ends this era and starts the next on the same map (the base wears down and a new lander comes down). */
+  onNextEra: () => void
   onClear: () => void
   onClose: () => void
 }) {
@@ -141,6 +147,22 @@ export function BuildPanel({
         className={`${toolButton} mt-2 ${stormActive ? active : idle}`}
       >
         {stormActive ? "End radiation storm" : "Radiation storm"}
+      </button>
+
+      <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.25em] text-white/50">Expedition</p>
+      <button
+        type="button"
+        onClick={onResetMap}
+        className={`${toolButton} mt-2 border-white/15 bg-white/5 hover:border-red-400/70 hover:text-red-300`}
+      >
+        Reset map
+      </button>
+      <button
+        type="button"
+        onClick={onNextEra}
+        className={`${toolButton} mt-2 border-white/15 bg-white/5 hover:border-orange-400/70`}
+      >
+        Next era
       </button>
 
       <p className="mt-3 text-[11px] text-white/60">{hint}</p>

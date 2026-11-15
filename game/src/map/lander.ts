@@ -3,8 +3,10 @@ import { CELL_PX, cellTopLeft, type Cell, type VoxelTerrain } from "@/map/voxelT
 import { LANDER_CELLS } from "@/sim/base"
 
 /*
- * The expedition's lander: a pixel-art sprite that covers 3 × 3 cells in the
- * middle of the map, and the animation of it coming down when the map opens.
+ * The expedition's landers: pixel-art sprites that cover 3 × 3 cells, and the
+ * animation of this era's lander coming down when the map opens. The first era
+ * has the classic gold-foil lander; later eras come down in a newer, more
+ * advanced one. Landers from earlier eras stay on the map, worn down.
  */
 
 const SIZE_PX = LANDER_CELLS * CELL_PX
@@ -55,6 +57,54 @@ const ART_COLORS: Record<string, string> = {
   p: "#d6d0c8", // footpads
   e: "#545050", // engine nozzle
 }
+/** The newer lander of later eras: a silver hull with solar wings, a cyan light band and a wider engine bell. */
+const ADVANCED_ART = [
+  "...........kk...........",
+  "..........kcck..........",
+  "...........kk...........",
+  "........kkkkkkkk........",
+  "......kksssssssskk......",
+  ".....kssswwwwwwsssk.....",
+  "....ksswwwwwwwwwwssk....",
+  "kkkkksswnnnnnnnnwsskkkkk",
+  "kPLPksswnqqqqqqnwsskPLPk",
+  "kPLPkkswnqcqqcqnwskkPLPk",
+  "kPLPksswnnnnnnnnwsskPLPk",
+  "kkkkksssssssssssssskkkkk",
+  "....kaaaaaaaaaaaaaak....",
+  "....kggggggggggggggk....",
+  "....kgggdggggggdgggk....",
+  ".....kggggggggggggk.....",
+  "..l...kkkkkkkkkkkk...l..",
+  ".l.......keeeek.......l.",
+  "l........keeeek........l",
+  "l.........keek.........l",
+  "l......................l",
+  "kk....................kk",
+  "ppk..................kpp",
+  "kkk..................kkk",
+]
+const ADVANCED_COLORS: Record<string, string> = {
+  k: "#1e2230", // outline
+  s: "#c8d0da", // silver hull
+  w: "#f2f5f8", // hull top
+  n: "#1d2c44", // window frame
+  q: "#58d8f0", // window
+  c: "#d8fbff", // window glint, antenna light
+  P: "#2a4f9a", // solar panel
+  L: "#5f8fe0", // solar panel cell line
+  a: "#3ee0d0", // light band
+  g: "#8a94a2", // hull in shade
+  d: "#f08a3c", // mission stripe
+  l: "#9aa2ac", // legs
+  p: "#dfe4ea", // footpads
+  e: "#3c4048", // engine bell
+}
+
+/** Which lander design an era comes down in. */
+export type LanderModel = "classic" | "advanced"
+export const landerModelFor = (era: number): LanderModel => (era <= 1 ? "classic" : "advanced")
+
 const ART_PX = SIZE_PX / ART.length
 /** Where the engine nozzle ends and where the lander meets the ground, in the sprite's own map pixels. */
 const NOZZLE = { x: SIZE_PX / 2, y: 21 * ART_PX }
@@ -96,28 +146,51 @@ interface Puff {
   alpha: number
 }
 
-function landerTexture(): Texture {
+/** The colour dust and age push everything towards, on a worn lander. */
+const DUST = [150, 104, 70]
+
+function landerTexture(model: LanderModel, worn: boolean): Texture {
+  const art = model === "classic" ? ART : ADVANCED_ART
+  const colors = model === "classic" ? ART_COLORS : ADVANCED_COLORS
   const canvas = document.createElement("canvas")
-  canvas.width = ART[0].length
-  canvas.height = ART.length
+  canvas.width = art[0].length
+  canvas.height = art.length
   const ctx = canvas.getContext("2d")
   if (!ctx) throw new Error("This browser can't create a 2D canvas")
-  ART.forEach((line, y) => {
+  art.forEach((line, y) => {
     for (let x = 0; x < line.length; x++) {
-      const color = ART_COLORS[line[x]]
+      const color = colors[line[x]]
       if (!color) continue
       ctx.fillStyle = color
       ctx.fillRect(x, y, 1, 1)
     }
   })
+  if (worn) wearDown(ctx, canvas.width, canvas.height)
   // "nearest" keeps the pixels square and sharp when the sprite is scaled up.
   return new Texture({ source: new CanvasSource({ resource: canvas, scaleMode: "nearest" }) })
 }
 
-/** The cell under the middle of the lander: the centre of the map. */
-export function landingCell(terrain: VoxelTerrain): Cell {
-  const middle = Math.floor(terrain.size / 2)
-  return { col: middle, row: middle }
+/**
+ * Ages a lander's pixels: faded and dusty all over, with darker grime and rust in patches. The
+ * pattern comes from a fixed seed, so a worn lander looks the same every time the map opens.
+ */
+function wearDown(ctx: CanvasRenderingContext2D, width: number, height: number) {
+  const image = ctx.getImageData(0, 0, width, height)
+  const px = image.data
+  let seed = 7
+  const random = () => {
+    seed = (seed * 16807) % 2147483647
+    return seed / 2147483647
+  }
+  for (let i = 0; i < px.length; i += 4) {
+    if (px[i + 3] === 0) continue
+    const grime = random()
+    // Faded towards the dust colour, a bit darker, and some pixels much dirtier.
+    const mix = grime < 0.18 ? 0.65 : 0.38
+    const dark = grime < 0.06 ? 0.6 : 0.82
+    for (let c = 0; c < 3; c++) px[i + c] = Math.round((px[i + c] * (1 - mix) + DUST[c] * mix) * dark)
+  }
+  ctx.putImageData(image, 0, 0)
 }
 
 export interface Lander {
@@ -141,8 +214,11 @@ export interface Lander {
   place: () => void
 }
 
-export function createLander(terrain: VoxelTerrain): Lander {
-  const cell = landingCell(terrain)
+/**
+ * A lander standing (or about to come down) on `cell`, the middle of its 3 × 3 footprint. A worn
+ * one is from an earlier era: it is only ever placed, never landed.
+ */
+export function createLander(terrain: VoxelTerrain, cell: Cell, model: LanderModel, worn = false): Lander {
   // The 3 × 3 footprint is centred on the landing cell and sits at that cell's height.
   // (The cells around it may be a block higher or lower; levelling the pad comes later.)
   const middle = cellTopLeft(terrain, cell)
@@ -175,7 +251,7 @@ export function createLander(terrain: VoxelTerrain): Lander {
     .rect(-1, 14, 2, 10)
     .fill(0xfff0b0)
   flame.position.copyFrom(NOZZLE)
-  const body = new Sprite(landerTexture())
+  const body = new Sprite(landerTexture(model, worn))
   body.setSize(SIZE_PX, SIZE_PX)
   craft.addChild(flame, body)
 

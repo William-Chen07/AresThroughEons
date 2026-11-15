@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { BuildPanel, type BuildTool } from "@/components/BuildPanel"
+import { ExploreMap } from "@/components/ExploreMap"
 import { ResearchPanel } from "@/components/ResearchPanel"
 import { ResourceBar } from "@/components/ResourceBar"
 import { StormOverlay } from "@/components/StormOverlay"
+import { explorePlace } from "@/content/explore"
+import { exploreEvent } from "@/content/exploreEvents"
 import { moduleType, type ModuleTypeId } from "@/content/modules"
 import type { Resources } from "@/content/resources"
 import { weatherEvent, type WeatherId } from "@/content/weather"
@@ -20,7 +23,10 @@ import {
   placementOrigin,
   tubeRun,
   type Base,
+  type LanderSpot,
+  type Rect,
 } from "@/sim/base"
+import { describeFinds, type Trip, type TripNews, type TripReport } from "@/sim/explore"
 import { healthOf, type CrewHealth, type CrewMember } from "@/sim/lifeSupport"
 import { buildNavigation, syncNavigation } from "@/sim/navigation"
 import {
@@ -29,6 +35,8 @@ import {
   getZone,
   handleClick,
   isWalkable,
+  pawnsAt,
+  removePawn,
   stepPathing,
   type ClickResult,
   type PathingEvent,
@@ -44,7 +52,9 @@ import type { Weather } from "@/sim/weather"
  * from the dev tools panel (the Dev tools button or the ` key).
  * The crew are placeholders: three astronauts who appear beside the lander once
  * it's down. Click one, then click where to send them (sim/pathing moves them).
- * They aren't saved yet, so they start beside the lander each time the map opens.
+ * Where they stand isn't saved yet, so they start beside the lander each time the map opens.
+ * An astronaut whose health runs out is evacuated: gone from the map for good.
+ * Astronauts sent out from the explore map (the Explore button) are off this map until they are back.
  * The panels copy the look of MainMenu.
  */
 
@@ -65,8 +75,8 @@ const listNames = (ids: string[]) => ids.map(crewName).join(", ")
 const hex = (color: number) => `#${color.toString(16).padStart(6, "0")}`
 
 /** Free open ground right round the lander, south side first, for the crew to step out onto. */
-function spotsBesideLander(world: World, size: number): Tile[] {
-  const { col, row, width, height } = landerFootprint(size)
+function spotsBesideLander(world: World, footprint: Rect): Tile[] {
+  const { col, row, width, height } = footprint
   const ring: Tile[] = []
   for (let x = col - 1; x <= col + width; x++) ring.push({ x, y: row + height })
   for (let y = row; y < row + height; y++) ring.push({ x: col - 1, y }, { x: col + width, y })
@@ -148,8 +158,17 @@ export function GameMap({
   onResearch,
   resources,
   health,
+  evacuated,
+  trips,
+  tripLog,
+  tripNews,
+  onSendExploring,
   weather,
   onWeather,
+  onResetMap,
+  era,
+  landers,
+  onNextEra,
   onTimePassed,
   onExit,
 }: {
@@ -169,10 +188,32 @@ export function GameMap({
   resources: Resources
   /** Each astronaut's health, by astronaut id. */
   health: CrewHealth
+  /** Ids of the astronauts who were evacuated to Earth when their health ran out. */
+  evacuated: string[]
+  /** The groups of astronauts out exploring right now, and what the last few trips brought back (newest first). */
+  trips: Trip[]
+  tripLog: TripReport[]
+  /** The last event that happened to a group out exploring, or null. */
+  tripNews: TripNews | null
+  onSendExploring: (placeId: string, crewIds: string[]) => void
   /** The weather event going on right now, or null in calm weather. */
   weather: Weather
   /** Starts a weather event now, or with null ends the one going on (from the dev tools). */
   onWeather: (id: WeatherId | null) => void
+  /**
+   * Starts the expedition over at the same landing site, as if opened for the first time (from
+   * the dev tools). This whole screen is then thrown away and built again, so the landing replays.
+   */
+  onResetMap: () => void
+  /** Which era the expedition is in (see sim/saves.ts). Modules from an earlier era are drawn worn down. */
+  era: number
+  /** Every lander on the map, oldest first; the last is this era's. */
+  landers: LanderSpot[]
+  /**
+   * Ends this era and starts the next on the same map, with a new crew in a new lander (from the
+   * game over screen or the dev tools). This screen is then built again, so the new landing plays.
+   */
+  onNextEra: () => void
   /**
    * Called about once a second while the crew is out of the lander, with the game-hours that
    * went by and the astronauts who lived through them (and whether each is outside right now).
@@ -184,6 +225,10 @@ export function GameMap({
   // Decided once, when the screen opens. `landed` turns true partway through the
   // landing, and that mustn't rebuild the map underneath it.
   const [showLanding] = useState(!landed)
+  // The era and its landers only change when a new era starts, and the screen is built again then.
+  const [mapEra] = useState({ era, landers })
+  /** Every astronaut has been evacuated: the era is over and the game stands still until the player moves on. */
+  const gameOver = PLACEHOLDER_CREW.every((member) => evacuated.includes(member.id))
   const onLandedRef = useRef(onLanded)
   useEffect(() => {
     onLandedRef.current = onLanded
@@ -194,6 +239,7 @@ export function GameMap({
   const [view, setView] = useState<MapView | null>(null)
   const [buildOpen, setBuildOpen] = useState(false)
   const [researchOpen, setResearchOpen] = useState(false)
+  const [exploreOpen, setExploreOpen] = useState(false)
   const [tool, setTool] = useState<BuildTool>(null)
   const [message, setMessage] = useState<string | null>(null)
   /** Where the run of tube being laid starts, once the first click of the tube tool has set it. */
@@ -224,7 +270,7 @@ export function GameMap({
     }
   }, [site.lat, site.lon, key])
 
-  const base = useMemo<Base>(() => ({ modules, tubes }), [modules, tubes])
+  const base = useMemo<Base>(() => ({ modules, tubes, landers }), [modules, tubes, landers])
   // What stands on each cell, worked out once per change to the base.
   const grid = useMemo(() => (terrain ? occupancy(terrain.size, base) : null), [terrain, base])
   const groupCount = useMemo(
@@ -297,6 +343,7 @@ export function GameMap({
         onCellClick: (cell, keys) => onCellClickRef.current(cell, keys),
         onLanded: showLanding ? () => onLandedRef.current() : null,
       },
+      mapEra,
       abort.signal,
     )
     starting.then(
@@ -314,7 +361,7 @@ export function GameMap({
       // The view can only be torn down once it has finished starting up.
       starting.then((created) => created?.destroy()).catch(() => {})
     }
-  }, [terrain, key, showLanding])
+  }, [terrain, key, showLanding, mapEra])
 
   useEffect(() => {
     if (view && grid) view.setBase(base, grid)
@@ -328,23 +375,78 @@ export function GameMap({
     else crewRef.current = { terrain, world: buildNavigation(terrain, base) }
   }, [terrain, base])
 
-  // Once the lander is down, the placeholder crew step out beside it.
+  /** Ids of the astronauts out exploring: they are off this map until they are back. */
+  const away = useMemo(() => trips.flatMap((trip) => trip.crew), [trips])
+
+  // Once the lander is down, the placeholder crew step out beside it. Later on this keeps the map in
+  // step with who is at the base: someone who left to explore is taken off, someone who is back
+  // (or was never put on) steps out beside the lander.
   useEffect(() => {
     const crew = crewRef.current
     if (!landed || !terrain || !crew || crew.terrain !== terrain) return
-    if (Object.keys(crew.world.movers).length > 0) return
-    const spots = spotsBesideLander(crew.world, terrain.size)
-    PLACEHOLDER_CREW.forEach((member, i) => {
-      if (spots[i]) addPawn(crew.world, member.id, spots[i])
+    const { world } = crew
+    for (const id of away) if (world.movers[id]) removePawn(world, id)
+    const missing = PLACEHOLDER_CREW.filter(
+      (member) => !evacuated.includes(member.id) && !away.includes(member.id) && !world.movers[member.id],
+    )
+    if (missing.length === 0) return
+    const spots = spotsBesideLander(world, landerFootprint(terrain.size, base)).filter((spot) => pawnsAt(world, spot).length === 0)
+    missing.forEach((member, i) => {
+      if (spots[i]) addPawn(world, member.id, spots[i])
     })
-  }, [landed, terrain, base])
+  }, [landed, terrain, base, evacuated, away])
+
+  // A group that has just got back: say what they brought. (Reports from before the map opened are old news.)
+  const lastReportRef = useRef(tripLog[0]?.id)
+  useEffect(() => {
+    const report = tripLog[0]
+    if (!report || report.id === lastReportRef.current) return
+    lastReportRef.current = report.id
+    queueMicrotask(() =>
+      setCrewMessage(
+        `${listNames(report.crew)} came back from the ${explorePlace(report.placeId)?.name ?? "trip"} with ${describeFinds(report.finds)}.`,
+      ),
+    )
+  }, [tripLog])
+
+  // Something has just happened to a group out exploring: pass it on.
+  const lastNewsRef = useRef(tripNews?.id)
+  useEffect(() => {
+    if (!tripNews || tripNews.id === lastNewsRef.current) return
+    lastNewsRef.current = tripNews.id
+    const event = exploreEvent(tripNews.eventId)
+    if (!event) return
+    queueMicrotask(() => setCrewMessage(`${listNames(tripNews.crew)}, out exploring: ${event.text}`))
+  }, [tripNews])
+
+  // An astronaut who has just been evacuated leaves the map.
+  useEffect(() => {
+    const crew = crewRef.current?.world
+    if (!crew) return
+    const leaving = evacuated.filter((id) => crew.movers[id])
+    if (leaving.length === 0) return
+    for (const id of leaving) removePawn(crew, id)
+    // Out of an effect's own run, as the other map callbacks do, so the panel updates after the map has.
+    queueMicrotask(() => {
+      setSelectedCrew([...crew.selectedPawnIds])
+      setCrewMessage(
+        `${listNames(leaving)} ran out of health and ${leaving.length === 1 ? "was" : "were"} evacuated to Earth to get well.`,
+      )
+    })
+  }, [evacuated])
 
   const onTimePassedRef = useRef(onTimePassed)
+  /** Set when the map is being reset: game time not handed to the save yet belongs to the old game and is dropped. */
+  const resettingRef = useRef(false)
   // The frame loop reads the weather through a ref, so a storm starting doesn't restart the loop.
   const stormRef = useRef(weather !== null)
+  const someoneAwayRef = useRef(trips.length > 0)
+  const gameOverRef = useRef(gameOver)
   useEffect(() => {
     onTimePassedRef.current = onTimePassed
     stormRef.current = weather !== null
+    someoneAwayRef.current = trips.length > 0
+    gameOverRef.current = gameOver
   })
 
   // Every frame: move the crew along, draw them, and pass on anything worth saying.
@@ -358,18 +460,24 @@ export function GameMap({
         id: mover.pawnId,
         outside: mover.exposure === "outside",
       }))
-      if (unsaved.hours > 0 && crew.length > 0) onTimePassedRef.current(unsaved.hours, crew)
+      if (unsaved.hours > 0 && !resettingRef.current) onTimePassedRef.current(unsaved.hours, crew)
       unsaved.hours = unsaved.ms = 0
     }
     const stop = view.onFrame((deltaMs) => {
       const crew = crewRef.current?.world
       if (!crew) return
+      // Once the era is over everything stands still: no clock, no weather, nobody moves.
+      if (gameOverRef.current) {
+        view.drawCrew(crew, CREW_COLORS)
+        return
+      }
       // A long gap (the tab was hidden) shouldn't make everyone teleport.
       const dtHours = (Math.min(deltaMs, 100) / 1000) * GAME_HOURS_PER_SECOND
       // In a storm everyone needs shelter: the crew code sends them indoors and holds them there.
       const events = stepPathing(crew, dtHours, { urgentNeed: () => (stormRef.current ? "shelter" : null) })
-      // The clock starts once the crew has stepped out of the lander.
-      if (Object.keys(crew.movers).length > 0) {
+      // The clock starts once the crew has stepped out of the lander, and runs while anyone is
+      // at the base or out exploring.
+      if (Object.keys(crew.movers).length > 0 || someoneAwayRef.current) {
         unsaved.hours += dtHours
         unsaved.ms += deltaMs
         if (unsaved.ms >= 1000) handOver()
@@ -416,9 +524,12 @@ export function GameMap({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // While the research tree is open it has the keyboard: Esc closes it and nothing else happens.
-      if (researchOpen) {
-        if (e.key === "Escape") setResearchOpen(false)
+      // While the research tree or the explore map is open it has the keyboard: Esc closes it and nothing else happens.
+      if (researchOpen || exploreOpen) {
+        if (e.key === "Escape") {
+          setResearchOpen(false)
+          setExploreOpen(false)
+        }
         return
       }
       if (e.code === "Backquote") {
@@ -440,7 +551,7 @@ export function GameMap({
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [tubeStart, tool, researchOpen])
+  }, [tubeStart, tool, researchOpen, exploreOpen])
 
   const hoveredIndex = terrain && hovered ? hovered.row * terrain.size + hovered.col : null
 
@@ -455,7 +566,9 @@ export function GameMap({
         <div className="flex items-start justify-between gap-4">
           <div className="flex flex-col items-start gap-3">
             <div className={panelClass}>
-              <p className={kickerClass}>{name}</p>
+              <p className={kickerClass}>
+                {name} · Era {era}
+              </p>
               <h1 className="mt-1 text-lg font-semibold tracking-wider">{formatSite(site)}</h1>
               <p className="mt-1 text-[11px] text-white/50">
                 Landing site on Mars. Each block is about {terrain ? Math.round(terrain.metersPerCell) : 163} m wide.
@@ -472,6 +585,14 @@ export function GameMap({
                 message={message}
                 stormActive={weather !== null}
                 onStorm={() => onWeather(weather ? null : "radiation-storm")}
+                onResetMap={() => {
+                  resettingRef.current = true
+                  onResetMap()
+                }}
+                onNextEra={() => {
+                  resettingRef.current = true
+                  onNextEra()
+                }}
                 onClear={() => {
                   onBaseChange({ modules: [], tubes: [] })
                   setTubeStart(null)
@@ -490,17 +611,29 @@ export function GameMap({
                   {PLACEHOLDER_CREW.map((member) => (
                     <li
                       key={member.id}
-                      className={`flex items-center gap-2 ${selectedCrew.includes(member.id) ? "text-white" : "text-white/55"}`}
+                      className={`flex items-center gap-2 ${evacuated.includes(member.id) || away.includes(member.id) ? "text-white/30" : selectedCrew.includes(member.id) ? "text-white" : "text-white/55"}`}
                     >
                       <span className="size-2.5 rounded-full" style={{ background: hex(member.color) }} />
                       {member.name}
-                      {selectedCrew.includes(member.id) && <span className="text-[11px] text-white/50">selected</span>}
+                      {selectedCrew.includes(member.id) && !away.includes(member.id) && (
+                        <span className="text-[11px] text-white/50">selected</span>
+                      )}
                       {/* Health sits at the right edge of the row; it turns orange once it has dropped below half. */}
-                      <span
-                        className={`ml-auto pl-4 text-[11px] font-semibold uppercase tracking-[0.15em] tabular-nums ${healthOf(health, member.id) < 50 ? "text-orange-300" : "text-white/50"}`}
-                      >
-                        Health {Math.ceil(healthOf(health, member.id))}
-                      </span>
+                      {evacuated.includes(member.id) ? (
+                        <span className="ml-auto pl-4 text-[11px] font-semibold uppercase tracking-[0.15em] text-orange-300/80">
+                          Evacuated
+                        </span>
+                      ) : away.includes(member.id) ? (
+                        <span className="ml-auto pl-4 text-[11px] font-semibold uppercase tracking-[0.15em] text-white/50">
+                          Exploring
+                        </span>
+                      ) : (
+                        <span
+                          className={`ml-auto pl-4 text-[11px] font-semibold uppercase tracking-[0.15em] tabular-nums ${healthOf(health, member.id) < 50 ? "text-orange-300" : "text-white/50"}`}
+                        >
+                          Health {Math.ceil(healthOf(health, member.id))}
+                        </span>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -529,6 +662,11 @@ export function GameMap({
             {terrain && (
               <button type="button" onClick={() => setResearchOpen(true)} className={buttonClass}>
                 Research
+              </button>
+            )}
+            {terrain && landed && (
+              <button type="button" onClick={() => setExploreOpen(true)} className={buttonClass}>
+                Explore
               </button>
             )}
           </div>
@@ -565,8 +703,23 @@ export function GameMap({
         </div>
       )}
 
+      {exploreOpen && (
+        <ExploreMap
+          crew={PLACEHOLDER_CREW.map((member) => ({
+            id: member.id,
+            name: member.name,
+            color: hex(member.color),
+            status: evacuated.includes(member.id) ? "evacuated" : away.includes(member.id) ? "away" : "ready",
+          }))}
+          trips={trips}
+          tripLog={tripLog}
+          onSend={onSendExploring}
+          onClose={() => setExploreOpen(false)}
+        />
+      )}
+
       {researchOpen && (
-        <ResearchPanel researched={researched} onResearch={onResearch} onClose={() => setResearchOpen(false)} />
+        <ResearchPanel era={era} researched={researched} onResearch={onResearch} onClose={() => setResearchOpen(false)} />
       )}
 
       {!terrain && (
@@ -598,6 +751,37 @@ export function GameMap({
                 <p className="mt-4 text-sm text-white/70">Getting imagery and elevation for {formatSite(site)}.</p>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* PLACEHOLDER game over: shows once every astronaut has been evacuated. */}
+      {gameOver && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+          <div role="alertdialog" aria-labelledby="game-over-title" className="max-w-md border border-white/15 bg-neutral-950/90 p-8 text-center">
+            <h2 id="game-over-title" className="text-lg font-semibold uppercase tracking-[0.25em]">
+              Era {era} over
+            </h2>
+            <p className="mt-4 text-sm text-white/70">
+              Every astronaut on {name} was evacuated to Earth. Nobody is left to run the base. A new crew can
+              land beside it and carry on.
+            </p>
+            <div className="mt-6 flex justify-center gap-3">
+              <button
+                type="button"
+                autoFocus
+                onClick={() => {
+                  resettingRef.current = true
+                  onNextEra()
+                }}
+                className={`${buttonClass} border-orange-400/70`}
+              >
+                Next era
+              </button>
+              <button type="button" onClick={onExit} className={buttonClass}>
+                Back to menu
+              </button>
+            </div>
           </div>
         </div>
       )}

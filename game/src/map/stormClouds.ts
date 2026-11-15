@@ -14,7 +14,7 @@ function hash(x: number, y: number, seed: number) {
 const smooth = (t: number) => t * t * (3 - 2 * t)
 
 /** Smooth noise from 0 to 1 that wraps round every `period` units, so the picture tiles. */
-function wrappedNoise(x: number, y: number, period: number, seed: number) {
+export function wrappedNoise(x: number, y: number, period: number, seed: number) {
   const x0 = Math.floor(x)
   const y0 = Math.floor(y)
   const tx = smooth(x - x0)

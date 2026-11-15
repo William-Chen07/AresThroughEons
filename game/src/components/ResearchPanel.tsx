@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { RESEARCH_PROJECTS, researchProject, type ResearchProject } from "@/content/research"
+import { researchProject, researchTree, type ResearchProject } from "@/content/research"
 import { researchState, type ResearchState } from "@/sim/research"
 
 /*
@@ -16,10 +16,12 @@ const NODE_W = 184
 const NODE_H = 52
 const COL_GAP = 56
 const ROW_GAP = 14
-const rows = Math.max(...RESEARCH_PROJECTS.map((project) => project.row)) + 1
-const tiers = Math.max(...RESEARCH_PROJECTS.map((project) => project.tier)) + 1
-const TREE_W = tiers * NODE_W + (tiers - 1) * COL_GAP
-const TREE_H = rows * NODE_H + (rows - 1) * ROW_GAP
+/** How big the tree for these projects is drawn, in CSS pixels. */
+function treeSize(projects: ResearchProject[]) {
+  const rows = Math.max(...projects.map((project) => project.row)) + 1
+  const tiers = Math.max(...projects.map((project) => project.tier)) + 1
+  return { width: tiers * NODE_W + (tiers - 1) * COL_GAP, height: rows * NODE_H + (rows - 1) * ROW_GAP }
+}
 
 const left = (project: ResearchProject) => project.tier * (NODE_W + COL_GAP)
 const top = (project: ResearchProject) => project.row * (NODE_H + ROW_GAP)
@@ -32,12 +34,14 @@ function linePath(from: ResearchProject, to: ResearchProject) {
   return `M ${left(from) + NODE_W} ${top(from) + NODE_H / 2} L ${left(to)} ${top(to) + NODE_H / 2}`
 }
 
-const LINES = RESEARCH_PROJECTS.flatMap((to) =>
-  to.requires.flatMap((id) => {
-    const from = researchProject(id)
-    return from ? [{ from, to }] : []
-  }),
-)
+/** A line from each project to every project in the same tree that needs it. */
+const treeLines = (projects: ResearchProject[]) =>
+  projects.flatMap((to) =>
+    to.requires.flatMap((id) => {
+      const from = projects.find((project) => project.id === id)
+      return from ? [{ from, to }] : []
+    }),
+  )
 
 const nodeLook: Record<ResearchState, string> = {
   done: "border-orange-400/70 bg-orange-500/25 text-orange-100",
@@ -52,10 +56,13 @@ const stateLabel: Record<ResearchState, string> = {
 }
 
 export function ResearchPanel({
+  era,
   researched,
   onResearch,
   onClose,
 }: {
+  /** The era the expedition is in: the panel shows that era's tree. */
+  era: number
   /** Ids of the projects this expedition has finished. */
   researched: string[]
   onResearch: (projectId: string) => void
@@ -64,6 +71,9 @@ export function ResearchPanel({
   /** The project the Research button would research, once one has been clicked. */
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const selected = selectedId ? researchProject(selectedId) : undefined
+  const projects = researchTree(era)
+  const { width: TREE_W, height: TREE_H } = treeSize(projects)
+  const LINES = treeLines(projects)
   const canResearch = selected !== undefined && researchState(selected, researched) === "available"
 
   return (
@@ -90,7 +100,7 @@ export function ResearchPanel({
                 />
               ))}
             </svg>
-            {RESEARCH_PROJECTS.map((project) => {
+            {projects.map((project) => {
               const state = researchState(project, researched)
               return (
                 <button
