@@ -55,6 +55,18 @@ export function moduleRect(module: PlacedModule): Rect {
   return { col: module.col, row: module.row, width, height }
 }
 
+/**
+ * A module's door: the middle cell of its south (front) wall, the eastern one of the two middle
+ * cells when it's an even number of cells wide, and the ground cell just outside it. Crew go in
+ * and out of a module only here (see sim/navigation.ts); the hatch is drawn there (map/baseView.ts).
+ */
+export function moduleDoor(module: PlacedModule): { inside: Cell; outside: Cell } {
+  const rect = moduleRect(module)
+  const col = rect.col + Math.floor(rect.width / 2)
+  const row = rect.row + rect.height - 1
+  return { inside: { col, row }, outside: { col, row: row + 1 } }
+}
+
 const inRect = (rect: Rect, cell: Cell) =>
   cell.col >= rect.col && cell.col < rect.col + rect.width && cell.row >= rect.row && cell.row < rect.row + rect.height
 
@@ -87,8 +99,19 @@ export function occupancy(size: number, base: Base): Uint8Array {
 
 export type ModuleCheck = { ok: true; module: PlacedModule } | { ok: false; reason: string }
 
-/** Whether a new module of `type` can go with its north-west cell at `origin`. `grid` is the base's occupancy. */
-export function checkModule(size: number, grid: Uint8Array, type: ModuleTypeId, origin: Cell, id = "new"): ModuleCheck {
+/**
+ * Whether a new module of `type` can go with its north-west cell at `origin`. `grid` is the base's
+ * occupancy. With `levels` (the terrain's block height per cell), the ground under the whole
+ * module must be level: no building across the edge of a step.
+ */
+export function checkModule(
+  size: number,
+  grid: Uint8Array,
+  type: ModuleTypeId,
+  origin: Cell,
+  id = "new",
+  levels?: ArrayLike<number>,
+): ModuleCheck {
   const { width, height } = moduleType(type)
   if (origin.col < 0 || origin.row < 0 || origin.col + width > size || origin.row + height > size) {
     return { ok: false, reason: "That is off the edge of the map." }
@@ -103,6 +126,16 @@ export function checkModule(size: number, grid: Uint8Array, type: ModuleTypeId, 
     }
   }
   if (onTube) return { ok: false, reason: "A tube runs through there. Remove it first." }
+  if (levels) {
+    const level = levels[origin.row * size + origin.col]
+    for (let row = origin.row; row < origin.row + height; row++) {
+      for (let col = origin.col; col < origin.col + width; col++) {
+        if (levels[row * size + col] !== level) {
+          return { ok: false, reason: "The ground there isn't level. Modules need a flat spot." }
+        }
+      }
+    }
+  }
   return { ok: true, module: { id, type, col: origin.col, row: origin.row } }
 }
 

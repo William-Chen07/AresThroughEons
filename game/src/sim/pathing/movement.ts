@@ -1,5 +1,5 @@
 import type { PathingEvent, UrgentNeed } from "./events"
-import { BLOCKED, canCrossZones, getZone, sameTile, slopeFactor, tileOf, type Tile } from "./grid"
+import { BLOCKED, canStepBetween, getZone, sameTile, slopeFactor, tileOf, type Tile } from "./grid"
 import { endIdle, updateIdle } from "./idle"
 import { handleUrgentNeed } from "./needs"
 import { trafficAt } from "./crowd"
@@ -122,7 +122,7 @@ function walk(
     const stepAllowed =
       sameTile(next, stepFrom) ||
       (walkCost(next.x, next.y) !== BLOCKED &&
-        canCrossZones(getZone(world.grid, stepFrom.x, stepFrom.y), getZone(world.grid, next.x, next.y)) &&
+        canStepBetween(world.grid, stepFrom.x, stepFrom.y, next.x, next.y) &&
         slopeFactor(world.grid, stepFrom.x, stepFrom.y, next.x, next.y) !== null)
     if (!stepAllowed) {
       if (!mover.order) {

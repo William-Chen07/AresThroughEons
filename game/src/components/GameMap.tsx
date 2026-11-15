@@ -17,13 +17,16 @@ import {
   tubeRun,
   type Base,
 } from "@/sim/base"
-import { buildNavigation, syncNavigation } from "@/sim/navigation"
+import { buildNavigation, pressurizedCells, syncNavigation } from "@/sim/navigation"
 import {
   addPawn,
+  cancelOrder,
   clearSelection,
   getZone,
   handleClick,
   isWalkable,
+  pawnsAt,
+  selectPawns,
   stepPathing,
   type ClickResult,
   type PathingEvent,
@@ -39,6 +42,8 @@ import {
  * The crew are placeholders: three astronauts who appear beside the lander once
  * it's down. Click one, then click where to send them (sim/pathing moves them).
  * They aren't saved yet, so they start beside the lander each time the map opens.
+ * Placeholder oxygen too: it runs down outside and in modules with no Airlock joined to them, and
+ * holds steady in pressurized ones (see sim/navigation.ts). Running low sends an astronaut back.
  * The panels copy the look of MainMenu.
  */
 
@@ -57,6 +62,14 @@ const CREW_COLORS: Record<string, number> = Object.fromEntries(PLACEHOLDER_CREW.
 const crewName = (id: string) => PLACEHOLDER_CREW.find((c) => c.id === id)?.name ?? id
 const listNames = (ids: string[]) => ids.map(crewName).join(", ")
 const hex = (color: number) => `#${color.toString(16).padStart(6, "0")}`
+
+/** Placeholder oxygen, until the crew model has it: game-hours a full tank lasts away from pressurized modules. */
+const SUIT_OXYGEN_HOURS = 8
+/** Below this percentage an astronaut drops what it's doing and heads for a pressurized module. */
+const LOW_OXYGEN = 25
+/** How often the Crew panel's oxygen bars catch up with the crew, in ms. */
+const OXYGEN_PANEL_MS = 250
+const fullOxygen = () => Object.fromEntries(PLACEHOLDER_CREW.map((c) => [c.id, 100])) as Record<string, number>
 
 /** Free open ground right round the lander, south side first, for the crew to step out onto. */
 function spotsBesideLander(world: World, size: number): Tile[] {
@@ -109,6 +122,16 @@ function describeEvent(event: PathingEvent): string | null {
       return event.exposure === "outside"
         ? `${crewName(event.pawnId)} stepped outside onto the surface.`
         : `${crewName(event.pawnId)} is back inside.`
+    case "needInterrupt":
+      return event.need === "oxygen"
+        ? `${crewName(event.pawnId)} is low on oxygen and heading for a module joined to an Airlock.`
+        : null
+    case "needUnmet":
+      return event.need === "oxygen"
+        ? `${crewName(event.pawnId)} is low on oxygen, but no module is joined to an Airlock.`
+        : null
+    case "needMet":
+      return event.need === "oxygen" ? `${crewName(event.pawnId)} is safe in a pressurized module.` : null
     default:
       return null
   }
@@ -161,6 +184,8 @@ export function GameMap({
   const [hovered, setHovered] = useState<Cell | null>(null)
   const [view, setView] = useState<MapView | null>(null)
   const [consoleOpen, setConsoleOpen] = useState(false)
+  /** The map's data credits, bottom right. Folded away to start with. */
+  const [creditsOpen, setCreditsOpen] = useState(false)
   const [tool, setTool] = useState<DevTool>(null)
   const [message, setMessage] = useState<string | null>(null)
   /** Where the run of tube being laid starts, once the first click of the tube tool has set it. */
@@ -169,6 +194,11 @@ export function GameMap({
   const crewRef = useRef<{ terrain: VoxelTerrain; world: World } | null>(null)
   const [selectedCrew, setSelectedCrew] = useState<string[]>([])
   const [crewMessage, setCrewMessage] = useState<string | null>(null)
+  /** Modules the player clicked open to see inside (see-through), by id. */
+  const [openModules, setOpenModules] = useState<string[]>([])
+  /** Each astronaut's oxygen in percent (placeholder). The ref is the real value; the state is for the panel. */
+  const oxygenRef = useRef<Record<string, number>>(fullOxygen())
+  const [oxygen, setOxygen] = useState<Record<string, number>>(fullOxygen)
 
   // What's on screen belongs to this site and this try; anything else is still loading.
   const key = `${site.lat},${site.lon},${attempt}`
@@ -194,6 +224,12 @@ export function GameMap({
   const base = useMemo<Base>(() => ({ modules, tubes }), [modules, tubes])
   // What stands on each cell, worked out once per change to the base.
   const grid = useMemo(() => (terrain ? occupancy(terrain.size, base) : null), [terrain, base])
+  /** Cells of modules and tubes joined to an Airlock: no oxygen is used up there. */
+  const pressurized = useMemo(() => (terrain && grid ? pressurizedCells(terrain.size, base, grid) : null), [terrain, base, grid])
+  const pressurizedRef = useRef(pressurized)
+  useEffect(() => {
+    pressurizedRef.current = pressurized
+  }, [pressurized])
   const groupCount = useMemo(
     () => (terrain && grid ? connectedGroups(terrain.size, base, grid).length : 0),
     [terrain, base, grid],
@@ -205,6 +241,20 @@ export function GameMap({
     if (!tool) {
       const crew = crewRef.current?.world
       if (!crew) return
+      // With nobody selected, clicking a module (not an astronaut in it) opens it up to see inside, or closes it again.
+      const clickedModule = moduleAt(modules, cell)
+      const tile = { x: cell.col, y: cell.row }
+      if (clickedModule && crew.selectedPawnIds.length === 0 && pawnsAt(crew, tile).length === 0) {
+        const name = moduleType(clickedModule.type).name
+        if (openModules.includes(clickedModule.id)) {
+          setOpenModules(openModules.filter((id) => id !== clickedModule.id))
+          setCrewMessage(`Closed up the ${name}.`)
+        } else {
+          setOpenModules([...openModules, clickedModule.id])
+          setCrewMessage(`You can see inside the ${name} now. Click it again to close it up.`)
+        }
+        return
+      }
       setCrewMessage(describeClick(crew, handleClick(crew, { x: cell.col, y: cell.row }, { shift: keys.shift })))
       setSelectedCrew([...crew.selectedPawnIds])
       return
@@ -241,7 +291,7 @@ export function GameMap({
       )
     }
 
-    const check = checkModule(size, grid, tool.type, placementOrigin(tool.type, cell), crypto.randomUUID())
+    const check = checkModule(size, grid, tool.type, placementOrigin(tool.type, cell), crypto.randomUUID(), terrain.levels)
     if (!check.ok) return setMessage(check.reason)
     onBaseChange({ modules: [...modules, check.module], tubes })
     setMessage(`Placed a ${moduleType(tool.type).name}. It isn't joined to anything until you lay a tube to it.`)
@@ -306,19 +356,50 @@ export function GameMap({
     })
   }, [landed, terrain, base])
 
-  // Every frame: move the crew along, draw them, and pass on anything worth saying.
+  // Every frame: use up oxygen, move the crew along, draw them, and pass on anything worth saying.
   useEffect(() => {
     if (!view) return
+    let sincePanel = 0
     return view.onFrame((deltaMs) => {
       const crew = crewRef.current?.world
       if (!crew) return
       // A long gap (the tab was hidden) shouldn't make everyone teleport.
-      const events = stepPathing(crew, (Math.min(deltaMs, 100) / 1000) * GAME_HOURS_PER_SECOND)
+      const hours = (Math.min(deltaMs, 100) / 1000) * GAME_HOURS_PER_SECOND
+      const levels = oxygenRef.current
+      const isPressurized = (id: string) => {
+        const mover = crew.movers[id]
+        const cells = pressurizedRef.current
+        return Boolean(mover && cells?.has(Math.round(mover.pos.y) * crew.grid.width + Math.round(mover.pos.x)))
+      }
+      for (const id of Object.keys(crew.movers)) {
+        if (!isPressurized(id)) levels[id] = Math.max(0, (levels[id] ?? 100) - (hours * 100) / SUIT_OXYGEN_HOURS)
+      }
+      const events = stepPathing(crew, hours, {
+        // Low on oxygen and not somewhere pressurized: that comes before any order.
+        urgentNeed: (id) => ((levels[id] ?? 100) < LOW_OXYGEN && !isPressurized(id) ? "oxygen" : null),
+      })
+      // Safe again: stay put rather than walk straight back out to the old order.
+      for (const event of events) if (event.type === "needMet" && event.need === "oxygen") cancelOrder(crew, event.pawnId)
       view.drawCrew(crew, CREW_COLORS)
       const said = events.map(describeEvent).filter((line) => line !== null)
       if (said.length > 0) setCrewMessage(said[said.length - 1])
+      sincePanel += deltaMs
+      if (sincePanel >= OXYGEN_PANEL_MS) {
+        sincePanel = 0
+        setOxygen({ ...levels })
+      }
     })
   }, [view])
+
+  // While any astronaut is selected the base turns see-through, so crew inside can be seen and clicked.
+  const anySelected = selectedCrew.length > 0
+  useEffect(() => {
+    view?.setSeeThrough(anySelected)
+  }, [view, anySelected])
+  // Modules clicked open stay see-through on their own.
+  useEffect(() => {
+    view?.setOpenModules(openModules)
+  }, [view, openModules])
 
   // While a tool that builds is picked in the dev console, the map shows what a click would build.
   useEffect(() => {
@@ -329,7 +410,7 @@ export function GameMap({
       view.setPlacement({
         preview: (cell) => {
           const origin = placementOrigin(type, cell)
-          return { rect: { ...origin, width, height }, tubes: [], ok: checkModule(size, grid, type, origin).ok }
+          return { rect: { ...origin, width, height }, tubes: [], ok: checkModule(size, grid, type, origin, "new", terrain.levels).ok }
         },
       })
     } else if (tool?.kind === "tube") {
@@ -373,6 +454,21 @@ export function GameMap({
     return () => window.removeEventListener("keydown", onKey)
   }, [tubeStart, tool])
 
+  /** A name in the Crew panel was clicked: select that astronaut, like clicking it on the map. */
+  const selectFromPanel = (id: string, shift: boolean) => {
+    const crew = crewRef.current?.world
+    if (!crew?.movers[id]) return
+    const already = crew.selectedPawnIds.includes(id)
+    if (shift) selectPawns(crew, already ? crew.selectedPawnIds.filter((p) => p !== id) : [...crew.selectedPawnIds, id])
+    else selectPawns(crew, already ? [] : [id])
+    setSelectedCrew([...crew.selectedPawnIds])
+    setCrewMessage(
+      crew.selectedPawnIds.length > 0
+        ? `${listNames(crew.selectedPawnIds)} selected. Click where to send them, or a module to work in.`
+        : "Nobody selected.",
+    )
+  }
+
   const hoveredIndex = terrain && hovered ? hovered.row * terrain.size + hovered.col : null
 
   return (
@@ -414,20 +510,48 @@ export function GameMap({
               <div className={`${panelClass} max-w-xs`} aria-live="polite">
                 <p className={kickerClass}>Crew</p>
                 <ul className="mt-2 flex flex-col gap-1 text-sm">
-                  {PLACEHOLDER_CREW.map((member) => (
-                    <li
-                      key={member.id}
-                      className={`flex items-center gap-2 ${selectedCrew.includes(member.id) ? "text-white" : "text-white/55"}`}
-                    >
-                      <span className="size-2.5 rounded-full" style={{ background: hex(member.color) }} />
-                      {member.name}
-                      {selectedCrew.includes(member.id) && <span className="text-[11px] text-white/50">selected</span>}
-                    </li>
-                  ))}
+                  {PLACEHOLDER_CREW.map((member) => {
+                    const level = Math.round(oxygen[member.id] ?? 100)
+                    const selected = selectedCrew.includes(member.id)
+                    return (
+                      <li key={member.id} className={selected ? "text-white" : "text-white/55"}>
+                        <button
+                          type="button"
+                          aria-pressed={selected}
+                          onClick={(e) => selectFromPanel(member.id, e.shiftKey)}
+                          className="pointer-events-auto flex items-center gap-2 hover:text-white focus-visible:outline-2 focus-visible:outline-orange-400"
+                        >
+                          <span className="size-2.5 rounded-full" style={{ background: hex(member.color) }} />
+                          {member.name}
+                          {selected && <span className="text-[11px] text-white/50">selected</span>}
+                        </button>
+                        <div className="mt-1 flex items-center gap-2 pl-4.5 text-[11px]">
+                          <span className="w-6 text-white/50">O₂</span>
+                          <span
+                            className="h-1.5 w-24 overflow-hidden bg-white/10"
+                            role="meter"
+                            aria-label={`${member.name} oxygen`}
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-valuenow={level}
+                          >
+                            <span
+                              className={`block h-full ${level < LOW_OXYGEN ? "bg-red-400" : "bg-cyan-300"}`}
+                              style={{ width: `${level}%` }}
+                            />
+                          </span>
+                          <span className="tabular-nums">{level}%</span>
+                          {level === 0 && <span className="font-semibold text-red-300">Out of oxygen!</span>}
+                        </div>
+                      </li>
+                    )
+                  })}
                 </ul>
                 <p className="mt-2 text-[11px] text-white/50">
-                  Click an astronaut, then click where to go, or a module to work in. Shift-click to pick more or to
-                  queue an order. Click a selected astronaut again (or press Esc) to let go.
+                  Click an astronaut (or a name here), then click where to go, or a module to go in and work. Shift-click to pick more or
+                  to queue an order. Crew go in and out of a module by its door, on the front wall. With nobody selected, click a module
+                  to see inside it. Click a selected astronaut again (or press Esc) to let go. Oxygen runs down
+                  outside; modules joined to an Airlock (by tubes, or wall to wall) keep it steady.
                 </p>
                 {crewMessage && <p className="mt-2 text-xs text-orange-200">{crewMessage}</p>}
               </div>
@@ -438,8 +562,8 @@ export function GameMap({
               Back to menu
             </button>
             <SpaceWeatherPanel />
-            {/* Shown on a developer's machine only. On the live site the ` key still opens the console. */}
-            {import.meta.env.DEV && !consoleOpen && terrain && (
+            {/* The ` key opens it too. */}
+            {!consoleOpen && terrain && (
               <button type="button" onClick={() => setConsoleOpen(true)} className={buttonClass}>
                 Dev console
               </button>
@@ -456,11 +580,26 @@ export function GameMap({
               </>
             )}
           </p>
-          <p className={`${panelClass} max-w-xl py-2 text-[11px] text-white/50`}>
-            Drawn as pixel art from real Mars data, via NASA Mars Trek. Detail: Mars Odyssey THEMIS infrared mosaic,
-            NASA/JPL-Caltech/Arizona State University/USGS. Colour: Viking MDIM 2.1, NASA Ames/USGS. Elevation: MGS MOLA,
-            NASA GSFC/USGS. Colours are simplified and block heights exaggerated. Full credits are on the main menu.
-          </p>
+          {/* The map's data credits: folded away until asked for, so they don't cover the map. */}
+          <div className="pointer-events-auto flex max-w-xl flex-col items-end gap-2">
+            {creditsOpen && (
+              <p id="map-credits" className={`${panelClass} py-2 text-[11px] text-white/50`}>
+                Drawn as pixel art from real Mars data, via NASA Mars Trek. Detail: Mars Odyssey THEMIS infrared mosaic,
+                NASA/JPL-Caltech/Arizona State University/USGS. Colour: Viking MDIM 2.1, NASA Ames/USGS. Elevation: MGS
+                MOLA, NASA GSFC/USGS. Colours are simplified and block heights exaggerated. Full credits are on the main
+                menu.
+              </p>
+            )}
+            <button
+              type="button"
+              aria-expanded={creditsOpen}
+              aria-controls="map-credits"
+              onClick={() => setCreditsOpen((open) => !open)}
+              className={buttonClass}
+            >
+              {creditsOpen ? "Hide map credits" : "Map credits"}
+            </button>
+          </div>
         </div>
       </div>
 

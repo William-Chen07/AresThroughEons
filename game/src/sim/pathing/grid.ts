@@ -36,6 +36,17 @@ export interface Grid {
   metersPerTile: number
   /** Ground height of each tile in metres, row by row. Slopes outside slow walking down (see slopeFactor). */
   elevation: number[]
+  /**
+   * How inside and outside connect. True: only through airlock tiles (see Zone). False: only
+   * through the doors listed in `doors`.
+   */
+  airlocksRequired: boolean
+  /**
+   * Doorways, used when airlocksRequired is false: pairs of tile indices, flattened as
+   * [inside, outside, inside, outside, ...], each a step straight through a wall. Replace the
+   * whole array to change them (lookups are cached per array).
+   */
+  doors: number[]
 }
 
 /** Default tile size for maps that don't say: a few steps across, like a room-scale base. */
@@ -50,6 +61,8 @@ export function createGrid(width: number, height: number, cost = 1, metersPerTil
     zone: Array.from({ length: size }, (): Zone => "outside"),
     metersPerTile,
     elevation: Array.from({ length: size }, () => 0),
+    airlocksRequired: true,
+    doors: [],
   }
 }
 
@@ -75,6 +88,42 @@ export function setZone(grid: Grid, tile: Tile, zone: Zone) {
 /** Walking straight from one zone into the other (inside ↔ outside) isn't allowed; airlocks connect them. */
 export const canCrossZones = (from: Zone, to: Zone) =>
   !((from === "inside" && to === "outside") || (from === "outside" && to === "inside"))
+
+/** A step straight between inside and outside, not through an airlock. */
+export const isWallCrossing = (grid: Grid, fx: number, fy: number, tx: number, ty: number) =>
+  !canCrossZones(getZone(grid, fx, fy), getZone(grid, tx, ty))
+
+/** Each doors array as a set of steps (both ways), built the first time it's needed. */
+const doorSteps = new WeakMap<number[], Set<number>>()
+
+/** True if the step between two tiles goes through one of the grid's doors (either way). */
+export function isDoorway(grid: Grid, fx: number, fy: number, tx: number, ty: number) {
+  if (!inBounds(grid, fx, fy) || !inBounds(grid, tx, ty)) return false
+  const tiles = grid.width * grid.height
+  let steps = doorSteps.get(grid.doors)
+  if (!steps) {
+    steps = new Set()
+    for (let i = 0; i + 1 < grid.doors.length; i += 2) {
+      steps.add(grid.doors[i] * tiles + grid.doors[i + 1])
+      steps.add(grid.doors[i + 1] * tiles + grid.doors[i])
+    }
+    doorSteps.set(grid.doors, steps)
+  }
+  return steps.has(tileIndex(grid, fx, fy) * tiles + tileIndex(grid, tx, ty))
+}
+
+/**
+ * Whether a pawn may take this step as far as zones go (see Grid.airlocksRequired). Without
+ * airlocks, inside and outside connect only through doors, and a diagonal step must stay in one
+ * zone so it never clips the corner of a building.
+ */
+export function canStepBetween(grid: Grid, fx: number, fy: number, tx: number, ty: number) {
+  if (grid.airlocksRequired) return !isWallCrossing(grid, fx, fy, tx, ty)
+  const zone = getZone(grid, fx, fy)
+  if (getZone(grid, tx, ty) !== zone) return isDoorway(grid, fx, fy, tx, ty)
+  if (fx === tx || fy === ty) return true
+  return getZone(grid, tx, fy) === zone && getZone(grid, fx, ty) === zone
+}
 
 /** The steepest ground a suited astronaut will walk up or down. Steeper counts as a cliff. Game-feel. */
 export const MAX_WALKABLE_SLOPE_DEG = 25

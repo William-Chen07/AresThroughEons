@@ -31,6 +31,9 @@ export {
   DEFAULT_METERS_PER_TILE,
   MAX_WALKABLE_SLOPE_DEG,
   canCrossZones,
+  canStepBetween,
+  isDoorway,
+  isWallCrossing,
   createGrid,
   getCost,
   getZone,
@@ -66,7 +69,7 @@ export {
 } from "./world"
 export { PATHING_TUNING, WALK_TILES_PER_HOUR, scaleFor } from "./tuning"
 export type { PathingEvent, UrgentNeed } from "./events"
-export { cancelOrder, issueOrder, type IssueOptions, type OrderResult } from "./orders"
+export { cancelOrder, issueOrder, replan, type IssueOptions, type OrderResult } from "./orders"
 export { stepPathing, type StepOptions } from "./movement"
 export {
   clearSelection,

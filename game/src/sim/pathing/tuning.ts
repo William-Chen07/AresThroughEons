@@ -13,6 +13,11 @@ export const PATHING_TUNING = {
   suitSpeedMultiplier: 0.8,
   /** Time to cycle through an airlock (pressurize/depressurize and suit up or down): 6 game-minutes. */
   airlockCycleHours: 0.1,
+  /**
+   * Where airlocks aren't required: extra route cost, in tiles of walking, for going through a
+   * module's door (suiting up or down). Keeps routes between joined modules in the tube hallways.
+   */
+  doorCrossingCost: 3,
 
   // --- Idle behaviour
   /** How far (in metres) an idle pawn strolls from the spot where it became idle. At least one tile. */

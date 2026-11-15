@@ -1,7 +1,7 @@
 import { isTileTaken, standingTiles } from "./crowd"
 import type { PathingEvent } from "./events"
 import { findPath } from "./pathfinding"
-import { BLOCKED, canCrossZones, getZone, inBounds, slopeFactor, tileIndex, tileOf, type Tile } from "./grid"
+import { BLOCKED, canStepBetween, getZone, inBounds, isWallCrossing, slopeFactor, tileIndex, tileOf, type Tile } from "./grid"
 import { isJobDone } from "./stations"
 import { PATHING_TUNING, scaleFor } from "./tuning"
 import { costField, costLookup, findStation, type Mover, type Order, type World } from "./world"
@@ -51,9 +51,16 @@ export function routing(world: World, field = costField(world), forMover?: Mover
       return cost
     },
     rules: {
-      canStep: (fx: number, fy: number, tx: number, ty: number) =>
-        canCrossZones(getZone(grid, fx, fy), getZone(grid, tx, ty)),
-      stepFactor: (fx: number, fy: number, tx: number, ty: number) => slopeFactor(grid, fx, fy, tx, ty),
+      canStep: (fx: number, fy: number, tx: number, ty: number) => canStepBetween(grid, fx, fy, tx, ty),
+      stepFactor: (fx: number, fy: number, tx: number, ty: number) => {
+        const slope = slopeFactor(grid, fx, fy, tx, ty)
+        if (slope === null) return null
+        // Going out or in through a door costs extra (suiting up or down), so tubes win.
+        if (!grid.airlocksRequired && isWallCrossing(grid, fx, fy, tx, ty)) {
+          return slope * (1 + PATHING_TUNING.doorCrossingCost / Math.hypot(tx - fx, ty - fy))
+        }
+        return slope
+      },
     },
   }
 }
@@ -127,6 +134,16 @@ export function plan(world: World, mover: Mover, field = costField(world)): bool
     }
   }
   return false
+}
+
+/**
+ * Plans the pawn's current order again from where it is, e.g. after the map changed. Keeps the
+ * old route if no new one is found (walking will report it blocked if it really is).
+ */
+export function replan(world: World, pawnId: string): boolean {
+  const mover = world.movers[pawnId]
+  if (!mover?.order || mover.status !== "moving") return false
+  return plan(world, mover)
 }
 
 /** Why an order can't be carried out at all, or null if it might be. */
