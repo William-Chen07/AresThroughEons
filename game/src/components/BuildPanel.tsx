@@ -1,10 +1,12 @@
-import { MODULE_TYPES, type ModuleTypeId } from "@/content/modules"
+import { Select } from "@base-ui/react/select"
+import { MODULE_TYPES, moduleType, type ModuleTypeId } from "@/content/modules"
 
 /*
  * A panel for building the base by hand while the real building rules don't
  * exist yet: place modules, lay the tubes between them, and remove either.
- * Nothing connects by itself (see sim/base.ts). Shown as "Dev tools", opened
- * from the Dev tools button or the ` key on the base map. It can also start
+ * Nothing connects by itself (see sim/base.ts). Shown as "Build", opened
+ * from the Build button or the ` key on the base map. The modules are picked
+ * from a dropdown so the panel stays short enough to fit on screen. It can also start
  * and stop a radiation storm, for trying the weather out, and reset the map.
  */
 
@@ -14,6 +16,32 @@ const toolButton =
   "flex w-full items-center justify-between gap-3 border px-3 py-1.5 text-left text-xs font-semibold uppercase tracking-[0.2em] transition focus-visible:outline-2 focus-visible:outline-orange-400"
 const idle = "border-white/15 bg-white/5 hover:border-orange-400/70 hover:bg-orange-500/15"
 const active = "border-orange-400/70 bg-orange-500/25 text-orange-100"
+
+const hex = (color: number) => `#${color.toString(16).padStart(6, "0")}`
+
+/** A module's colour, its name and its size, as shown in the dropdown and on its button. */
+function ModuleLabel({ id }: { id: ModuleTypeId }) {
+  const type = moduleType(id)
+  return (
+    <>
+      <span className="flex items-center gap-2">
+        <span aria-hidden className="size-3 shrink-0 border border-black/60" style={{ backgroundColor: hex(type.color) }} />
+        {type.name}
+      </span>
+      <span className="font-normal tracking-normal text-white/45">
+        {type.width}×{type.height}
+      </span>
+    </>
+  )
+}
+
+function CaretIcon() {
+  return (
+    <svg aria-hidden width="12" height="12" viewBox="0 0 16 16" fill="currentColor" className="shrink-0">
+      <path d="M12 6H4l4 4.5z" />
+    </svg>
+  )
+}
 
 export function BuildPanel({
   tool,
@@ -64,16 +92,19 @@ export function BuildPanel({
           ? "Click a module or a block of tube to remove it."
           : "Pick a module or a tool, then click the map."
 
+  const placing = tool?.kind === "place" ? tool.type : null
+
   return (
     <section
-      aria-label="Dev tools"
-      className="pointer-events-auto w-64 border border-white/15 bg-neutral-950/85 p-4 backdrop-blur-sm"
+      aria-label="Build"
+      // Scrolls rather than running off the bottom of a short screen.
+      className="pointer-events-auto max-h-[calc(100dvh-11rem)] w-64 overflow-y-auto border border-white/15 bg-neutral-950/85 p-4 backdrop-blur-sm"
     >
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-300/90">Dev tools</h2>
+        <h2 className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-300/90">Build</h2>
         <button
           type="button"
-          aria-label="Close dev tools"
+          aria-label="Close the Build panel"
           onClick={onClose}
           className="border border-white/15 px-2 py-0.5 text-xs transition hover:border-orange-400/70 focus-visible:outline-2 focus-visible:outline-orange-400"
         >
@@ -81,34 +112,50 @@ export function BuildPanel({
         </button>
       </div>
 
-      <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.25em] text-white/50">Place a module</p>
-      <ul className="mt-2 grid gap-1.5">
-        {MODULE_TYPES.map((type) => {
-          const selected = tool?.kind === "place" && tool.type === type.id
-          return (
-            <li key={type.id}>
-              <button
-                type="button"
-                aria-pressed={selected}
-                onClick={() => onTool(selected ? null : { kind: "place", type: type.id })}
-                className={`${toolButton} ${selected ? active : idle}`}
-              >
-                <span className="flex items-center gap-2">
-                  <span
-                    aria-hidden
-                    className="size-3 shrink-0 border border-black/60"
-                    style={{ backgroundColor: `#${type.color.toString(16).padStart(6, "0")}` }}
-                  />
-                  {type.name}
+      {/* Picking a module from the list makes it the tool; Esc (or picking another tool) puts it down. */}
+      <Select.Root<ModuleTypeId | null>
+        value={placing}
+        onValueChange={(next) => onTool(next ? { kind: "place", type: next } : null)}
+      >
+        <Select.Label className="mt-3 block text-[11px] font-semibold uppercase tracking-[0.25em] text-white/50">
+          Place a module
+        </Select.Label>
+        <Select.Trigger className={`${toolButton} mt-2 ${placing ? active : idle}`}>
+          <Select.Value>
+            {(value: ModuleTypeId | null) =>
+              value ? (
+                <span className="flex flex-1 items-center justify-between gap-3">
+                  <ModuleLabel id={value} />
                 </span>
-                <span className="font-normal tracking-normal text-white/45">
-                  {type.width}×{type.height}
-                </span>
-              </button>
-            </li>
-          )
-        })}
-      </ul>
+              ) : (
+                <span className="text-white/70">Pick a module…</span>
+              )
+            }
+          </Select.Value>
+          <Select.Icon className="text-white/60">
+            <CaretIcon />
+          </Select.Icon>
+        </Select.Trigger>
+        <Select.Portal>
+          <Select.Positioner className="z-50 outline-hidden" sideOffset={4} alignItemWithTrigger={false}>
+            <Select.Popup className="min-w-[var(--anchor-width)] border border-white/15 bg-neutral-950/95 text-white outline-hidden backdrop-blur-sm">
+              <Select.List className="max-h-[var(--available-height)] overflow-y-auto py-1">
+                {MODULE_TYPES.map((type) => (
+                  <Select.Item
+                    key={type.id}
+                    value={type.id}
+                    className="flex cursor-default items-center justify-between gap-3 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] outline-hidden select-none data-highlighted:bg-orange-500/25 data-selected:text-orange-100"
+                  >
+                    <Select.ItemText render={<span className="contents" />}>
+                      <ModuleLabel id={type.id} />
+                    </Select.ItemText>
+                  </Select.Item>
+                ))}
+              </Select.List>
+            </Select.Popup>
+          </Select.Positioner>
+        </Select.Portal>
+      </Select.Root>
 
       <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.25em] text-white/50">Tubes</p>
       <button

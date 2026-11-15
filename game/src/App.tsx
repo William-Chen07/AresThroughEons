@@ -8,7 +8,7 @@ type Screen = "menu" | "game"
 
 function App() {
   const [screen, setScreen] = useState<Screen>("menu")
-  // Goes up when the map is reset from the dev tools or a new era starts. It is the map screen's
+  // Goes up when the map is reset from the Build panel or a new era starts. It is the map screen's
   // key, so the screen is thrown away and built again from the changed save, landing and all.
   const [mapResets, setMapResets] = useState(0)
   // The save the player picked in the menu (see sim/saves.ts).

@@ -39,6 +39,8 @@ export interface MapView {
   setSeeThrough: (on: boolean) => void
   /** Fades just these modules (by id) so what's inside them shows. */
   setOpenModules: (ids: string[]) => void
+  /** Fades the tubes so crew walking along them show. */
+  setTubesSeeThrough: (on: boolean) => void
   /** Calls `update` every frame with the real time since the last one, in ms. Returns a function that stops it. */
   onFrame: (update: (deltaMs: number) => void) => () => void
   destroy: () => void
@@ -225,6 +227,7 @@ export async function createMapView(
     drawCrew: (world, colors) => crew.draw(world, colors),
     setSeeThrough: (on) => base.setSeeThrough(on),
     setOpenModules: (ids) => base.setOpenModules(ids),
+    setTubesSeeThrough: (on) => base.setTubesSeeThrough(on),
     onFrame: (update) => {
       const tick = () => update(app.ticker.deltaMS)
       app.ticker.add(tick)

@@ -107,13 +107,13 @@ interface SavesActions {
    * outside in a storm (see sim/lifeSupport.ts and sim/weather.ts).
    */
   passTime: (index: number, hours: number, crew: readonly CrewMember[]) => void
-  /** Starts a weather event right now, or with null ends the one going on. For the dev tools. */
+  /** Starts a weather event right now, or with null ends the one going on. For the Build panel. */
   setWeather: (index: number, id: WeatherId | null) => void
   /**
    * Starts the expedition over at the same landing site, as if it were being opened for the
    * first time: not landed yet (so the landing plays again), no base, nothing researched, the
    * starting resources, the clock at zero, the whole crew at full health and calm weather.
-   * Only the name and the landing site stay. For the dev tools.
+   * Only the name and the landing site stay. For the Build panel.
    */
   resetMap: (index: number) => void
   /**
