@@ -128,3 +128,71 @@
     @apply font-sans;
     }
 }
+/*
+ * The radiation storm on the base map (see StormOverlay.tsx): a green glow
+ * that pulses in from the edges of the screen, over blocky green clouds that
+ * drift across. The middle of the glow stays clear so the map stays bright.
+ */
+.storm-overlay {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  /*
+   * The storm sweeps in from the left when it starts. The mask is a slanted
+   * edge, solid on the left and fading out to the right, four screens wide;
+   * sliding it across uncovers the storm behind a soft front.
+   */
+  mask-image: linear-gradient(105deg, #000 0 55%, transparent 75%);
+  mask-size: 400% 100%;
+  mask-repeat: no-repeat;
+  animation: storm-sweep 3.5s linear both;
+}
+.storm-glow {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, rgb(70 255 90 / 0.04) 35%, rgb(60 230 80 / 0.4) 100%);
+  animation: storm-pulse 2.4s ease-in-out infinite;
+}
+/*
+ * One layer of cloud. The cloud picture repeats every --storm-tile; the layer
+ * reaches one repeat past the screen on every side and slides by exactly one
+ * repeat across (and a whole or half repeat down), so the loop has no jump.
+ */
+.storm-clouds {
+  position: absolute;
+  inset: calc(var(--storm-tile) * -1);
+  background-size: var(--storm-tile) var(--storm-tile);
+  image-rendering: pixelated;
+  animation: storm-drift linear infinite;
+}
+@keyframes storm-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes storm-sweep {
+  from {
+    mask-position: 100% 0;
+  }
+  to {
+    mask-position: 0% 0;
+  }
+}
+@keyframes storm-drift {
+  to {
+    transform: translate(var(--storm-tile), var(--storm-down));
+  }
+}
+/* For people who have asked for less motion: the glow and clouds are simply there, and nothing moves. */
+@media (prefers-reduced-motion: reduce) {
+  .storm-overlay,
+  .storm-glow,
+  .storm-clouds {
+    animation: none;
+  }
+}

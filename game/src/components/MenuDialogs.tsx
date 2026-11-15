@@ -239,15 +239,35 @@ const DATA_CREDITS: Credit[] = [
     ],
   },
   {
-    use: "Space weather",
+    use: "Moon positions (globe)",
     what:
-      "Live alerts on the base map from DONKI, the Space Weather Database Of Notifications, Knowledge, " +
-      "Information, by the Community Coordinated Modeling Center at NASA Goddard. The last 7 days of alerts " +
-      "are requested from NASA's open API (DONKI notifications) with our team's api.nasa.gov API key, " +
-      "which stays on our server and is never sent to your browser.",
+      "Orbits of Phobos and Deimos from the NASA/JPL Horizons system (satellite ephemeris mar099). On the " +
+      "globe the moons are drawn bigger and closer to Mars than they really are, so they can be seen.",
+    links: [{ label: "JPL Horizons", href: "https://ssd.jpl.nasa.gov/horizons/" }],
+  },
+  {
+    use: "Moon shapes (globe)",
+    what:
+      "P. Thomas, Shape Models of Small Bodies V2.1 (EAR-A-5-DDR-SHAPE-MODELS-V2.1): Phobos and Deimos shape " +
+      "models made from Viking Orbiter images, NASA Planetary Data System Small Bodies Node.",
     links: [
-      { label: "NASA DONKI", href: "https://ccmc.gsfc.nasa.gov/tools/DONKI/" },
-      { label: "api.nasa.gov", href: "https://api.nasa.gov/" },
+      {
+        label: "PDS Small Bodies Node",
+        href: "https://sbnarchive.psi.edu/pds3/non_mission/EAR_A_5_DDR_SHAPE_MODELS_V2_1/",
+      },
+    ],
+  },
+  {
+    use: "Moon surfaces (globe)",
+    what:
+      "Phobos: Viking VIS global mosaic, 5 m per pixel (Phobos_Viking_Mosaic_40ppd_DLRcontrol), via NASA " +
+      "Phobos Trek. Deimos: Viking Orbiter image mosaic (m2deimosm) from the same PDS data set as the shapes.",
+    links: [
+      { label: "NASA Phobos Trek", href: "https://trek.nasa.gov/phobos/" },
+      {
+        label: "PDS Small Bodies Node",
+        href: "https://sbnarchive.psi.edu/pds3/non_mission/EAR_A_5_DDR_SHAPE_MODELS_V2_1/",
+      },
     ],
   },
   {
@@ -271,6 +291,19 @@ const DATA_CREDITS: Credit[] = [
       },
     ],
   },
+  {
+    use: "Base resources (ice and regolith)",
+    what:
+      "The two raw materials dug out of Mars in the game follow NASA’s overview of in-situ resource " +
+      "utilization (ISRU): water deposits in the soil of Mars, and that soil itself (regolith) used " +
+      "for manufacturing and construction.",
+    links: [
+      {
+        label: "NASA: Overview of In-Situ Resource Utilization",
+        href: "https://www.nasa.gov/overview-in-situ-resource-utilization/",
+      },
+    ],
+  },
 ]
 
 // TODO(team): confirm the exact credit lines for the two audio files.
@@ -280,6 +313,16 @@ const AUDIO_CREDITS: Credit[] = [
     use: "Button sounds",
     what: "Short slices of a NASA sonification, which turns real space images into sound (Audio/13999_BUBBLE_MP4.mp3).",
     links: [],
+  },
+  {
+    use: "Landing sound",
+    what:
+      "“Discovery STS-131: Sound of Launch”, NASA, from NASA's Historical Sounds collection. Trimmed and " +
+      "reversed by our team so it sounds like a landing, and played each time a lander comes down (Audio/Launch.wav).",
+    links: [
+      { label: "NASA Historical Sounds", href: "https://www.nasa.gov/historical-sounds/" },
+      { label: "NASA media usage guidelines", href: "https://www.nasa.gov/multimedia/guidelines/index.html" },
+    ],
   },
 ]
 

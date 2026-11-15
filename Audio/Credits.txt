@@ -1,0 +1,6 @@
+Launch.wav - "Discovery STS-131: Sound of Launch", NASA, from NASA's Historical Sounds collection
+  (original file: 590189main_ringtone_131_launchNats.mp3).
+  Trimmed and reversed by our team so it sounds like a landing.
+  Source: https://www.nasa.gov/historical-sounds/
+  Usage: https://www.nasa.gov/multimedia/guidelines/index.html
+  Used in the game as the lander's landing sound.

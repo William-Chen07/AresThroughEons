@@ -51,7 +51,25 @@ function tone(color: number, factor: number) {
   return (channel(16) << 16) | (channel(8) << 8) | channel(0)
 }
 
-export function createBaseView(terrain: VoxelTerrain): BaseView {
+/** A colour faded towards Mars dust and darkened, for things left from an earlier era. */
+function weathered(color: number) {
+  const dust = [150, 104, 70]
+  const channel = (shift: number, i: number) => Math.round((((color >> shift) & 0xff) * 0.55 + dust[i] * 0.45) * 0.8)
+  return (channel(16, 0) << 16) | (channel(8, 1) << 8) | channel(0, 2)
+}
+
+/** A small number generator seeded from a module's id, so its dents and dust land in the same places every time. */
+function seededRandom(id: string) {
+  let seed = 1
+  for (const ch of id) seed = (seed * 31 + ch.charCodeAt(0)) % 2147483647
+  return () => {
+    seed = (seed * 16807) % 2147483647
+    return seed / 2147483647
+  }
+}
+
+/** `era` is the era the expedition is in: modules built in an earlier one are drawn worn down. */
+export function createBaseView(terrain: VoxelTerrain, era = 1): BaseView {
   const { size } = terrain
 
   /** The middle of a cell's top face, in map pixels. */
@@ -113,6 +131,8 @@ export function createBaseView(terrain: VoxelTerrain): BaseView {
 
   const drawModule = (module: PlacedModule) => {
     const type = moduleType(module.type)
+    const worn = (module.era ?? 1) < era
+    const color = worn ? weathered(type.color) : type.color
     const rect = moduleRect(module)
     const width = rect.width * CELL_PX
     const height = rect.height * CELL_PX
@@ -125,16 +145,41 @@ export function createBaseView(terrain: VoxelTerrain): BaseView {
       .rect(1, 1 - WALL_PX, width - 2, height - 2 + WALL_PX)
       .fill(OUTLINE)
       .rect(3, height - 3 - WALL_PX, width - 6, WALL_PX)
-      .fill(tone(type.color, 0.6))
+      .fill(tone(color, 0.6))
       .rect(3, 3 - WALL_PX, width - 6, height - 6)
-      .fill(type.color)
+      .fill(color)
       .rect(3, 3 - WALL_PX, width - 6, 2)
-      .fill(tone(type.color, 1.25))
+      .fill(tone(color, worn ? 1.1 : 1.25))
       .rect(3, height - 5 - WALL_PX, width - 6, 2)
-      .fill(tone(type.color, 0.82))
+      .fill(tone(color, 0.82))
       // The door: a hatch in the middle of the south wall, on the cell crew walk through (see moduleDoor).
       .rect((Math.floor(rect.width / 2) + 0.5) * CELL_PX - 3, height - 1 - WALL_PX, 6, WALL_PX - 3)
       .fill(OUTLINE)
+
+    if (worn) {
+      // Dust drifted onto the roof, dark scuffs and a crack or two.
+      const random = seededRandom(module.id)
+      const roofW = width - 6
+      const roofH = height - 6
+      for (let i = 0; i < Math.max(4, Math.round((roofW * roofH) / 60)); i++) {
+        const size = random() < 0.3 ? 3 : 2
+        shape
+          .rect(3 + Math.floor(random() * (roofW - size)), 3 - WALL_PX + Math.floor(random() * (roofH - size)), size, size)
+          .fill(random() < 0.6 ? tone(color, 1.18) : tone(color, 0.62))
+      }
+      for (let i = 0; i < 2; i++) {
+        let x = 5 + Math.floor(random() * (roofW - 6))
+        let y = 4 - WALL_PX + Math.floor(random() * (roofH / 2))
+        for (let step = 0; step < 4; step++) {
+          shape.rect(x, y, 1, 2).fill(tone(color, 0.45))
+          x += random() < 0.5 ? -1 : 1
+          y += 2
+          if (y > height - 8 - WALL_PX) break
+        }
+      }
+      // The south wall gets a rusty streak running down from the roof.
+      shape.rect(4 + Math.floor(random() * (width - 10)), height - 3 - WALL_PX, 2, WALL_PX - 2).fill(0x7a4630)
+    }
 
     const label = new Text({
       text: type.code,
@@ -146,6 +191,7 @@ export function createBaseView(terrain: VoxelTerrain): BaseView {
     label.position.set(width / 2, (height - 6) / 2 + 3 - WALL_PX)
 
     const piece = new Container()
+    if (worn) label.alpha = 0.6
     piece.addChild(shape, label)
     piece.position.copyFrom(footprintCorner(rect))
     return piece

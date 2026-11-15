@@ -3,8 +3,9 @@ import { MODULE_TYPES, type ModuleTypeId } from "@/content/modules"
 /*
  * A panel for building the base by hand while the real building rules don't
  * exist yet: place modules, lay the tubes between them, and remove either.
- * Nothing connects by itself (see sim/base.ts). Shown to players as "Build",
- * opened from the Build button or the ` key on the base map.
+ * Nothing connects by itself (see sim/base.ts). Shown as "Dev tools", opened
+ * from the Dev tools button or the ` key on the base map. It can also start
+ * and stop a radiation storm, for trying the weather out, and reset the map.
  */
 
 export type BuildTool = { kind: "place"; type: ModuleTypeId } | { kind: "tube" } | { kind: "remove" } | null
@@ -22,6 +23,10 @@ export function BuildPanel({
   tubeCells,
   groupCount,
   message,
+  stormActive,
+  onStorm,
+  onResetMap,
+  onNextEra,
   onClear,
   onClose,
 }: {
@@ -37,6 +42,14 @@ export function BuildPanel({
   groupCount: number
   /** What the last click did, or why it did nothing. */
   message: string | null
+  /** True while a radiation storm is going on. */
+  stormActive: boolean
+  /** Starts a radiation storm, or ends the one going on. */
+  onStorm: () => void
+  /** Starts the expedition over at the same landing site, as if opened for the first time: the landing replays. */
+  onResetMap: () => void
+  /** Ends this era and starts the next on the same map (the base wears down and a new lander comes down). */
+  onNextEra: () => void
   onClear: () => void
   onClose: () => void
 }) {
@@ -53,14 +66,14 @@ export function BuildPanel({
 
   return (
     <section
-      aria-label="Build"
+      aria-label="Dev tools"
       className="pointer-events-auto w-64 border border-white/15 bg-neutral-950/85 p-4 backdrop-blur-sm"
     >
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-300/90">Build</h2>
+        <h2 className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-300/90">Dev tools</h2>
         <button
           type="button"
-          aria-label="Close build panel"
+          aria-label="Close dev tools"
           onClick={onClose}
           className="border border-white/15 px-2 py-0.5 text-xs transition hover:border-orange-400/70 focus-visible:outline-2 focus-visible:outline-orange-400"
         >
@@ -125,6 +138,32 @@ export function BuildPanel({
           Clear all
         </button>
       </div>
+
+      <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.25em] text-white/50">Weather</p>
+      <button
+        type="button"
+        aria-pressed={stormActive}
+        onClick={onStorm}
+        className={`${toolButton} mt-2 ${stormActive ? active : idle}`}
+      >
+        {stormActive ? "End radiation storm" : "Radiation storm"}
+      </button>
+
+      <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.25em] text-white/50">Expedition</p>
+      <button
+        type="button"
+        onClick={onResetMap}
+        className={`${toolButton} mt-2 border-white/15 bg-white/5 hover:border-red-400/70 hover:text-red-300`}
+      >
+        Reset map
+      </button>
+      <button
+        type="button"
+        onClick={onNextEra}
+        className={`${toolButton} mt-2 border-white/15 bg-white/5 hover:border-orange-400/70`}
+      >
+        Next era
+      </button>
 
       <p className="mt-3 text-[11px] text-white/60">{hint}</p>
       <p className="mt-1 min-h-8 text-[11px] text-orange-200/90" aria-live="polite">
