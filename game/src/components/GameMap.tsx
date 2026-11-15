@@ -427,7 +427,7 @@ export function GameMap({
                 </ul>
                 <p className="mt-2 text-[11px] text-white/50">
                   Click an astronaut, then click where to go, or a module to work in. Shift-click to pick more or to
-                  queue an order. Esc lets go.
+                  queue an order. Click a selected astronaut again (or press Esc) to let go.
                 </p>
                 {crewMessage && <p className="mt-2 text-xs text-orange-200">{crewMessage}</p>}
               </div>

@@ -699,3 +699,14 @@ test("a queued order that can't be done is skipped with a reason", () => {
   const events = runUntil(w, (ev) => ev.some((e) => e.type === "arrived" && e.tile.y === 8), 0.0005, 40000)
   assert.ok(events.some((e) => e.type === "cancelled"))
 })
+
+test("clicking a selected astronaut again lets go of them; others stay selected", () => {
+  const w = createWorld(10, 10)
+  addPawn(w, "a", { x: 1, y: 1 }); addPawn(w, "b", { x: 3, y: 3 })
+  assert.deepEqual(handleClick(w, { x: 1, y: 1 }), { kind: "selected", pawnIds: ["a"] })
+  assert.deepEqual(handleClick(w, { x: 1, y: 1 }), { kind: "deselected" }, "second click deselects")
+  handleClick(w, { x: 1, y: 1 })
+  handleClick(w, { x: 3, y: 3 }, { shift: true })
+  assert.deepEqual(handleClick(w, { x: 1, y: 1 }), { kind: "selected", pawnIds: ["b"] }, "only the clicked one is let go")
+  assert.deepEqual(handleClick(w, { x: 1, y: 1 }), { kind: "selected", pawnIds: ["a"] }, "a plain click on an unselected one picks just them")
+})
