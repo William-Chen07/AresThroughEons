@@ -2,6 +2,7 @@ import { Application, CanvasSource, Graphics, Sprite, Texture } from "pixi.js"
 import { Viewport } from "pixi-viewport"
 import { createBaseView, type Ghost } from "@/map/baseView"
 import { createCrewView } from "@/map/crewView"
+import { playLanding } from "@/lib/sound"
 import { createLander, landerModelFor } from "@/map/lander"
 import {
   CELL_PX,
@@ -141,7 +142,9 @@ export async function createMapView(
   viewport.moveCenter(lander.center.x, lander.center.y)
   // The landing plays only the first time an expedition's map opens. People who ask their system for less motion get the lander already down.
   // The camera shake moves the whole stage, so it doesn't fight the player's own panning.
+  let stopLandingSound = () => {}
   if (onLanded) {
+    stopLandingSound = playLanding()
     lander.land(
       app.ticker,
       !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
@@ -207,6 +210,7 @@ export async function createMapView(
       }
     },
     destroy: () => {
+      stopLandingSound()
       observer.disconnect()
       app.canvas.removeEventListener("pointerleave", clearHover)
       app.destroy(

@@ -314,6 +314,16 @@ const AUDIO_CREDITS: Credit[] = [
     what: "Short slices of a NASA sonification, which turns real space images into sound (Audio/13999_BUBBLE_MP4.mp3).",
     links: [],
   },
+  {
+    use: "Landing sound",
+    what:
+      "“Discovery STS-131: Sound of Launch”, NASA, from NASA's Historical Sounds collection. Trimmed and " +
+      "reversed by our team so it sounds like a landing, and played each time a lander comes down (Audio/Launch.wav).",
+    links: [
+      { label: "NASA Historical Sounds", href: "https://www.nasa.gov/historical-sounds/" },
+      { label: "NASA media usage guidelines", href: "https://www.nasa.gov/multimedia/guidelines/index.html" },
+    ],
+  },
 ]
 
 function CreditList({ credits }: { credits: Credit[] }) {
