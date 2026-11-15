@@ -72,6 +72,11 @@ export interface FindPathOptions {
   maxExpansions?: number
   /** Extra rule for a single step between neighbouring tiles, e.g. "no walking straight from inside to outside". */
   canStep?: (fromX: number, fromY: number, toX: number, toY: number) => boolean
+  /**
+   * Multiplier (1 or more) on a single step's cost, e.g. for walking uphill; null forbids the
+   * step (a cliff). Must never go below 1, or the search could miss the best route.
+   */
+  stepFactor?: (fromX: number, fromY: number, toX: number, toY: number) => number | null
 }
 
 /**
@@ -128,6 +133,7 @@ export function findPath(
 
   const maxExpansions = options.maxExpansions ?? size
   const canStep = options.canStep
+  const stepFactor = options.stepFactor
   let expansions = 0
 
   while (open.size > 0) {
@@ -150,8 +156,10 @@ export function findPath(
       const diagonal = dx !== 0 && dy !== 0
       if (diagonal && (costAt(cx + dx, cy) === BLOCKED || costAt(cx, cy + dy) === BLOCKED)) continue
       if (canStep && !canStep(cx, cy, nx, ny)) continue
+      const factor = stepFactor ? stepFactor(cx, cy, nx, ny) : 1
+      if (factor === null) continue
 
-      const tentative = gScore[current] + (diagonal ? SQRT2 : 1) * tileCost
+      const tentative = gScore[current] + (diagonal ? SQRT2 : 1) * tileCost * factor
       if (tentative >= gScore[next]) continue
       gScore[next] = tentative
       parent[next] = current

@@ -1,4 +1,4 @@
-import { BLOCKED, canCrossZones, getZone, inBounds, sameTile, tileIndex, tileOf, type Tile } from "./grid"
+import { BLOCKED, canStepBetween, getZone, inBounds, sameTile, slopeFactor, tileIndex, tileOf, type Tile } from "./grid"
 import { findPath } from "./pathfinding"
 import { PATHING_TUNING } from "./tuning"
 import type { Mover, World } from "./world"
@@ -59,8 +59,9 @@ function stepAside(world: World, idler: Mover, walker: Mover, field: number[]): 
     }
   }
   const costAt = (x: number, y: number) => (inBounds(grid, x, y) ? field[tileIndex(grid, x, y)] : BLOCKED)
-  const canStep = (fx: number, fy: number, tx: number, ty: number) => canCrossZones(getZone(grid, fx, fy), getZone(grid, tx, ty))
-  const path = findPath(costAt, grid.width, grid.height, here, goals, { canStep })
+  const canStep = (fx: number, fy: number, tx: number, ty: number) => canStepBetween(grid, fx, fy, tx, ty)
+  const stepFactor = (fx: number, fy: number, tx: number, ty: number) => slopeFactor(grid, fx, fy, tx, ty)
+  const path = findPath(costAt, grid.width, grid.height, here, goals, { canStep, stepFactor })
   if (!path || path.length === 0 || path.length > STEP_ASIDE_RADIUS + 1) return false
   idler.path = path
   idler.destination = null // it isn't claiming the spot, just getting out of the way

@@ -13,6 +13,11 @@ import marsNormalUrl from "@/assets/mars_normal_4k.jpg"
 import marsRadiusUrl from "@/assets/mars_radius_0p5deg.bin?url"
 import ephemerisUrl from "@/assets/mars_earth_de442_2024_2050.bin?url"
 import marsRotation from "@/assets/mars_rotation_konopliv_2026.json"
+import moonTableUrl from "@/assets/mars_moons_horizons_2024_2050.json?url"
+import { moonState, type MoonId, type MoonTable } from "@/lib/marsMoons"
+import moonShapes from "@/assets/mars_moon_shapes_thomas_pds.json"
+import phobosTextureUrl from "@/assets/phobos_viking_trek_1024.jpg"
+import deimosTextureUrl from "@/assets/deimos_viking_pds_1024.jpg"
 
 const ROTATION_MODEL: RotationModel = marsRotation
 
@@ -29,10 +34,21 @@ const ROTATION_MODEL: RotationModel = marsRotation
  *  - Terrain shading: tangent-space normal map baked from the same shape at 16 px/deg.
  *  - Orientation / sunlight / viewpoint: NASA/JPL NAIF DE442 ephemeris + Konopliv 2026 Mars
  *    rotation model (see lib/marsEphemeris.ts). Includes light-time from Mars to Earth.
+ *  - Moons: Phobos and Deimos placed from NASA/JPL Horizons orbits (lib/marsMoons.ts).
+ *    Shapes: P. Thomas shape models from Viking images, NASA PDS Small Bodies Node
+ *    (EAR-A-5-DDR-SHAPE-MODELS-V2.1; see the JSON's _source). Surfaces: Phobos from the Viking
+ *    mosaic on NASA Phobos Trek (Phobos_Viking_Mosaic_40ppd_DLRcontrol); Deimos from the Viking
+ *    mosaic in the same PDS data set (m2deimosm.fit, no-coverage gaps filled from their edges).
+ *    Both are tidally locked: 0°E faces Mars and north is the orbit normal (IAU convention; real
+ *    librations of about a degree are left out).
  *  - Stars: decorative only (random), not catalogue data.
  *  - Fun-fact pins: places from content/marsFacts.ts, pinned by latitude/longitude.
  *
- * Non-data choices: the clock runs TIME_SCALE× faster than real time so the rotation is
+ * Non-data choices: the moons are drawn MOON_SCALE× too big and pulled in towards Mars
+ * (MOON_DISPLAY_DISTANCE) so they fit on screen and can be seen; at true scale Phobos would be
+ * about one pixel wide and Deimos far off-screen. Their direction from Mars, shape and surface are
+ * real; the greyscale mosaics are tinted a dark warm grey. The clock runs TIME_SCALE× faster than
+ * real time so the rotation is
  * visible, and the camera sits along the Earth→Mars line with celestial north up (what a
  * telescope on Earth would show, without image inversion).
  *
@@ -76,6 +92,36 @@ const SEEK_MS = 1600 // duration of the fast-forward to a focused place
 // fun-fact card in the bottom-right corner. 30° stays in daylight at any Mars phase (≤ ~47°).
 const FOCUS_LEAD_DEG = 30
 const DAY_MS = 86_400_000
+// Moons (see the note above): distance from the centre of Mars in Mars radii as drawn (the real
+// values are 2.76 and 6.91), and how much bigger than true size they are drawn. Both moons share
+// one scale so their sizes compare truthfully.
+const MOON_DISPLAY_DISTANCE: Record<MoonId, number> = { phobos: 1.42, deimos: 1.85 }
+const MOON_SCALE = 13
+// Largest radius (km) in each shape model, used to sit a fun-fact pin just in front of the moon.
+const MOON_MAX_RADIUS_KM: Record<MoonId, number> = { phobos: 14, deimos: 8.7 }
+// The moon mosaics are greyscale; this warm dark grey matches how the moons look in colour images.
+const MOON_TINT = 0xb3a698
+// How dark a moon gets while it passes through Mars' shadow (eclipse).
+const ECLIPSE_BRIGHTNESS = 0.08
+// Orbital periods (days, NASA/JPL Horizons). A moon fun fact searches half an orbit either way.
+const MOON_PERIOD_DAYS: Record<MoonId, number> = { phobos: 0.319, deimos: 1.263 }
+// Focusing a moon fact moves the clock the least it can to put the moon in clear view: in front
+// of Mars, in sunlight, on screen, off the disc and not under the menu or the fun-fact card
+// (the keepClear prop). A moon already in clear view stays where it is.
+// One game-hour of clock movement costs 1 / MOON_FOCUS_HOURS_PER_COST; not being in clear view
+// costs MOON_FOCUS_BLOCKED_COST (so the clock turns up to that many × 12 hours to avoid it).
+const MOON_FOCUS_HOURS_PER_COST = 12
+const MOON_FOCUS_BLOCKED_COST = 2
+// A weak pull towards a resting spot MOON_FOCUS_SEPARATION disc radii from Mars' centre: straight
+// left on wide screens (between Mars and the menu), up and to the left on narrow ones. Weak
+// enough that slow Deimos never turns Mars for it, strong enough to nudge quick Phobos there.
+const MOON_FOCUS_SEPARATION = 1.3
+const MOON_FOCUS_SPOT_COST = 0.1 // per disc radius away from the spot
+const MOON_FOCUS_MIN_SEPARATION = 1.15 // closer to Mars' centre than this (disc radii) is over the disc
+const MOON_FOCUS_MARGIN_PX = 16 // room kept around the moon, in CSS pixels
+// A seek that turns Mars a long way takes longer, up to twice SEEK_MS for a full turn, so it
+// reads as a quick turn instead of a blur.
+const SOL_MS = 88_775_244
 
 export interface MarsGlobeHandle {
   /**
@@ -90,6 +136,8 @@ interface MarsGlobeProps {
   ref?: Ref<MarsGlobeHandle>
   /** The selected fun-fact place; while set, the clock is paused. */
   selectedSiteId?: string | null
+  /** Screen areas (client coordinates) covered by the menu; a focused moon is kept out of them. */
+  keepClear?: () => DOMRect[]
   /** Called when a pin is tapped (id) or empty space is tapped (null). */
   onSelectSite?: (id: string | null) => void
 }
@@ -221,17 +269,67 @@ function buildDecorativeStars(pixelRatio: number) {
   return new THREE.Points(geometry, material)
 }
 
-export function MarsGlobe({ className, ref, selectedSiteId = null, onSelectSite }: MarsGlobeProps) {
+interface MoonShape {
+  latStep: number
+  lonStep: number
+  /** Radius (km) per row (latitude -90..90) and column (east longitude -180..180). */
+  radiiKm: number[][]
+}
+
+/**
+ * A moon from its shape model and image mosaic, in its own body frame: x → 0°E (towards Mars),
+ * y → 90°E, z → north. Size is in Mars radii, MOON_SCALE× true size.
+ */
+function buildMoonMesh(shape: MoonShape, texture: THREE.Texture) {
+  const rows = shape.radiiKm.length
+  const cols = shape.radiiKm[0].length
+  const positions = new Float32Array(rows * cols * 3)
+  const uvs = new Float32Array(rows * cols * 2)
+  const DEG = Math.PI / 180
+  const kmToUnits = (1000 / UNIT_RADIUS_M) * MOON_SCALE
+  for (let i = 0; i < rows; i++) {
+    const lat = (-90 + i * shape.latStep) * DEG
+    for (let j = 0; j < cols; j++) {
+      const lon = (-180 + j * shape.lonStep) * DEG
+      const r = shape.radiiKm[i][j] * kmToUnits
+      const k = i * cols + j
+      positions.set([r * Math.cos(lat) * Math.cos(lon), r * Math.cos(lat) * Math.sin(lon), r * Math.sin(lat)], k * 3)
+      uvs.set([j / (cols - 1), i / (rows - 1)], k * 2)
+    }
+  }
+  const indices: number[] = []
+  for (let i = 0; i < rows - 1; i++) {
+    for (let j = 0; j < cols - 1; j++) {
+      const a = i * cols + j
+      const b = a + 1
+      const c = a + cols
+      const d = c + 1
+      indices.push(a, b, d, a, d, c)
+    }
+  }
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3))
+  geometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2))
+  geometry.setIndex(indices)
+  geometry.computeVertexNormals()
+  const mesh = new THREE.Mesh(geometry, new THREE.MeshLambertMaterial({ map: texture, color: MOON_TINT }))
+  mesh.visible = false
+  return mesh
+}
+
+export function MarsGlobe({ className, ref, selectedSiteId = null, onSelectSite, keepClear }: MarsGlobeProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const focusRef = useRef<MarsGlobeHandle["focusSite"]>(() => false)
   const selectedRef = useRef(selectedSiteId)
   const onSelectRef = useRef(onSelectSite)
+  const keepClearRef = useRef(keepClear)
 
   // The scene is built once; props that change later reach it through refs.
   useEffect(() => {
     selectedRef.current = selectedSiteId
     onSelectRef.current = onSelectSite
-  }, [selectedSiteId, onSelectSite])
+    keepClearRef.current = keepClear
+  }, [selectedSiteId, onSelectSite, keepClear])
 
   useImperativeHandle(ref, () => ({ focusSite: (id) => focusRef.current(id) }), [])
 
@@ -272,9 +370,12 @@ export function MarsGlobe({ className, ref, selectedSiteId = null, onSelectSite 
 
     // Show Mars only once shape, colour, terrain and ephemeris are all loaded, so it
     // never appears half-built or wrongly oriented.
-    let pending = 4
+    let pending = 7
     const markLoaded = () => {
-      if (--pending === 0 && !disposed) mars.visible = true
+      if (--pending === 0 && !disposed) {
+        mars.visible = true
+        for (const moon of Object.values(moons)) moon.visible = true
+      }
     }
     const loader = new THREE.TextureLoader()
     const colorMap = loader.load(marsColorUrl, markLoaded)
@@ -302,13 +403,33 @@ export function MarsGlobe({ className, ref, selectedSiteId = null, onSelectSite 
       depthWrite: false,
     })
     // Lifted a little above the surface so terrain never hides a pin that faces us.
+    // Moon pins live in the scene and are placed each frame in front of their moon.
     const pins = MARS_FACTS.map((fact) => {
       const pin = new THREE.Sprite(pinMaterial)
-      pin.position.copy(bodyDirection(fact.location.lat, fact.location.lon).multiplyScalar(1.015))
       pin.userData.siteId = fact.id
-      mars.add(pin)
+      if ("moon" in fact.location) {
+        pin.userData.moon = fact.location.moon
+        scene.add(pin)
+      } else {
+        pin.position.copy(bodyDirection(fact.location.lat, fact.location.lon).multiplyScalar(1.015))
+        mars.add(pin)
+      }
       return pin
     })
+
+    // --- Phobos and Deimos ---
+    function loadMoonTexture(url: string) {
+      const texture = loader.load(url, markLoaded)
+      texture.colorSpace = THREE.SRGBColorSpace
+      texture.anisotropy = renderer.capabilities.getMaxAnisotropy()
+      return texture
+    }
+    const moons: Record<MoonId, THREE.Mesh> = {
+      phobos: buildMoonMesh(moonShapes.phobos, loadMoonTexture(phobosTextureUrl)),
+      deimos: buildMoonMesh(moonShapes.deimos, loadMoonTexture(deimosTextureUrl)),
+    }
+    for (const moon of Object.values(moons)) scene.add(moon)
+    let moonTable: MoonTable | null = null
 
     let ephemeris: EphemerisTable | null = null
 
@@ -331,9 +452,50 @@ export function MarsGlobe({ className, ref, selectedSiteId = null, onSelectSite 
       mars.geometry.dispose()
       mars.geometry = buildMarsMesh(new Int16Array(buffer))
     })
+    fetch(moonTableUrl, { signal: abort.signal })
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        return res.json()
+      })
+      .then((table: MoonTable) => {
+        if (disposed) return
+        moonTable = table
+        markLoaded()
+      })
+      .catch((err) => {
+        if (!disposed) console.error("Failed to load moon orbits", err)
+      })
     loadBinary(ephemerisUrl, "DE442 ephemeris table", (buffer) => {
       ephemeris = parseEphemerisTable(buffer)
     })
+
+    // --- Moons: real direction from Mars, drawn closer in; long axis kept towards Mars ---
+    const moonPos = new THREE.Vector3()
+    const moonAlong = new THREE.Vector3()
+    const moonNormal = new THREE.Vector3()
+    const moonBasis = new THREE.Matrix4()
+    const moonShadow = new THREE.Vector3()
+    const placeMoons = (table: MoonTable, jd: number, sunDir: THREE.Vector3) => {
+      for (const id of ["phobos", "deimos"] as const) {
+        const state = moonState(table, id, jd)
+        const moon = moons[id]
+        moonPos.copy(toThree(state.direction))
+        moonNormal.copy(toThree(state.orbitNormal))
+        moonAlong.crossVectors(moonNormal, moonPos) // direction of travel
+        moonBasis.makeBasis(moonPos.clone().negate(), moonAlong.clone().negate(), moonNormal)
+        moon.quaternion.setFromRotationMatrix(moonBasis)
+        moonPos.multiplyScalar(MOON_DISPLAY_DISTANCE[id])
+        moon.position.copy(moonPos)
+        // Eclipse: behind Mars as seen from the Sun, within Mars' (cylindrical) shadow.
+        const along = moonPos.dot(sunDir)
+        const offAxis = moonShadow.copy(sunDir).multiplyScalar(along).sub(moonPos).length()
+        const shade = along < 0 ? THREE.MathUtils.smoothstep(offAxis, 0.92, 1.05) : 1
+        moon.userData.shade = shade
+        ;(moon.material as THREE.MeshLambertMaterial).color
+          .set(MOON_TINT)
+          .multiplyScalar(ECLIPSE_BRIGHTNESS + (1 - ECLIPSE_BRIGHTNESS) * shade)
+      }
+    }
 
     // --- Place everything for a given moment ---
     const basis = new THREE.Matrix4()
@@ -348,10 +510,13 @@ export function MarsGlobe({ className, ref, selectedSiteId = null, onSelectSite 
       camera.up.copy(toThree([0, 0, 1])) // celestial north up
       camera.lookAt(0, 0, 0)
       starCamera.quaternion.copy(camera.quaternion)
+      if (moonTable) placeMoons(moonTable, g.emitJd, toThree(g.toSun))
     }
 
     // --- Layout: place the disc on the right on wide screens, lower-centre on narrow ones ---
     let discRadiusPx = 1
+    // Where a focused moon rests, as a unit direction on screen from Mars' centre (y down).
+    const moonFocusDir = { x: -1, y: 0 }
     const resize = () => {
       const { clientWidth: w, clientHeight: h } = container
       if (!w || !h) return
@@ -362,6 +527,8 @@ export function MarsGlobe({ className, ref, selectedSiteId = null, onSelectSite 
       camera.fov = 2 * Math.atan(0.5 / (discRadius * CAMERA_DISTANCE)) * (180 / Math.PI)
       camera.aspect = w / h
       discRadiusPx = discRadius * h
+      if (wide) Object.assign(moonFocusDir, { x: -1, y: 0 })
+      else Object.assign(moonFocusDir, { x: -Math.SQRT1_2, y: -Math.SQRT1_2 })
       const shiftX = wide ? Math.min(0.17 * w, w / 2 - discRadius * h - 0.04 * w) : 0
       const shiftY = wide ? 0 : 0.2 * h
       camera.setViewOffset(w, h, -shiftX, -shiftY, w, h)
@@ -379,7 +546,27 @@ export function MarsGlobe({ className, ref, selectedSiteId = null, onSelectSite 
     const pinWorld = new THREE.Vector3()
     const toCamera = new THREE.Vector3()
     const toSun = new THREE.Vector3()
+    const moonPinOffset = new THREE.Vector3()
+    // A moon can't be seen while it is behind Mars (from Earth) or dark in Mars' shadow.
+    const moonHidden = (moonId: MoonId) => {
+      const moon = moons[moonId]
+      toCamera.copy(camera.position).normalize()
+      const along = moon.position.dot(toCamera)
+      const offAxis = moonPinOffset.copy(toCamera).multiplyScalar(along).sub(moon.position).length()
+      return (along < 0 && offAxis < 1.02) || (moon.userData.shade ?? 1) < 0.5
+    }
+
     const pinShows = (pin: THREE.Sprite) => {
+      const moonId = pin.userData.moon as MoonId | undefined
+      if (moonId) {
+        // Sit just in front of the moon (towards Earth). Hidden while the moon is behind Mars
+        // or dark in its shadow.
+        const moon = moons[moonId]
+        toCamera.copy(camera.position).normalize()
+        const radius = (MOON_MAX_RADIUS_KM[moonId] / UNIT_RADIUS_M) * 1000 * MOON_SCALE
+        pin.position.copy(moon.position).add(moonPinOffset.copy(toCamera).multiplyScalar(radius * 1.2))
+        return moon.visible && !moonHidden(moonId)
+      }
       const normal = pin.getWorldPosition(pinWorld).normalize()
       return (
         normal.dot(toCamera.copy(camera.position).normalize()) > PIN_MIN_FACING &&
@@ -407,7 +594,17 @@ export function MarsGlobe({ className, ref, selectedSiteId = null, onSelectSite 
 
     // The simulated clock. The time-lapse, dragging and focusing a place all move it.
     let simTime = Number.isNaN(frozenTime) ? Date.now() : frozenTime
-    let seek: { from: number; to: number; start: number } | null = null
+    let seek: { from: number; to: number; start: number; duration: number } | null = null
+    const startSeek = (to: number) => {
+      spinVelocity = 0
+      if (reduceMotion) {
+        seek = null
+        simTime = to
+        return
+      }
+      const duration = SEEK_MS * (1 + Math.min(Math.abs(to - simTime) / SOL_MS, 1))
+      seek = { from: simTime, to, start: performance.now(), duration }
+    }
 
     // --- Pointer: tap a pin to select it, drag sideways to spin Mars ---
     canvas.style.touchAction = "none"
@@ -483,18 +680,67 @@ export function MarsGlobe({ className, ref, selectedSiteId = null, onSelectSite 
     // (simTime and seek are declared above, next to the pointer handlers that also move them.)
     let lastReal = performance.now()
 
+    // A moon fact: search half an orbit back and forward for the moment the moon is in clear view
+    // (see MOON_FOCUS_*) with the least turn of the clock, and so of Mars.
+    const moonScreen = new THREE.Vector3()
+    const marsScreen = new THREE.Vector3()
+    const focusMoon = (moonId: MoonId) => {
+      const moon = moons[moonId]
+      const canvasRect = renderer.domElement.getBoundingClientRect()
+      const { width, height } = canvasRect
+      const moonRadiusPx = (MOON_MAX_RADIUS_KM[moonId] / UNIT_RADIUS_M) * 1000 * MOON_SCALE * discRadiusPx
+      const pad = moonRadiusPx + MOON_FOCUS_MARGIN_PX
+      const covered = (keepClearRef.current?.() ?? []).map((r) => ({
+        left: r.left - canvasRect.left - pad,
+        right: r.right - canvasRect.left + pad,
+        top: r.top - canvasRect.top - pad,
+        bottom: r.bottom - canvasRect.top + pad,
+      }))
+      const stepMs = 60_000
+      const halfWindowMs = (MOON_PERIOD_DAYS[moonId] * DAY_MS) / 2
+      let best = { time: simTime, cost: Infinity }
+      for (let t = simTime - halfWindowMs; t <= simTime + halfWindowMs; t += stepMs) {
+        update(new Date(t))
+        camera.updateMatrixWorld()
+        if (moonHidden(moonId)) continue // behind the disc or in Mars' shadow
+        // CSS pixels from the canvas' top left, y down.
+        moonScreen.copy(moon.position).project(camera)
+        marsScreen.set(0, 0, 0).project(camera)
+        const x = ((moonScreen.x + 1) / 2) * width
+        const y = ((1 - moonScreen.y) / 2) * height
+        if (x < pad || x > width - pad || y < pad || y > height - pad) continue
+        const dx = (x - ((marsScreen.x + 1) / 2) * width) / discRadiusPx
+        const dy = (y - ((1 - marsScreen.y) / 2) * height) / discRadiusPx
+        const clear =
+          Math.hypot(dx, dy) >= MOON_FOCUS_MIN_SEPARATION &&
+          !covered.some((r) => x > r.left && x < r.right && y > r.top && y < r.bottom)
+        const offSpot = Math.hypot(
+          dx - moonFocusDir.x * MOON_FOCUS_SEPARATION,
+          dy - moonFocusDir.y * MOON_FOCUS_SEPARATION,
+        )
+        const cost =
+          Math.abs(t - simTime) / 3_600_000 / MOON_FOCUS_HOURS_PER_COST +
+          (clear ? 0 : MOON_FOCUS_BLOCKED_COST) +
+          offSpot * MOON_FOCUS_SPOT_COST
+        if (cost < best.cost) best = { time: t, cost }
+      }
+      update(new Date(simTime))
+      if (best.cost === Infinity) return false
+      startSeek(best.time)
+      return true
+    }
+
     focusRef.current = (id) => {
       const fact = MARS_FACTS.find((f) => f.id === id)
       if (!fact || !ephemeris) return false
+      if ("moon" in fact.location) return focusMoon(fact.location.moon)
       // The point facing Earth drifts west as Mars turns: move the clock (whichever way is
       // shorter, so under half a sol) until the site sits FOCUS_LEAD_DEG left of centre.
       const now = marsGeometry(new Date(simTime), ephemeris, ROTATION_MODEL)
       const offset = now.subEarth.lon - fact.location.lon - FOCUS_LEAD_DEG
       const degreesToGo = ((((offset + 180) % 360) + 360) % 360) - 180
       const target = simTime + (degreesToGo / ROTATION_MODEL.pm[1]) * DAY_MS
-      spinVelocity = 0
-      seek = reduceMotion ? null : { from: simTime, to: target, start: performance.now() }
-      if (reduceMotion) simTime = target
+      startSeek(target)
       // Visible if the site faces Earth well enough at that moment (not tipped over the limb).
       const then = marsGeometry(new Date(target), ephemeris, ROTATION_MODEL)
       const e = then.toEarth
@@ -515,7 +761,7 @@ export function MarsGlobe({ className, ref, selectedSiteId = null, onSelectSite 
       const dt = nowReal - lastReal
       lastReal = nowReal
       if (seek) {
-        const k = Math.min((nowReal - seek.start) / SEEK_MS, 1)
+        const k = Math.min((nowReal - seek.start) / seek.duration, 1)
         simTime = seek.from + (seek.to - seek.from) * easeInOutCubic(k)
         if (k === 1) seek = null
       } else if (!pointer?.dragging) {
@@ -560,6 +806,12 @@ export function MarsGlobe({ className, ref, selectedSiteId = null, onSelectSite 
       normalMap.dispose()
       material.dispose()
       mars.geometry.dispose()
+      for (const moon of Object.values(moons)) {
+        moon.geometry.dispose()
+        const moonMaterial = moon.material as THREE.MeshLambertMaterial
+        moonMaterial.map?.dispose()
+        moonMaterial.dispose()
+      }
       stars.geometry.dispose()
       ;(stars.material as THREE.Material).dispose()
       renderer.dispose()

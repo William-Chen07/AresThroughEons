@@ -1,8 +1,11 @@
 import { settingsStore } from "@/lib/settings"
-// Imported straight from the repo's root Audio/ folder: the build copies just these two
+// Imported straight from the repo's root Audio/ folder: the build copies just these
 // files into the bundle, and vite.config.ts lets the dev server read that folder.
 import musicUrl from "../../../Audio/leberch-space-626368.mp3"
 import sfxSourceUrl from "../../../Audio/13999_BUBBLE_MP4.mp3"
+// "Discovery STS-131: Sound of Launch" from NASA's historical sounds
+// (https://www.nasa.gov/historical-sounds/), trimmed and reversed by the team to sound like a landing.
+import landingUrl from "../../../Audio/Launch.wav"
 
 /**
  * Menu music and UI sounds, built only from the team's files in the root Audio/ folder.
@@ -94,6 +97,8 @@ export function unlockAudio() {
     loadSlices(context).catch((error) => {
       console.warn("[sound] could not load UI sounds", error)
     })
+    // Decoded ahead of time so the landing sound starts with the descent.
+    void loadLanding(context).catch(() => {})
   }
   if (context.state === "suspended") void context.resume()
 }
@@ -134,6 +139,47 @@ export function playSfx(name: SfxName) {
   source.connect(gain).connect(context.destination)
   source.start(now)
   source.stop(now + duration)
+}
+
+// The lander's engine, played whole each time a lander comes down (see map/mapView.ts).
+const LANDING_GAIN = 0.8
+let landingBuffer: Promise<AudioBuffer> | null = null
+
+function loadLanding(ctx: AudioContext) {
+  landingBuffer ??= fetch(landingUrl)
+    .then((answer) => answer.arrayBuffer())
+    .then((bytes) => ctx.decodeAudioData(bytes))
+  landingBuffer.catch((error) => {
+    console.warn("[sound] could not load the landing sound", error)
+    landingBuffer = null
+  })
+  return landingBuffer
+}
+
+/**
+ * Plays the landing engine sound once, at the SFX volume. Returns a function
+ * that stops it early, for when the player leaves the map mid-landing.
+ */
+export function playLanding(): () => void {
+  const ctx = context
+  let source: AudioBufferSourceNode | null = null
+  let stopped = false
+  if (ctx) {
+    void loadLanding(ctx).then((buffer) => {
+      const { muted, sfxVolume } = settingsStore.getState()
+      if (stopped || muted || sfxVolume === 0) return
+      source = ctx.createBufferSource()
+      source.buffer = buffer
+      const gain = ctx.createGain()
+      gain.gain.value = LANDING_GAIN * sfxVolume
+      source.connect(gain).connect(ctx.destination)
+      source.start()
+    })
+  }
+  return () => {
+    stopped = true
+    source?.stop()
+  }
 }
 
 // Follow volume and mute changes live.

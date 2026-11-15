@@ -21,7 +21,7 @@ function HoverBar() {
 
 function playedNote(slot: SaveSlot) {
   const date = new Date(slot.lastPlayedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })
-  return `Last played ${date}`
+  return `Era ${slot.era} · Last played ${date}`
 }
 
 function NewSaveForm({ index, onCreate, onCancel }: { index: number; onCreate: (name: string) => void; onCancel: () => void }) {
