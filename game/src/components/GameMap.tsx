@@ -1,12 +1,28 @@
-import { useEffect, useRef, useState } from "react"
-import { createMapView } from "@/map/mapView"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { DevConsole, type DevTool } from "@/components/DevConsole"
+import { SpaceWeatherPanel } from "@/components/SpaceWeatherPanel"
+import { moduleType } from "@/content/modules"
+import { createMapView, type MapView } from "@/map/mapView"
 import { formatSite, type MarsSite } from "@/map/marsSite"
 import { loadTerrain, type Cell, type VoxelTerrain } from "@/map/voxelTerrain"
+import {
+  TUBE,
+  checkModule,
+  checkTubes,
+  connectedGroups,
+  moduleAt,
+  occupancy,
+  placementOrigin,
+  tubeRun,
+  type Base,
+} from "@/sim/base"
 
 /*
  * The base map screen: the ground around the expedition's landing site, built
- * from NASA imagery and elevation (see map/). The base builder goes on top of
- * this. The panels copy the look of MainMenu.
+ * from NASA imagery and elevation (see map/), with the lander and the base on
+ * it. For now the base (modules, and the tubes between them) is built by hand
+ * from the dev console (the ` key).
+ * The panels copy the look of MainMenu.
  */
 
 const kickerClass = "text-xs font-medium uppercase tracking-[0.4em] text-orange-300/80"
@@ -22,11 +38,44 @@ function formatElevation(metres: number) {
   return `about ${rounded < 0 ? "−" : ""}${Math.abs(rounded).toLocaleString("en-US")} m`
 }
 
-export function GameMap({ name, site, onExit }: { name: string; site: MarsSite; onExit: () => void }) {
+export function GameMap({
+  name,
+  site,
+  landed,
+  onLanded,
+  modules,
+  tubes,
+  onBaseChange,
+  onExit,
+}: {
+  name: string
+  site: MarsSite
+  /** Whether this expedition's lander is already down. If not, the landing plays. */
+  landed: boolean
+  onLanded: () => void
+  /** The base: its modules, and every cell with a piece of tube on it. */
+  modules: Base["modules"]
+  tubes: Base["tubes"]
+  onBaseChange: (base: Base) => void
+  onExit: () => void
+}) {
   const hostRef = useRef<HTMLDivElement>(null)
+  // Decided once, when the screen opens. `landed` turns true partway through the
+  // landing, and that mustn't rebuild the map underneath it.
+  const [showLanding] = useState(!landed)
+  const onLandedRef = useRef(onLanded)
+  useEffect(() => {
+    onLandedRef.current = onLanded
+  })
   const [attempt, setAttempt] = useState(0)
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [hovered, setHovered] = useState<Cell | null>(null)
+  const [view, setView] = useState<MapView | null>(null)
+  const [consoleOpen, setConsoleOpen] = useState(false)
+  const [tool, setTool] = useState<DevTool>(null)
+  const [message, setMessage] = useState<string | null>(null)
+  /** Where the run of tube being laid starts, once the first click of the tube tool has set it. */
+  const [tubeStart, setTubeStart] = useState<Cell | null>(null)
 
   // What's on screen belongs to this site and this try; anything else is still loading.
   const key = `${site.lat},${site.lon},${attempt}`
@@ -49,21 +98,141 @@ export function GameMap({ name, site, onExit }: { name: string; site: MarsSite; 
     }
   }, [site.lat, site.lon, key])
 
+  const base = useMemo<Base>(() => ({ modules, tubes }), [modules, tubes])
+  // What stands on each cell, worked out once per change to the base.
+  const grid = useMemo(() => (terrain ? occupancy(terrain.size, base) : null), [terrain, base])
+  const groupCount = useMemo(
+    () => (terrain && grid ? connectedGroups(terrain.size, base, grid).length : 0),
+    [terrain, base, grid],
+  )
+
+  const handleCellClick = (cell: Cell) => {
+    if (!terrain || !grid || !tool) return
+    const { size } = terrain
+
+    if (tool.kind === "remove") {
+      const target = moduleAt(modules, cell)
+      if (target) {
+        onBaseChange({ modules: modules.filter((module) => module.id !== target.id), tubes })
+        return setMessage(`Removed the ${moduleType(target.type).name}.`)
+      }
+      if (grid[cell.row * size + cell.col] === TUBE) {
+        onBaseChange({ modules, tubes: tubes.filter((tube) => tube.col !== cell.col || tube.row !== cell.row) })
+        return setMessage("Removed a block of tube.")
+      }
+      return setMessage("There is nothing to remove there.")
+    }
+
+    if (tool.kind === "tube") {
+      // The first click picks where the run starts; the second lays it and starts the next run from its end.
+      const run = tubeStart ? tubeRun(tubeStart, cell) : [cell]
+      const check = checkTubes(size, grid, run)
+      if (!check.ok) return setMessage(check.reason)
+      if (!tubeStart) {
+        setTubeStart(cell)
+        return setMessage("Now click where this run of tube should end.")
+      }
+      onBaseChange({ modules, tubes: [...tubes, ...check.added] })
+      setTubeStart(run[run.length - 1])
+      const blocks = check.added.length
+      return setMessage(
+        `Laid ${blocks} ${blocks === 1 ? "block" : "blocks"} of tube. Click again to carry on from here, or press Esc.`,
+      )
+    }
+
+    const check = checkModule(size, grid, tool.type, placementOrigin(tool.type, cell), crypto.randomUUID())
+    if (!check.ok) return setMessage(check.reason)
+    onBaseChange({ modules: [...modules, check.module], tubes })
+    setMessage(`Placed a ${moduleType(tool.type).name}. It isn't joined to anything until you lay a tube to it.`)
+  }
+  // The map calls this through a ref, so it always gets the latest tool and modules without being rebuilt.
+  const onCellClickRef = useRef(handleCellClick)
+  useEffect(() => {
+    onCellClickRef.current = handleCellClick
+  })
+
   useEffect(() => {
     const host = hostRef.current
     if (!host || !terrain) return
     const abort = new AbortController()
-    const view = createMapView(host, terrain, setHovered, abort.signal)
-    view.catch((reason: unknown) => {
-      setLoaded({ key, error: reason instanceof Error ? reason.message : String(reason) })
-    })
+    const starting = createMapView(
+      host,
+      terrain,
+      {
+        onHover: setHovered,
+        onCellClick: (cell) => onCellClickRef.current(cell),
+        onLanded: showLanding ? () => onLandedRef.current() : null,
+      },
+      abort.signal,
+    )
+    starting.then(
+      (created) => {
+        if (!abort.signal.aborted) setView(created)
+      },
+      (reason: unknown) => {
+        setLoaded({ key, error: reason instanceof Error ? reason.message : String(reason) })
+      },
+    )
     return () => {
       abort.abort()
       setHovered(null)
+      setView(null)
       // The view can only be torn down once it has finished starting up.
-      view.then((created) => created?.destroy()).catch(() => {})
+      starting.then((created) => created?.destroy()).catch(() => {})
     }
-  }, [terrain, key])
+  }, [terrain, key, showLanding])
+
+  useEffect(() => {
+    if (view && grid) view.setBase(base, grid)
+  }, [view, base, grid])
+
+  // While a tool that builds is picked in the dev console, the map shows what a click would build.
+  useEffect(() => {
+    if (!view || !terrain || !grid) return
+    const { size } = terrain
+    if (tool?.kind === "place") {
+      const { id: type, width, height } = moduleType(tool.type)
+      view.setPlacement({
+        preview: (cell) => {
+          const origin = placementOrigin(type, cell)
+          return { rect: { ...origin, width, height }, tubes: [], ok: checkModule(size, grid, type, origin).ok }
+        },
+      })
+    } else if (tool?.kind === "tube") {
+      view.setPlacement({
+        preview: (cell) => {
+          const run = tubeStart ? tubeRun(tubeStart, cell) : [cell]
+          return { rect: null, tubes: run, ok: checkTubes(size, grid, run).ok }
+        },
+      })
+    } else {
+      view.setPlacement(null)
+    }
+  }, [view, terrain, grid, tool, tubeStart])
+
+  const pickTool = (next: DevTool) => {
+    setTool(next)
+    setTubeStart(null)
+    setMessage(null)
+  }
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code === "Backquote") {
+        setConsoleOpen((open) => !open)
+        setTool(null)
+        setTubeStart(null)
+        setMessage(null)
+      }
+      // Esc first lets go of a run of tube that has been started, then of the tool itself.
+      if (e.key === "Escape") {
+        if (tubeStart) setTubeStart(null)
+        else setTool(null)
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [tubeStart])
 
   const hoveredIndex = terrain && hovered ? hovered.row * terrain.size + hovered.col : null
 
@@ -74,16 +243,47 @@ export function GameMap({ name, site, onExit }: { name: string; site: MarsSite; 
       {/* Panels sit over the map but let drags and clicks through to it. */}
       <div className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between p-4 sm:p-6">
         <div className="flex items-start justify-between gap-4">
-          <div className={panelClass}>
-            <p className={kickerClass}>{name}</p>
-            <h1 className="mt-1 text-lg font-semibold tracking-wider">{formatSite(site)}</h1>
-            <p className="mt-1 text-[11px] text-white/50">
-              Landing site on Mars. Each block is about {terrain ? Math.round(terrain.metersPerCell) : 163} m wide.
-            </p>
+          <div className="flex flex-col items-start gap-3">
+            <div className={panelClass}>
+              <p className={kickerClass}>{name}</p>
+              <h1 className="mt-1 text-lg font-semibold tracking-wider">{formatSite(site)}</h1>
+              <p className="mt-1 text-[11px] text-white/50">
+                Landing site on Mars. Each block is about {terrain ? Math.round(terrain.metersPerCell) : 163} m wide.
+              </p>
+            </div>
+            {consoleOpen && terrain && (
+              <DevConsole
+                tool={tool}
+                onTool={pickTool}
+                tubeStarted={tubeStart !== null}
+                moduleCount={modules.length}
+                tubeCells={tubes.length}
+                groupCount={groupCount}
+                message={message}
+                onClear={() => {
+                  onBaseChange({ modules: [], tubes: [] })
+                  setTubeStart(null)
+                  setMessage("Cleared the base.")
+                }}
+                onClose={() => {
+                  setConsoleOpen(false)
+                  pickTool(null)
+                }}
+              />
+            )}
           </div>
-          <button type="button" onClick={onExit} className={buttonClass}>
-            Back to menu
-          </button>
+          <div className="flex flex-col items-end gap-3">
+            <button type="button" onClick={onExit} className={buttonClass}>
+              Back to menu
+            </button>
+            <SpaceWeatherPanel />
+            {/* Shown on a developer's machine only. On the live site the ` key still opens the console. */}
+            {import.meta.env.DEV && !consoleOpen && terrain && (
+              <button type="button" onClick={() => setConsoleOpen(true)} className={buttonClass}>
+                Dev console
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">

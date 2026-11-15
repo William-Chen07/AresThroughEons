@@ -239,6 +239,16 @@ const DATA_CREDITS: Credit[] = [
     ],
   },
   {
+    use: "Space weather",
+    what:
+      "Live alerts on the base map from DONKI, the Space Weather Database Of Notifications, Knowledge, " +
+      "Information, by the Community Coordinated Modeling Center at NASA Goddard, through NASA's open API.",
+    links: [
+      { label: "NASA DONKI", href: "https://ccmc.gsfc.nasa.gov/tools/DONKI/" },
+      { label: "api.nasa.gov", href: "https://api.nasa.gov/" },
+    ],
+  },
+  {
     use: "Planet positions",
     what: "DE442 planetary ephemeris (2025), NASA/JPL NAIF (SPICE).",
     links: [
