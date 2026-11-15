@@ -39,7 +39,7 @@ export const STATUSES: Record<StatusId, StatusDef> = {
     id: "starving",
     label: "Starving",
     description: "No food left. Their body is getting weaker.",
-    fix: "Get more food. A greenhouse can grow it.",
+    fix: "Get more food!",
     severity: "serious",
     treatable: false,
     moralePenalty: 20,

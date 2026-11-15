@@ -27,6 +27,16 @@ export type TraitId =
   | "quickLearner"
   | "chatty"
   | "quiet"
+  | "wimp" //Damage easier, but a happier person
+  | "toosmart" //Good research, everyone hates them
+  | "egotistical" //Good stats, hates everybody
+  | "Linear" //Will not swap or leave tasks incomplete unless physically imposible to make it possible
+  | "hermit" //Whats to stay insiude
+  | "asthmatic" // Uses more oxygen
+  | "OverAchiever" //Will do tasks not told to complete
+  | "Mexican" //small chance to do an entirely diffrent task that was applied
+  | "Techy"
+
 
 export type StatusId =
   // Caused by needs. Fixed by supplies or sleep, not by a medic.
