@@ -14,6 +14,8 @@ function App() {
   const markLanded = useSaves((s) => s.markLanded)
   const setBase = useSaves((s) => s.setBase)
   const research = useSaves((s) => s.research)
+  const passTime = useSaves((s) => s.passTime)
+  const setWeather = useSaves((s) => s.setWeather)
 
   if (screen === "menu") {
     return <MainMenu onStart={() => setScreen("game")} />
@@ -32,6 +34,10 @@ function App() {
         onBaseChange={(base) => activeSlot !== null && setBase(activeSlot, base)}
         researched={save.researched}
         resources={save.resources}
+        health={save.health}
+        weather={save.weather}
+        onWeather={(id) => activeSlot !== null && setWeather(activeSlot, id)}
+        onTimePassed={(hours, crew) => activeSlot !== null && passTime(activeSlot, hours, crew)}
         onResearch={(projectId) => activeSlot !== null && research(activeSlot, projectId)}
         onExit={() => setScreen("menu")}
       />

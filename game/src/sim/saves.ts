@@ -5,7 +5,10 @@ import { randomSite, type MarsSite } from "@/map/marsSite"
 import type { Base } from "@/sim/base"
 import type { Cell } from "@/map/voxelTerrain"
 import { startingResources, upgradeResources, type Resources } from "@/content/resources"
+import { weatherEvent, type WeatherId } from "@/content/weather"
+import { liveThrough, type CrewHealth, type CrewMember } from "@/sim/lifeSupport"
 import { withResearch } from "@/sim/research"
+import { advanceWeather, calmHours, startWeather, type Weather } from "@/sim/weather"
 
 export const SAVE_SLOT_COUNT = 3
 export const SAVE_NAME_MAX = 16
@@ -36,6 +39,17 @@ export interface SaveSlot {
   researched: string[]
   /** How much of each resource the base has (see content/resources.ts). */
   resources: Resources
+  /**
+   * The expedition's clock: game-hours played since the crew stepped out of the
+   * lander. It only runs while the base map is open. A Mars day (sol) is about 24.66 of them.
+   */
+  hours: number
+  /** Each astronaut's health, by astronaut id (see sim/lifeSupport.ts). */
+  health: CrewHealth
+  /** The weather event going on right now, or null in calm weather (see sim/weather.ts). */
+  weather: Weather
+  /** The time on the clock (`hours`) when the next weather event starts. */
+  nextWeatherAt: number
   // TODO(game): the rest of the saved game state for this slot goes here.
 }
 
@@ -59,6 +73,14 @@ interface SavesActions {
   research: (index: number, projectId: string) => void
   /** Sets the amounts of the resources given; the others stay as they are. Amounts can't go below zero. */
   setResources: (index: number, amounts: Partial<Resources>) => void
+  /**
+   * Moves the expedition's clock on by `hours` game-hours: the weather moves on, and the crew
+   * use up what they needed in that time and lose health if it wasn't there, or if they were
+   * outside in a storm (see sim/lifeSupport.ts and sim/weather.ts).
+   */
+  passTime: (index: number, hours: number, crew: readonly CrewMember[]) => void
+  /** Starts a weather event right now, or with null ends the one going on. For the dev tools. */
+  setWeather: (index: number, id: WeatherId | null) => void
 }
 
 /** Used when the player leaves the name empty. */
@@ -89,6 +111,10 @@ export const savesStore = createStore<Saves & SavesActions>()(
           tubes: [],
           researched: [],
           resources: startingResources(),
+          hours: 0,
+          health: {},
+          weather: null,
+          nextWeatherAt: calmHours(Math.random()),
         }
         set({ slots: withSlot(get().slots, index, slot), activeSlot: index })
       },
@@ -128,6 +154,27 @@ export const savesStore = createStore<Saves & SavesActions>()(
         }
         set({ slots: withSlot(get().slots, index, { ...slot, resources }) })
       },
+      passTime: (index, hours, crew) => {
+        const slot = get().slots[index]
+        if (!slot) return
+        const clock = slot.hours + hours
+        const sky = advanceWeather(slot.weather, slot.nextWeatherAt, clock, hours, Math.random())
+        const storm =
+          slot.weather && sky.stormHours > 0
+            ? { hours: sky.stormHours, healthLostPerHour: weatherEvent(slot.weather.id).healthLostPerHourOutside }
+            : null
+        const after = liveThrough(slot.resources, slot.health, crew, hours, storm)
+        const next = { ...slot, hours: clock, weather: sky.weather, nextWeatherAt: sky.nextAt, ...after }
+        set({ slots: withSlot(get().slots, index, next) })
+      },
+      setWeather: (index, id) => {
+        const slot = get().slots[index]
+        if (!slot) return
+        const next = id
+          ? { ...slot, weather: startWeather(id) }
+          : { ...slot, weather: null, nextWeatherAt: slot.hours + calmHours(Math.random()) }
+        set({ slots: withSlot(get().slots, index, next) })
+      },
       markLanded: (index) => {
         const slot = get().slots[index]
         if (slot && !slot.landed) set({ slots: withSlot(get().slots, index, { ...slot, landed: true }) })
@@ -138,12 +185,14 @@ export const savesStore = createStore<Saves & SavesActions>()(
       partialize: ({ slots, activeSlot }) => ({ slots, activeSlot }),
       // Version 1 added `site`, version 2 `landed`, version 3 `modules`,
       // version 4 `tubes`, version 5 `researched`, version 6 `resources`,
-      // version 7 the power and materials resources, and version 8 morale and
-      // the split of materials into ice and regolith. Older saves get a random
-      // site, count as not landed yet (so they see the landing once) and start
-      // with no modules or tubes, nothing researched and the starting amount
-      // of any resource they don't have yet.
-      version: 8,
+      // version 7 the power and materials resources, version 8 morale and the
+      // split of materials into ice and regolith, version 9 `hours`, version 10
+      // `health` and version 11 `weather` and `nextWeatherAt`. Older saves get a
+      // random site, count as not landed yet (so they see the landing once) and
+      // start with no modules or tubes, nothing researched, the starting amount
+      // of any resource they don't have yet, the clock at zero, everyone at full
+      // health and calm weather, with the first event a while off.
+      version: 11,
       migrate: (stored) => {
         const old = stored as Saves
         return {
@@ -158,6 +207,10 @@ export const savesStore = createStore<Saves & SavesActions>()(
                 tubes: slot.tubes ?? [],
                 researched: slot.researched ?? [],
                 resources: upgradeResources(slot.resources),
+                hours: slot.hours ?? 0,
+                health: slot.health ?? {},
+                weather: slot.weather ?? null,
+                nextWeatherAt: slot.nextWeatherAt ?? (slot.hours ?? 0) + calmHours(Math.random()),
               },
           ),
         }

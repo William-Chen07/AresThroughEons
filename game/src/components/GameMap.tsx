@@ -4,6 +4,7 @@ import { ResearchPanel } from "@/components/ResearchPanel"
 import { ResourceBar } from "@/components/ResourceBar"
 import { moduleType, type ModuleTypeId } from "@/content/modules"
 import type { Resources } from "@/content/resources"
+import { weatherEvent, type WeatherId } from "@/content/weather"
 import { createMapView, type ClickKeys, type MapView } from "@/map/mapView"
 import { formatSite, type MarsSite } from "@/map/marsSite"
 import { loadTerrain, type Cell, type VoxelTerrain } from "@/map/voxelTerrain"
@@ -19,6 +20,7 @@ import {
   tubeRun,
   type Base,
 } from "@/sim/base"
+import { healthOf, type CrewHealth, type CrewMember } from "@/sim/lifeSupport"
 import { buildNavigation, syncNavigation } from "@/sim/navigation"
 import {
   addPawn,
@@ -32,12 +34,13 @@ import {
   type Tile,
   type World,
 } from "@/sim/pathing"
+import type { Weather } from "@/sim/weather"
 
 /*
  * The base map screen: the ground around the expedition's landing site, built
  * from NASA imagery and elevation (see map/), with the lander and the base on
  * it. For now the base (modules, and the tubes between them) is built by hand
- * from the build panel (the Build button or the ` key).
+ * from the dev tools panel (the Dev tools button or the ` key).
  * The crew are placeholders: three astronauts who appear beside the lander once
  * it's down. Click one, then click where to send them (sim/pathing moves them).
  * They aren't saved yet, so they start beside the lander each time the map opens.
@@ -104,7 +107,10 @@ function describeEvent(event: PathingEvent): string | null {
   switch (event.type) {
     case "blocked":
     case "cancelled":
+    case "needUnmet":
       return `${crewName(event.pawnId)}: ${event.reason}`
+    case "needInterrupt":
+      return event.need === "shelter" ? `${crewName(event.pawnId)} is heading inside to shelter.` : null
     case "airlockCycling":
       return `${crewName(event.pawnId)} is cycling through the airlock.`
     case "exposureChanged":
@@ -140,6 +146,10 @@ export function GameMap({
   researched,
   onResearch,
   resources,
+  health,
+  weather,
+  onWeather,
+  onTimePassed,
   onExit,
 }: {
   name: string
@@ -156,6 +166,17 @@ export function GameMap({
   onResearch: (projectId: string) => void
   /** How much of each resource the base has. */
   resources: Resources
+  /** Each astronaut's health, by astronaut id. */
+  health: CrewHealth
+  /** The weather event going on right now, or null in calm weather. */
+  weather: Weather
+  /** Starts a weather event now, or with null ends the one going on (from the dev tools). */
+  onWeather: (id: WeatherId | null) => void
+  /**
+   * Called about once a second while the crew is out of the lander, with the game-hours that
+   * went by and the astronauts who lived through them (and whether each is outside right now).
+   */
+  onTimePassed: (hours: number, crew: CrewMember[]) => void
   onExit: () => void
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
@@ -317,21 +338,52 @@ export function GameMap({
     })
   }, [landed, terrain, base])
 
+  const onTimePassedRef = useRef(onTimePassed)
+  // The frame loop reads the weather through a ref, so a storm starting doesn't restart the loop.
+  const stormRef = useRef(weather !== null)
+  useEffect(() => {
+    onTimePassedRef.current = onTimePassed
+    stormRef.current = weather !== null
+  })
+
   // Every frame: move the crew along, draw them, and pass on anything worth saying.
   useEffect(() => {
     if (!view) return
-    return view.onFrame((deltaMs) => {
+    // Game time that has gone by but isn't in the save yet. The save is written to the browser's
+    // storage on every change, so time is handed over about once a second, not on every frame.
+    const unsaved = { hours: 0, ms: 0 }
+    const handOver = () => {
+      const crew = Object.values(crewRef.current?.world.movers ?? {}).map((mover) => ({
+        id: mover.pawnId,
+        outside: mover.exposure === "outside",
+      }))
+      if (unsaved.hours > 0 && crew.length > 0) onTimePassedRef.current(unsaved.hours, crew)
+      unsaved.hours = unsaved.ms = 0
+    }
+    const stop = view.onFrame((deltaMs) => {
       const crew = crewRef.current?.world
       if (!crew) return
       // A long gap (the tab was hidden) shouldn't make everyone teleport.
-      const events = stepPathing(crew, (Math.min(deltaMs, 100) / 1000) * GAME_HOURS_PER_SECOND)
+      const dtHours = (Math.min(deltaMs, 100) / 1000) * GAME_HOURS_PER_SECOND
+      // In a storm everyone needs shelter: the crew code sends them indoors and holds them there.
+      const events = stepPathing(crew, dtHours, { urgentNeed: () => (stormRef.current ? "shelter" : null) })
+      // The clock starts once the crew has stepped out of the lander.
+      if (Object.keys(crew.movers).length > 0) {
+        unsaved.hours += dtHours
+        unsaved.ms += deltaMs
+        if (unsaved.ms >= 1000) handOver()
+      }
       view.drawCrew(crew, CREW_COLORS)
       const said = events.map(describeEvent).filter((line) => line !== null)
       if (said.length > 0) setCrewMessage(said[said.length - 1])
     })
+    return () => {
+      stop()
+      handOver()
+    }
   }, [view])
 
-  // While a tool that builds is picked in the build panel, the map shows what a click would build.
+  // While a tool that builds is picked in the dev tools panel, the map shows what a click would build.
   useEffect(() => {
     if (!view || !terrain || !grid) return
     const { size } = terrain
@@ -394,6 +446,8 @@ export function GameMap({
   return (
     <main className="relative h-dvh w-full overflow-hidden bg-[#020104] text-white">
       <div ref={hostRef} className="absolute inset-0 touch-none" />
+      {/* The storm's glow and streaks over the map (styled in index.css). */}
+      {weather && terrain && <div aria-hidden className="storm-overlay" />}
 
       {/* Panels sit over the map but let drags and clicks through to it. */}
       <div className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between p-4 sm:p-6">
@@ -415,6 +469,8 @@ export function GameMap({
                 tubeCells={tubes.length}
                 groupCount={groupCount}
                 message={message}
+                stormActive={weather !== null}
+                onStorm={() => onWeather(weather ? null : "radiation-storm")}
                 onClear={() => {
                   onBaseChange({ modules: [], tubes: [] })
                   setTubeStart(null)
@@ -438,6 +494,12 @@ export function GameMap({
                       <span className="size-2.5 rounded-full" style={{ background: hex(member.color) }} />
                       {member.name}
                       {selectedCrew.includes(member.id) && <span className="text-[11px] text-white/50">selected</span>}
+                      {/* Health sits at the right edge of the row; it turns orange once it has dropped below half. */}
+                      <span
+                        className={`ml-auto pl-4 text-[11px] font-semibold uppercase tracking-[0.15em] tabular-nums ${healthOf(health, member.id) < 50 ? "text-orange-300" : "text-white/50"}`}
+                      >
+                        Health {Math.ceil(healthOf(health, member.id))}
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -457,10 +519,10 @@ export function GameMap({
                 Back to menu
               </button>
             </div>
-            {/* Opens the build panel; the ` key toggles it too. */}
+            {/* Opens the dev tools panel; the ` key toggles it too. */}
             {!buildOpen && terrain && (
               <button type="button" onClick={() => setBuildOpen(true)} className={buttonClass}>
-                Build
+                Dev tools
               </button>
             )}
             {terrain && (
@@ -487,6 +549,20 @@ export function GameMap({
           </p>
         </div>
       </div>
+
+      {/* A weather event going on: what it is, what to do, and how long is left. */}
+      {weather && terrain && (
+        <div className="pointer-events-none absolute inset-x-0 top-20 z-10 flex justify-center px-4" role="alert">
+          <div className="max-w-md border border-orange-400/70 bg-neutral-950/90 px-5 py-3 backdrop-blur-sm">
+            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-300">
+              {weatherEvent(weather.id).name}
+              <span className="ml-3 tracking-[0.15em] text-white/50">{Math.ceil(weather.hoursLeft)} h left</span>
+            </p>
+            <p className="mt-1 text-sm text-white/90">{weatherEvent(weather.id).warning}</p>
+            <p className="mt-2 text-[11px] leading-relaxed text-white/55">{weatherEvent(weather.id).text}</p>
+          </div>
+        </div>
+      )}
 
       {researchOpen && (
         <ResearchPanel researched={researched} onResearch={onResearch} onClose={() => setResearchOpen(false)} />

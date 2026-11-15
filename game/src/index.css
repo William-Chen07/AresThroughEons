@@ -128,3 +128,51 @@
     @apply font-sans;
     }
 }
+/*
+ * The radiation storm on the base map (see GameMap.tsx): a violet glow that
+ * pulses in from the edges of the screen, with faint streaks sweeping across
+ * like particles from the Sun. It sits over the map and under the panels, and
+ * lets clicks through. The middle stays clear so the map stays bright.
+ */
+.storm-overlay {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, rgb(200 90 255 / 0.06) 35%, rgb(200 90 255 / 0.5) 100%);
+  animation: storm-pulse 2.4s ease-in-out infinite;
+}
+.storm-overlay::before {
+  content: "";
+  position: absolute;
+  inset: -60px;
+  background-image: repeating-linear-gradient(
+    115deg,
+    transparent 0 44px,
+    rgb(255 225 255 / 0.16) 44px 46px,
+    transparent 46px 48px
+  );
+  animation: storm-streaks 0.5s linear infinite;
+}
+@keyframes storm-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+/* One step of the streak pattern (48px) along its 115-degree direction, so the loop has no jump. */
+@keyframes storm-streaks {
+  to {
+    transform: translate(43.5px, 20.3px);
+  }
+}
+/* For people who have asked for less motion: the glow stays, nothing moves. */
+@media (prefers-reduced-motion: reduce) {
+  .storm-overlay,
+  .storm-overlay::before {
+    animation: none;
+  }
+}

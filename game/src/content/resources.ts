@@ -3,8 +3,9 @@
  * resource, or change a starting amount or colour, without touching the game code.
  *
  * `start` is how much a new expedition lands with. `color` is the swatch shown
- * beside the name in the resource bar. `about` is a plain-words line shown when
- * the pointer rests on the resource.
+ * beside the name in the resource bar. `what` (what it is) and `why` (why it
+ * matters on a NASA mission to Mars) are shown when the pointer rests on the
+ * resource: kid-friendly, plain words, a science word explained where it is used.
  *
  * Ice and regolith are the two raw materials dug out of Mars. They are taken
  * straight from NASA's overview of in-situ resource utilization (ISRU, using
@@ -17,25 +18,62 @@
  * which the game doesn't have as a resource (yet).
  */
 export const RESOURCE_TYPES = [
-  { id: "oxygen", name: "Oxygen", start: 100, color: 0x7fd4ff, about: "Air for the crew to breathe." },
-  { id: "water", name: "Water", start: 100, color: 0x4f9fd9, about: "For drinking, washing and growing plants." },
-  { id: "food", name: "Food", start: 100, color: 0x62b56c, about: "Meals for the crew." },
-  { id: "power", name: "Power", start: 100, color: 0xe0b040, about: "Electricity that runs the base." },
+  {
+    id: "oxygen",
+    name: "Oxygen",
+    start: 100,
+    color: 0x7fd4ff,
+    what: "The gas people need to breathe.",
+    why: "The air on Mars is almost all carbon dioxide, so a crew has to bring oxygen or make it. NASA's MOXIE experiment made oxygen from Mars air for the first time.",
+  },
+  {
+    id: "water",
+    name: "Water",
+    start: 100,
+    color: 0x4f9fd9,
+    what: "Clean water for drinking, washing and growing plants.",
+    why: "Water is heavy, so rockets can't carry enough for a whole mission. On the space station NASA recycles 98% of it, and a Mars crew would do the same.",
+  },
+  {
+    id: "food",
+    name: "Food",
+    start: 100,
+    color: 0x62b56c,
+    what: "Meals for the crew.",
+    why: "Mars is months away from the nearest supply ship. NASA grows plants on the space station to learn how astronauts can farm fresh food far from Earth.",
+  },
+  {
+    id: "power",
+    name: "Power",
+    start: 100,
+    color: 0xe0b040,
+    what: "Electricity that runs the base.",
+    why: "Everything that keeps a crew alive needs it: heat, lights, and the machines that make air and water. NASA's Mars missions get theirs from solar panels or nuclear power.",
+  },
   {
     id: "ice",
     name: "Ice",
     start: 100,
     color: 0xe6f2f8,
-    about: "Frozen water dug out of the ground on Mars. It can be melted into water.",
+    what: "Frozen water dug out of the ground on Mars.",
+    why: "NASA plans for crews to use what Mars already has. Ice can be melted into drinking water, and turned into oxygen and rocket fuel.",
   },
   {
     id: "regolith",
     name: "Regolith",
     start: 100,
     color: 0xc8744a,
-    about: "The loose soil and rock that covers Mars. It is what the base is built from.",
+    what: "The loose soil and rock that covers Mars.",
+    why: "Building supplies are too heavy to ship from Earth. NASA is testing 3D printers that build with regolith, so a base can be made from the ground it stands on.",
   },
-  { id: "morale", name: "Morale", start: 100, color: 0xd98ad9, about: "How the crew is feeling." },
+  {
+    id: "morale",
+    name: "Morale",
+    start: 100,
+    color: 0xd98ad9,
+    what: "How the crew is feeling.",
+    why: "A Mars crew lives in a small space, far from home, for a very long time. NASA studies this because a team that feels good works better and makes fewer mistakes.",
+  },
 ] as const
 
 export type ResourceType = (typeof RESOURCE_TYPES)[number]
