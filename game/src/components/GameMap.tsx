@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { BuildPanel, type BuildTool } from "@/components/BuildPanel"
 import { ResearchPanel } from "@/components/ResearchPanel"
 import { ResourceBar } from "@/components/ResourceBar"
+import { StormOverlay } from "@/components/StormOverlay"
 import { moduleType, type ModuleTypeId } from "@/content/modules"
 import type { Resources } from "@/content/resources"
 import { weatherEvent, type WeatherId } from "@/content/weather"
@@ -446,8 +447,8 @@ export function GameMap({
   return (
     <main className="relative h-dvh w-full overflow-hidden bg-[#020104] text-white">
       <div ref={hostRef} className="absolute inset-0 touch-none" />
-      {/* The storm's glow and streaks over the map (styled in index.css). */}
-      {weather && terrain && <div aria-hidden className="storm-overlay" />}
+      {/* The storm's glow and clouds over the map. */}
+      {weather && terrain && <StormOverlay />}
 
       {/* Panels sit over the map but let drags and clicks through to it. */}
       <div className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between p-4 sm:p-6">
