@@ -242,7 +242,9 @@ const DATA_CREDITS: Credit[] = [
     use: "Space weather",
     what:
       "Live alerts on the base map from DONKI, the Space Weather Database Of Notifications, Knowledge, " +
-      "Information, by the Community Coordinated Modeling Center at NASA Goddard, through NASA's open API.",
+      "Information, by the Community Coordinated Modeling Center at NASA Goddard. The last 7 days of alerts " +
+      "are requested from NASA's open API (DONKI notifications) with our team's api.nasa.gov API key, " +
+      "which stays on our server and is never sent to your browser.",
     links: [
       { label: "NASA DONKI", href: "https://ccmc.gsfc.nasa.gov/tools/DONKI/" },
       { label: "api.nasa.gov", href: "https://api.nasa.gov/" },

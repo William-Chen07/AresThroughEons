@@ -10,9 +10,9 @@
  * name NASA_API_KEY. Without one it falls back to NASA's public DEMO_KEY,
  * which works but is limited to a few dozen requests an hour.
  *
- * On a developer's machine the Vite dev server runs this same file (see
- * vite.config.ts). Put NASA_API_KEY=... in game/.env.local to use a real key
- * there; that file is kept out of git.
+ * On a developer's machine the Vite dev server forwards /api calls to the
+ * deployed site (see vite.config.ts), so edits to this file only show up
+ * locally after they are deployed.
  */
 
 interface DonkiNotification {

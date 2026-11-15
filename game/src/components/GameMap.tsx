@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { DevConsole, type DevTool } from "@/components/DevConsole"
+import { BuildPanel, type BuildTool } from "@/components/BuildPanel"
 import { SpaceWeatherPanel } from "@/components/SpaceWeatherPanel"
 import { moduleType, type ModuleTypeId } from "@/content/modules"
 import { createMapView, type ClickKeys, type MapView } from "@/map/mapView"
@@ -38,7 +38,7 @@ import {
  * The base map screen: the ground around the expedition's landing site, built
  * from NASA imagery and elevation (see map/), with the lander and the base on
  * it. For now the base (modules, and the tubes between them) is built by hand
- * from the dev console (the ` key).
+ * from the build panel (the Build button or the ` key).
  * The crew are placeholders: three astronauts who appear beside the lander once
  * it's down. Click one, then click where to send them (sim/pathing moves them).
  * They aren't saved yet, so they start beside the lander each time the map opens.
@@ -425,7 +425,7 @@ export function GameMap({
     }
   }, [view, terrain, grid, tool, tubeStart])
 
-  const pickTool = (next: DevTool) => {
+  const pickTool = (next: BuildTool) => {
     setTool(next)
     setTubeStart(null)
     setMessage(null)
@@ -434,7 +434,7 @@ export function GameMap({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.code === "Backquote") {
-        setConsoleOpen((open) => !open)
+        setBuildOpen((open) => !open)
         setTool(null)
         setTubeStart(null)
         setMessage(null)
@@ -486,8 +486,8 @@ export function GameMap({
                 Landing site on Mars. Each block is about {terrain ? Math.round(terrain.metersPerCell) : 163} m wide.
               </p>
             </div>
-            {consoleOpen && terrain && (
-              <DevConsole
+            {buildOpen && terrain && (
+              <BuildPanel
                 tool={tool}
                 onTool={pickTool}
                 tubeStarted={tubeStart !== null}
@@ -501,7 +501,7 @@ export function GameMap({
                   setMessage("Cleared the base.")
                 }}
                 onClose={() => {
-                  setConsoleOpen(false)
+                  setBuildOpen(false)
                   pickTool(null)
                 }}
               />

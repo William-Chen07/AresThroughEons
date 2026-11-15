@@ -3,18 +3,18 @@ import { MODULE_TYPES, type ModuleTypeId } from "@/content/modules"
 /*
  * A panel for building the base by hand while the real building rules don't
  * exist yet: place modules, lay the tubes between them, and remove either.
- * Nothing connects by itself (see sim/base.ts). Opened with the ` key from the
- * base map.
+ * Nothing connects by itself (see sim/base.ts). Shown to players as "Build",
+ * opened from the Build button or the ` key on the base map.
  */
 
-export type DevTool = { kind: "place"; type: ModuleTypeId } | { kind: "tube" } | { kind: "remove" } | null
+export type BuildTool = { kind: "place"; type: ModuleTypeId } | { kind: "tube" } | { kind: "remove" } | null
 
 const toolButton =
   "flex w-full items-center justify-between gap-3 border px-3 py-1.5 text-left text-xs font-semibold uppercase tracking-[0.2em] transition focus-visible:outline-2 focus-visible:outline-orange-400"
 const idle = "border-white/15 bg-white/5 hover:border-orange-400/70 hover:bg-orange-500/15"
 const active = "border-orange-400/70 bg-orange-500/25 text-orange-100"
 
-export function DevConsole({
+export function BuildPanel({
   tool,
   onTool,
   tubeStarted,
@@ -25,9 +25,9 @@ export function DevConsole({
   onClear,
   onClose,
 }: {
-  tool: DevTool
+  tool: BuildTool
   /** Picking the tool that is already active turns it off. */
-  onTool: (tool: DevTool) => void
+  onTool: (tool: BuildTool) => void
   /** True once the tube tool's first click has picked where a run starts. */
   tubeStarted: boolean
   moduleCount: number
@@ -53,14 +53,14 @@ export function DevConsole({
 
   return (
     <section
-      aria-label="Dev console"
+      aria-label="Build"
       className="pointer-events-auto w-64 border border-white/15 bg-neutral-950/85 p-4 backdrop-blur-sm"
     >
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-300/90">Dev console</h2>
+        <h2 className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-300/90">Build</h2>
         <button
           type="button"
-          aria-label="Close dev console"
+          aria-label="Close build panel"
           onClick={onClose}
           className="border border-white/15 px-2 py-0.5 text-xs transition hover:border-orange-400/70 focus-visible:outline-2 focus-visible:outline-orange-400"
         >
