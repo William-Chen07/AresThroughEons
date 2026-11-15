@@ -10,11 +10,13 @@ const MENU_ITEMS: { id: MenuAction; label: string }[] = [
   { id: "credits", label: "Credits" },
 ]
 
-/** Every external dataset behind the Mars globe (see MarsGlobe.tsx / lib/marsEphemeris.ts). */
+/** Every external dataset behind the Mars globe (see MarsGlobe.tsx / lib/marsEphemeris.ts) and the base map (see map/marsTrek.ts). */
 const DATA_CREDITS: { use: string; what: string; links: { label: string; href: string }[] }[] = [
   {
-    use: "Surface imagery",
-    what: "Viking MDIM 2.1 colour mosaic (Mars_Viking_MDIM21_ClrMosaic_global_232m), via NASA Mars Trek.",
+    use: "Surface imagery (globe) and base map colour",
+    what:
+      "Viking MDIM 2.1 colour mosaic (Mars_Viking_MDIM21_ClrMosaic_global_232m), NASA Ames / USGS Astrogeology " +
+      "Science Center, public domain, via NASA Mars Trek.",
     links: [{ label: "NASA Mars Trek", href: "https://trek.nasa.gov/mars/" }],
   },
   {
@@ -27,11 +29,30 @@ const DATA_CREDITS: { use: string; what: string; links: { label: string; href: s
     ],
   },
   {
-    use: "Shape and terrain",
+    use: "Base map detail",
+    what:
+      "Mars Odyssey THEMIS daytime infrared global mosaic, 100 m, v2 " +
+      "(THEMIS_DayIR_ControlledMosaics_100m_v2_oct2018), NASA/JPL-Caltech/Arizona State University/USGS " +
+      "Astrogeology, via NASA Mars Trek.",
+    links: [{ label: "NASA Mars Trek", href: "https://trek.nasa.gov/mars/" }],
+  },
+  {
+    use: "Map tiles",
+    what:
+      "The base map's imagery and elevation are loaded as map tiles from NASA Solar System Treks (Mars Trek), " +
+      "run by NASA JPL and SSERVI.",
+    links: [{ label: "Trek tile service", href: "https://trek.nasa.gov/tiles/apidoc/trekAPI.html?body=mars" }],
+  },
+  {
+    use: "Shape and terrain (globe) and base map heights",
     what:
       "Mars MGS MOLA DEM 463m, NASA Goddard Space Flight Center / USGS Astrogeology, CC0 (public " +
-      "domain), on the Mars ellipsoid from NASA/JPL NAIF.",
-    links: [{ label: "USGS Astrogeology", href: "https://astrogeology.usgs.gov/search/map/mars_mgs_mola_dem_463m" }],
+      "domain), on the Mars ellipsoid from NASA/JPL NAIF. The base map reads it through NASA Mars Trek " +
+      "(Mars_MGS_MOLA_DEM_mosaic_global_463m_8).",
+    links: [
+      { label: "USGS Astrogeology", href: "https://astrogeology.usgs.gov/search/map/mars_mgs_mola_dem_463m" },
+      { label: "NASA Mars Trek", href: "https://trek.nasa.gov/mars/" },
+    ],
   },
   {
     use: "Planet positions",
@@ -227,7 +248,9 @@ export function MainMenu({ onStart }: { onStart: () => void }) {
             <p className="mt-4 text-sm text-white/70">
               Built for the 2026 NASA Space Apps Challenge. The Mars globe is shown as seen from
               Earth right now, then sped up 720× so you can watch it turn. The background stars
-              are decorative, not real star positions.
+              are decorative, not real star positions. Each expedition’s base map is drawn as pixel art from
+              real imagery and elevation of its landing site: the pattern of the ground is real, but the colours
+              are simplified to a small palette and the block heights are exaggerated.
             </p>
             <h3 className="mt-5 text-xs font-semibold uppercase tracking-[0.25em] text-white/50">
               Data sources

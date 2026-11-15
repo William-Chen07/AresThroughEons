@@ -1,6 +1,7 @@
 import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
 import { persist } from "zustand/middleware"
+import { randomSite, type MarsSite } from "@/map/marsSite"
 
 export const SAVE_SLOT_COUNT = 3
 export const SAVE_NAME_MAX = 16
@@ -14,7 +15,12 @@ export interface SaveSlot {
   /** Both times are milliseconds since 1970, as from Date.now(). */
   createdAt: number
   lastPlayedAt: number
-  // TODO(game): the saved game state for this slot goes here once the game has some.
+  /**
+   * Where on Mars this expedition's base map is. Picked at random when the
+   * save is created, for now; later the player will choose where to land.
+   */
+  site: MarsSite
+  // TODO(game): the rest of the saved game state for this slot goes here.
 }
 
 interface Saves {
@@ -54,6 +60,7 @@ export const savesStore = createStore<Saves & SavesActions>()(
           name: name.trim().slice(0, SAVE_NAME_MAX) || defaultSaveName(index),
           createdAt: now,
           lastPlayedAt: now,
+          site: randomSite(),
         }
         set({ slots: withSlot(get().slots, index, slot), activeSlot: index })
       },
@@ -76,6 +83,12 @@ export const savesStore = createStore<Saves & SavesActions>()(
     {
       name: "ares-saves",
       partialize: ({ slots, activeSlot }) => ({ slots, activeSlot }),
+      // Version 1 added `site`. Saves made before that get a random one here.
+      version: 1,
+      migrate: (stored) => {
+        const old = stored as Saves
+        return { ...old, slots: old.slots.map((slot) => (slot && !slot.site ? { ...slot, site: randomSite() } : slot)) }
+      },
     },
   ),
 )
