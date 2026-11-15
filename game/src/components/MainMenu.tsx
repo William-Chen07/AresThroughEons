@@ -9,13 +9,12 @@ import { playSfx, startMusic, stopMusic, unlockAudio } from "@/lib/sound"
 import { useProgress } from "@/sim/progress"
 import { useSaves } from "@/sim/saves"
 
-type MenuAction = "start" | "continue" | "howto" | "codex" | "settings" | "credits"
+type MenuAction = "start" | "howto" | "codex" | "settings" | "credits"
 type Panel = "howto" | "codex" | "settings" | "credits" | null
 
 /** Locked items need at least one saved expedition (sim/saves.ts) before they open. */
 const MENU_ITEMS: { id: MenuAction; label: string; needsSave?: boolean }[] = [
   { id: "start", label: "Begin Expedition" },
-  { id: "continue", label: "Continue", needsSave: true },
   { id: "howto", label: "How to Play" },
   { id: "codex", label: "Mars Codex", needsSave: true },
   { id: "settings", label: "Settings" },
@@ -111,16 +110,7 @@ export function MainMenu({ onStart }: { onStart: () => void }) {
   const [siteId, setSiteId] = useState<string | null>(null)
   const [hiddenFromEarth, setHiddenFromEarth] = useState(false)
 
-  const loadSave = useSaves((s) => s.loadSave)
-  // Slot index of the most recently played save, or null when there are none.
-  const latestSave = useSaves((s) =>
-    s.slots.reduce<number | null>(
-      (best, slot, i) =>
-        slot && (best === null || slot.lastPlayedAt > (s.slots[best]?.lastPlayedAt ?? 0)) ? i : best,
-      null,
-    ),
-  )
-  const hasSave = latestSave !== null
+  const hasSave = useSaves((s) => s.slots.some((slot) => slot !== null))
   const codexIds = useProgress((s) => s.codexIds)
   const muted = useSettings((s) => s.muted)
   const setSettings = useSettings((s) => s.setSettings)
@@ -142,14 +132,15 @@ export function MainMenu({ onStart }: { onStart: () => void }) {
     }
   }, [])
 
-  // A tapped pin is already in view; a stepped-to place needs the globe to turn to it.
-  const selectSite = (id: string | null) => {
-    setSiteId(id)
-    setHiddenFromEarth(false)
-  }
-  const stepToSite = (id: string) => {
+  // Picking a place (tapped pin, Explore, or the arrows) turns Mars to bring it to the front.
+  const focusSite = (id: string) => {
     setSiteId(id)
     setHiddenFromEarth(!(globeRef.current?.focusSite(id) ?? true))
+  }
+  const selectSite = (id: string | null) => {
+    if (id) return focusSite(id)
+    setSiteId(null)
+    setHiddenFromEarth(false)
   }
 
   const handleSelect = (action: MenuAction, locked: boolean) => {
@@ -161,14 +152,6 @@ export function MainMenu({ onStart }: { onStart: () => void }) {
       // The game starts once a save is picked or created in the save menu.
       playSfx("open")
       setShowSaves(true)
-      return
-    }
-    if (action === "continue") {
-      // Jump straight back into the most recently played expedition.
-      if (latestSave === null) return
-      playSfx("click")
-      loadSave(latestSave)
-      startGame()
       return
     }
     playSfx("open")
@@ -252,7 +235,7 @@ export function MainMenu({ onStart }: { onStart: () => void }) {
           siteId={siteId}
           hiddenFromEarth={hiddenFromEarth}
           onSelect={selectSite}
-          onStep={stepToSite}
+          onStep={focusSite}
         />
       </div>
 
