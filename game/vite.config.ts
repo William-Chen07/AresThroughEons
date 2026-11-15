@@ -14,5 +14,9 @@ export default defineConfig({
   server: {
     // Menu audio is imported from the repo's root Audio/ folder (see src/lib/sound.ts).
     fs: { allow: [searchForWorkspaceRoot(process.cwd()), path.resolve(__dirname, "../Audio")] },
+    // Local dev only: forward /api calls to the deployed site, where the NASA key lives.
+    proxy: {
+      "/api": { target: "https://ares-through-eons.vercel.app", changeOrigin: true },
+    },
   },
 })
