@@ -34,11 +34,12 @@ export const canGoOnEva = (pawn: Pawn) => !pawn.statuses.some((s) => STATUSES[s.
 
 export const isActive = (pawn: Pawn) => pawn.evacuated === null
 
-/** True if either crewmate has a trait that dislikes one of the other's traits. */
-export function dislikesEachOther(a: Pawn, b: Pawn): boolean {
-  const oneWay = (x: Pawn, y: Pawn) =>
-    x.traits.some((t) => TRAITS[t].dislikes?.some((d) => y.traits.includes(d)))
-  return oneWay(a, b) || oneWay(b, a)
+/**
+ * One-way: true if one of `a`'s traits dislikes one of `b`'s traits.
+ * Only `a` is bothered. `b` doesn't care unless their own traits dislike `a`.
+ */
+export function dislikesCrewmate(a: Pawn, b: Pawn): boolean {
+  return a.traits.some((t) => TRAITS[t].dislikes?.some((d) => b.traits.includes(d)))
 }
 
 /**

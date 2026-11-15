@@ -3,7 +3,7 @@ import {
   advanceMission,
   assignRole,
   createMission,
-  dislikesEachOther,
+  dislikesCrewmate,
   hasStatus,
   isTrainedFor,
   NASA_DATA,
@@ -318,8 +318,8 @@ describe("occupations and roles", () => {
   })
 })
 
-describe("traits that dislike each other", () => {
-  /** Engineer is Chatty, researcher is Quiet: they clash. */
+describe("dislikes (one-way)", () => {
+  /** Engineer is Chatty, researcher is Quiet. Chatty dislikes Quiet; Quiet doesn't dislike Chatty. */
   function clashMission(): Mission {
     const m = cleanMission()
     byOcc(m, "engineer").traits = ["chatty"]
@@ -332,35 +332,55 @@ describe("traits that dislike each other", () => {
     return m
   }
 
-  it("a dislike works in both directions", () => {
+  it("a dislike only goes one way", () => {
     const m = clashMission()
-    expect(dislikesEachOther(byOcc(m, "engineer"), byOcc(m, "researcher"))).toBe(true)
-    expect(dislikesEachOther(byOcc(m, "researcher"), byOcc(m, "engineer"))).toBe(true)
-    expect(dislikesEachOther(byOcc(m, "engineer"), byOcc(m, "medic"))).toBe(false)
+    expect(dislikesCrewmate(byOcc(m, "engineer"), byOcc(m, "researcher"))).toBe(true)
+    expect(dislikesCrewmate(byOcc(m, "researcher"), byOcc(m, "engineer"))).toBe(false)
+    expect(dislikesCrewmate(byOcc(m, "engineer"), byOcc(m, "medic"))).toBe(false)
   })
 
-  it("working the same role together causes friction for both and lowers morale", () => {
+  it("working together lowers morale only for the one who dislikes", () => {
     let m = work(clashMission())
     m = assignRole(m, byOcc(m, "researcher").id, "building")
     m = advanceMission(m, 6)
-    for (const occ of ["engineer", "researcher"] as const) {
-      expect(hasStatus(byOcc(m, occ), "friction")).toBe(true)
-    }
-    expect(hasStatus(byOcc(m, "medic"), "friction")).toBe(false)
-    expect(m.log.filter((e) => e.text.includes("getting on each other's nerves"))).toHaveLength(1)
+    expect(hasStatus(byOcc(m, "engineer"), "friction")).toBe(true)
+    expect(hasStatus(byOcc(m, "researcher"), "friction")).toBe(false)
+    expect(m.log.filter((e) => e.text.includes("is annoyed by"))).toHaveLength(1)
 
     let calm = work(cleanMission())
     calm = assignRole(calm, byOcc(calm, "researcher").id, "building")
     calm = advanceMission(calm, 6)
     expect(byOcc(m, "engineer").needs.morale).toBeLessThan(byOcc(calm, "engineer").needs.morale)
+    expect(byOcc(m, "researcher").needs.morale).toBe(byOcc(calm, "researcher").needs.morale)
   })
 
-  it("hanging out idle together also causes friction (socializing)", () => {
+  it("an egotistical crewmate is the only one bothered, even though they dislike everyone", () => {
+    const m = cleanMission()
+    byOcc(m, "engineer").traits = ["egotistical"]
+    for (const occ of ["researcher", "medic"] as const) byOcc(m, occ).traits = ["calm"]
+    const after = stepMission(m) // nothing queued: engineer, researcher, medic idle together
+    expect(hasStatus(byOcc(after, "engineer"), "friction")).toBe(true)
+    expect(hasStatus(byOcc(after, "researcher"), "friction")).toBe(false)
+    expect(hasStatus(byOcc(after, "medic"), "friction")).toBe(false)
+  })
+
+  it("if both dislike each other, both are bothered", () => {
+    const m = cleanMission()
+    byOcc(m, "engineer").traits = ["weak"] // weak dislikes tough
+    byOcc(m, "researcher").traits = ["tough", "tooSmart"]
+    byOcc(m, "medic").traits = ["hardWorker"] // hard worker dislikes too smart
+    const after = stepMission(m)
+    expect(hasStatus(byOcc(after, "engineer"), "friction")).toBe(true)
+    expect(hasStatus(byOcc(after, "medic"), "friction")).toBe(true)
+    expect(hasStatus(byOcc(after, "researcher"), "friction")).toBe(false)
+  })
+
+  it("hanging out idle together also counts (socializing)", () => {
     const m = stepMission(clashMission()) // nothing queued: both idle in the base
     expect(hasStatus(byOcc(m, "engineer"), "friction")).toBe(true)
   })
 
-  it("no friction when they work on different tasks, and it clears once separated", () => {
+  it("no friction on different tasks, and it clears once separated", () => {
     let m = work(clashMission())
     m = stepMission(m)
     expect(hasStatus(byOcc(m, "engineer"), "friction")).toBe(false)
@@ -371,20 +391,34 @@ describe("traits that dislike each other", () => {
     m = assignRole(m, byOcc(m, "researcher").id, "researching")
     m = stepMission(m)
     expect(hasStatus(byOcc(m, "engineer"), "friction")).toBe(false)
-    expect(hasStatus(byOcc(m, "researcher"), "friction")).toBe(false)
   })
 
   it("sleeping crewmates aren't together", () => {
     const m = clashMission()
-    byOcc(m, "engineer").needs.rest = 5
+    byOcc(m, "researcher").needs.rest = 5
     const after = stepMission(m)
-    expect(byOcc(after, "engineer").activity).toBe("sleeping")
-    expect(hasStatus(byOcc(after, "researcher"), "friction")).toBe(false)
+    expect(byOcc(after, "researcher").activity).toBe("sleeping")
+    expect(hasStatus(byOcc(after, "engineer"), "friction")).toBe(false)
   })
 
-  it("never rolls a crewmate who dislikes their own traits", () => {
-    for (let seed = 0; seed < 200; seed++) {
-      for (const p of createMission(seed).crew) expect(dislikesEachOther(p, p)).toBe(false)
+  it("one crewmate can have a trait and a trait it dislikes, without bothering themself", () => {
+    const m = cleanMission()
+    byOcc(m, "engineer").traits = ["hardWorker", "tooSmart"]
+    expect(dislikesCrewmate(byOcc(m, "engineer"), byOcc(m, "engineer"))).toBe(true)
+    const after = stepMission(m)
+    expect(hasStatus(byOcc(after, "engineer"), "friction")).toBe(false)
+  })
+
+  it("dislikes don't affect trait rolling; conflicts do", () => {
+    const pairs = new Set<string>()
+    for (let seed = 0; seed < 500; seed++) {
+      for (const p of createMission(seed).crew) {
+        const [a, b] = p.traits
+        expect(TRAITS[a].conflictsWith ?? []).not.toContain(b)
+        expect(TRAITS[b].conflictsWith ?? []).not.toContain(a)
+        if (TRAITS[a].dislikes?.includes(b) || TRAITS[b].dislikes?.includes(a)) pairs.add(`${a}+${b}`)
+      }
     }
+    expect(pairs.size).toBeGreaterThan(0)
   })
 })
