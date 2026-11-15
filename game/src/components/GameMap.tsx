@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { DevConsole, type DevTool } from "@/components/DevConsole"
 import { SpaceWeatherPanel } from "@/components/SpaceWeatherPanel"
-import { moduleType } from "@/content/modules"
-import { createMapView, type MapView } from "@/map/mapView"
+import { moduleType, type ModuleTypeId } from "@/content/modules"
+import { createMapView, type ClickKeys, type MapView } from "@/map/mapView"
 import { formatSite, type MarsSite } from "@/map/marsSite"
 import { loadTerrain, type Cell, type VoxelTerrain } from "@/map/voxelTerrain"
 import {
@@ -10,20 +10,109 @@ import {
   checkModule,
   checkTubes,
   connectedGroups,
+  landerFootprint,
   moduleAt,
   occupancy,
   placementOrigin,
   tubeRun,
   type Base,
 } from "@/sim/base"
+import { buildNavigation, syncNavigation } from "@/sim/navigation"
+import {
+  addPawn,
+  clearSelection,
+  getZone,
+  handleClick,
+  isWalkable,
+  stepPathing,
+  type ClickResult,
+  type PathingEvent,
+  type Tile,
+  type World,
+} from "@/sim/pathing"
 
 /*
  * The base map screen: the ground around the expedition's landing site, built
  * from NASA imagery and elevation (see map/), with the lander and the base on
  * it. For now the base (modules, and the tubes between them) is built by hand
  * from the dev console (the ` key).
+ * The crew are placeholders: three astronauts who appear beside the lander once
+ * it's down. Click one, then click where to send them (sim/pathing moves them).
+ * They aren't saved yet, so they start beside the lander each time the map opens.
  * The panels copy the look of MainMenu.
  */
+
+/**
+ * How fast crew time runs: game-hours per real second. 0.15 = 9 game-minutes a second, so a
+ * suited walk crosses about one 162 m block a second and an airlock cycles in under a second.
+ */
+const GAME_HOURS_PER_SECOND = 0.15
+/** Placeholder crew until the crew model (needs, roles, names) is hooked up. */
+const PLACEHOLDER_CREW = [
+  { id: "astronaut-1", name: "Astronaut 1", color: 0xf97316 },
+  { id: "astronaut-2", name: "Astronaut 2", color: 0x22d3ee },
+  { id: "astronaut-3", name: "Astronaut 3", color: 0xfacc15 },
+] as const
+const CREW_COLORS: Record<string, number> = Object.fromEntries(PLACEHOLDER_CREW.map((c) => [c.id, c.color]))
+const crewName = (id: string) => PLACEHOLDER_CREW.find((c) => c.id === id)?.name ?? id
+const listNames = (ids: string[]) => ids.map(crewName).join(", ")
+const hex = (color: number) => `#${color.toString(16).padStart(6, "0")}`
+
+/** Free open ground right round the lander, south side first, for the crew to step out onto. */
+function spotsBesideLander(world: World, size: number): Tile[] {
+  const { col, row, width, height } = landerFootprint(size)
+  const ring: Tile[] = []
+  for (let x = col - 1; x <= col + width; x++) ring.push({ x, y: row + height })
+  for (let y = row; y < row + height; y++) ring.push({ x: col - 1, y }, { x: col + width, y })
+  for (let x = col - 1; x <= col + width; x++) ring.push({ x, y: row - 1 })
+  return ring.filter((t) => isWalkable(world, t) && getZone(world.grid, t.x, t.y) === "outside")
+}
+
+/** Name of the place a work order sends crew to (a module). */
+function placeName(world: World, stationId: string) {
+  const station = world.stations.find((s) => s.id === stationId)
+  return station ? moduleType(station.kind as ModuleTypeId).name : "there"
+}
+
+/** A plain-words line about what a click on the map did with the crew. */
+function describeClick(world: World, result: ClickResult): string {
+  switch (result.kind) {
+    case "selected":
+      return `${listNames(result.pawnIds)} selected. Click where to send them, or a module to work in.`
+    case "deselected":
+      return "Nobody selected."
+    case "nothing":
+      return "Click an astronaut first."
+    case "failed":
+      return result.reason
+    case "ordered": {
+      const where = result.order.kind === "work" ? `to work in the ${placeName(world, result.order.stationId)}` : "there"
+      const parts: string[] = []
+      if (result.started.length) parts.push(`${listNames(result.started)}: on the way ${where}.`)
+      if (result.queued.length) parts.push(`${listNames(result.queued)}: added to the queue.`)
+      if (result.deferred.length) parts.push(`${listNames(result.deferred)}: will go after something urgent.`)
+      for (const f of result.failed) parts.push(`${crewName(f.pawnId)}: ${f.reason}`)
+      return parts.join(" ")
+    }
+  }
+}
+
+/** Crew events worth telling the player about, as plain words. */
+function describeEvent(event: PathingEvent): string | null {
+  switch (event.type) {
+    case "blocked":
+    case "cancelled":
+      return `${crewName(event.pawnId)}: ${event.reason}`
+    case "airlockCycling":
+      return `${crewName(event.pawnId)} is cycling through the airlock.`
+    case "exposureChanged":
+      return event.exposure === "outside"
+        ? `${crewName(event.pawnId)} stepped outside onto the surface.`
+        : `${crewName(event.pawnId)} is back inside.`
+    default:
+      return null
+  }
+}
 
 const kickerClass = "text-xs font-medium uppercase tracking-[0.4em] text-orange-300/80"
 const panelClass = "border border-white/15 bg-neutral-950/80 px-5 py-3 backdrop-blur-sm"
@@ -76,6 +165,10 @@ export function GameMap({
   const [message, setMessage] = useState<string | null>(null)
   /** Where the run of tube being laid starts, once the first click of the tube tool has set it. */
   const [tubeStart, setTubeStart] = useState<Cell | null>(null)
+  /** Where the crew are and what they're doing (sim/pathing). Built once the map has loaded. */
+  const crewRef = useRef<{ terrain: VoxelTerrain; world: World } | null>(null)
+  const [selectedCrew, setSelectedCrew] = useState<string[]>([])
+  const [crewMessage, setCrewMessage] = useState<string | null>(null)
 
   // What's on screen belongs to this site and this try; anything else is still loading.
   const key = `${site.lat},${site.lon},${attempt}`
@@ -106,8 +199,16 @@ export function GameMap({
     [terrain, base, grid],
   )
 
-  const handleCellClick = (cell: Cell) => {
-    if (!terrain || !grid || !tool) return
+  const handleCellClick = (cell: Cell, keys: ClickKeys) => {
+    if (!terrain || !grid) return
+    // With no dev tool picked, clicks are for the crew: pick an astronaut, then where to send them.
+    if (!tool) {
+      const crew = crewRef.current?.world
+      if (!crew) return
+      setCrewMessage(describeClick(crew, handleClick(crew, { x: cell.col, y: cell.row }, { shift: keys.shift })))
+      setSelectedCrew([...crew.selectedPawnIds])
+      return
+    }
     const { size } = terrain
 
     if (tool.kind === "remove") {
@@ -160,7 +261,7 @@ export function GameMap({
       terrain,
       {
         onHover: setHovered,
-        onCellClick: (cell) => onCellClickRef.current(cell),
+        onCellClick: (cell, keys) => onCellClickRef.current(cell, keys),
         onLanded: showLanding ? () => onLandedRef.current() : null,
       },
       abort.signal,
@@ -185,6 +286,39 @@ export function GameMap({
   useEffect(() => {
     if (view && grid) view.setBase(base, grid)
   }, [view, base, grid])
+
+  // The crew's walkable map follows the base: rebuilt for a new map, updated when something is built.
+  useEffect(() => {
+    if (!terrain) return
+    const crew = crewRef.current
+    if (crew && crew.terrain === terrain) syncNavigation(crew.world, terrain, base)
+    else crewRef.current = { terrain, world: buildNavigation(terrain, base) }
+  }, [terrain, base])
+
+  // Once the lander is down, the placeholder crew step out beside it.
+  useEffect(() => {
+    const crew = crewRef.current
+    if (!landed || !terrain || !crew || crew.terrain !== terrain) return
+    if (Object.keys(crew.world.movers).length > 0) return
+    const spots = spotsBesideLander(crew.world, terrain.size)
+    PLACEHOLDER_CREW.forEach((member, i) => {
+      if (spots[i]) addPawn(crew.world, member.id, spots[i])
+    })
+  }, [landed, terrain, base])
+
+  // Every frame: move the crew along, draw them, and pass on anything worth saying.
+  useEffect(() => {
+    if (!view) return
+    return view.onFrame((deltaMs) => {
+      const crew = crewRef.current?.world
+      if (!crew) return
+      // A long gap (the tab was hidden) shouldn't make everyone teleport.
+      const events = stepPathing(crew, (Math.min(deltaMs, 100) / 1000) * GAME_HOURS_PER_SECOND)
+      view.drawCrew(crew, CREW_COLORS)
+      const said = events.map(describeEvent).filter((line) => line !== null)
+      if (said.length > 0) setCrewMessage(said[said.length - 1])
+    })
+  }, [view])
 
   // While a tool that builds is picked in the dev console, the map shows what a click would build.
   useEffect(() => {
@@ -224,15 +358,20 @@ export function GameMap({
         setTubeStart(null)
         setMessage(null)
       }
-      // Esc first lets go of a run of tube that has been started, then of the tool itself.
+      // Esc first lets go of a run of tube that has been started, then of the tool itself, then of the selected crew.
       if (e.key === "Escape") {
         if (tubeStart) setTubeStart(null)
-        else setTool(null)
+        else if (tool) setTool(null)
+        else if (crewRef.current) {
+          clearSelection(crewRef.current.world)
+          setSelectedCrew([])
+          setCrewMessage(null)
+        }
       }
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [tubeStart])
+  }, [tubeStart, tool])
 
   const hoveredIndex = terrain && hovered ? hovered.row * terrain.size + hovered.col : null
 
@@ -270,6 +409,28 @@ export function GameMap({
                   pickTool(null)
                 }}
               />
+            )}
+            {landed && terrain && !tool && (
+              <div className={`${panelClass} max-w-xs`} aria-live="polite">
+                <p className={kickerClass}>Crew</p>
+                <ul className="mt-2 flex flex-col gap-1 text-sm">
+                  {PLACEHOLDER_CREW.map((member) => (
+                    <li
+                      key={member.id}
+                      className={`flex items-center gap-2 ${selectedCrew.includes(member.id) ? "text-white" : "text-white/55"}`}
+                    >
+                      <span className="size-2.5 rounded-full" style={{ background: hex(member.color) }} />
+                      {member.name}
+                      {selectedCrew.includes(member.id) && <span className="text-[11px] text-white/50">selected</span>}
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-2 text-[11px] text-white/50">
+                  Click an astronaut, then click where to go, or a module to work in. Shift-click to pick more or to
+                  queue an order. Click a selected astronaut again (or press Esc) to let go.
+                </p>
+                {crewMessage && <p className="mt-2 text-xs text-orange-200">{crewMessage}</p>}
+              </div>
             )}
           </div>
           <div className="flex flex-col items-end gap-3">

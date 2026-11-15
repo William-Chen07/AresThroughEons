@@ -32,15 +32,24 @@ export interface Grid {
   cost: number[]
   /** Zone of each tile, row by row. A new map is all outside (the Martian surface). */
   zone: Zone[]
+  /** How wide one tile is in real metres. Walking speed and distances are worked out from this. */
+  metersPerTile: number
+  /** Ground height of each tile in metres, row by row. Slopes outside slow walking down (see slopeFactor). */
+  elevation: number[]
 }
 
-export function createGrid(width: number, height: number, cost = 1): Grid {
+/** Default tile size for maps that don't say: a few steps across, like a room-scale base. */
+export const DEFAULT_METERS_PER_TILE = 2
+
+export function createGrid(width: number, height: number, cost = 1, metersPerTile = DEFAULT_METERS_PER_TILE): Grid {
   const size = width * height
   return {
     width,
     height,
     cost: Array.from({ length: size }, () => cost),
     zone: Array.from({ length: size }, (): Zone => "outside"),
+    metersPerTile,
+    elevation: Array.from({ length: size }, () => 0),
   }
 }
 
@@ -66,6 +75,28 @@ export function setZone(grid: Grid, tile: Tile, zone: Zone) {
 /** Walking straight from one zone into the other (inside ↔ outside) isn't allowed; airlocks connect them. */
 export const canCrossZones = (from: Zone, to: Zone) =>
   !((from === "inside" && to === "outside") || (from === "outside" && to === "inside"))
+
+/** The steepest ground a suited astronaut will walk up or down. Steeper counts as a cliff. Game-feel. */
+export const MAX_WALKABLE_SLOPE_DEG = 25
+
+/**
+ * How much longer a step between two neighbouring tiles takes because of the slope, from
+ * Tobler's hiking function (W. Tobler, 1993): speed ∝ exp(−3.5 · |slope + 0.05|), an Earth
+ * walking model used here as a stand-in. Steps only ever get slower (never below 1), so routes
+ * stay simple to plan. Returns null for a cliff. Only ground outside has slopes: inside modules,
+ * tubes and airlocks the floor is flat.
+ */
+export function slopeFactor(grid: Grid, fx: number, fy: number, tx: number, ty: number): number | null {
+  if (getZone(grid, fx, fy) !== "outside" || getZone(grid, tx, ty) !== "outside") return 1
+  if (!inBounds(grid, fx, fy) || !inBounds(grid, tx, ty)) return 1
+  const rise = grid.elevation[tileIndex(grid, tx, ty)] - grid.elevation[tileIndex(grid, fx, fy)]
+  if (rise === 0) return 1
+  const run = Math.hypot(tx - fx, ty - fy) * grid.metersPerTile
+  const slope = rise / run
+  if (Math.atan(Math.abs(slope)) > (MAX_WALKABLE_SLOPE_DEG * Math.PI) / 180) return null
+  const relativeSpeed = Math.exp(-3.5 * (Math.abs(slope + 0.05) - 0.05))
+  return Math.max(1, 1 / relativeSpeed)
+}
 
 export const sameTile = (a: Tile, b: Tile) => a.x === b.x && a.y === b.y
 

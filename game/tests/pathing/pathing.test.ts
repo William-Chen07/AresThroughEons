@@ -12,7 +12,7 @@ import assert from "node:assert/strict"
 import {
   BLOCKED, addPawn, addStation, createStation, createWorld, findPath, handleClick, issueOrder,
   removeStation, setCost, stepPathing, costField, WALK_TILES_PER_HOUR, buildHabitat, getZone, setZone,
-  PATHING_TUNING, cancelOrder, selectInBox, orderGroup, tileOf,
+  PATHING_TUNING, cancelOrder, selectInBox, orderGroup, tileOf, scaleFor,
   type World, type Tile, type PathingEvent, type UrgentNeed,
 } from "../../src/sim/pathing/index.ts"
 
@@ -410,7 +410,8 @@ test("an idle pawn strolls around where it stopped, and stays on its side of the
     stepPathing(w, 0.01)
     const p = w.movers.w.pos
     seen.add(`${Math.round(p.x)},${Math.round(p.y)}`)
-    assert.ok(Math.abs(p.x - 9) <= PATHING_TUNING.wanderRadius + 0.01 && Math.abs(p.y - 6) <= PATHING_TUNING.wanderRadius + 0.01, "near its spot")
+    const r = scaleFor(w.grid).wanderRadius
+    assert.ok(Math.abs(p.x - 9) <= r + 0.01 && Math.abs(p.y - 6) <= r + 0.01, "near its spot")
     assert.equal(getZone(w.grid, Math.round(p.x), Math.round(p.y)), "inside", "never wanders into the airlock or outside")
   }
   assert.ok(seen.size > 3, `moved around (visited ${seen.size} tiles)`)
@@ -697,4 +698,15 @@ test("a queued order that can't be done is skipped with a reason", () => {
   removeStation(w, "gone")
   const events = runUntil(w, (ev) => ev.some((e) => e.type === "arrived" && e.tile.y === 8), 0.0005, 40000)
   assert.ok(events.some((e) => e.type === "cancelled"))
+})
+
+test("clicking a selected astronaut again lets go of them; others stay selected", () => {
+  const w = createWorld(10, 10)
+  addPawn(w, "a", { x: 1, y: 1 }); addPawn(w, "b", { x: 3, y: 3 })
+  assert.deepEqual(handleClick(w, { x: 1, y: 1 }), { kind: "selected", pawnIds: ["a"] })
+  assert.deepEqual(handleClick(w, { x: 1, y: 1 }), { kind: "deselected" }, "second click deselects")
+  handleClick(w, { x: 1, y: 1 })
+  handleClick(w, { x: 3, y: 3 }, { shift: true })
+  assert.deepEqual(handleClick(w, { x: 1, y: 1 }), { kind: "selected", pawnIds: ["b"] }, "only the clicked one is let go")
+  assert.deepEqual(handleClick(w, { x: 1, y: 1 }), { kind: "selected", pawnIds: ["a"] }, "a plain click on an unselected one picks just them")
 })

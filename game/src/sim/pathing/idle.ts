@@ -3,7 +3,7 @@ import { BLOCKED, getZone, inBounds, tileIndex, tileOf, type Tile } from "./grid
 import { routing, setRoute } from "./orders"
 import { findPath } from "./pathfinding"
 import { random, randomBetween } from "./random"
-import { PATHING_TUNING } from "./tuning"
+import { PATHING_TUNING, scaleFor } from "./tuning"
 import type { Mover, World } from "./world"
 
 const T = PATHING_TUNING
@@ -27,8 +27,8 @@ const canChat = (m: Mover) =>
 
 /** A route that stays on this side of the habitat wall (no airlocks), or null. */
 function localRoute(world: World, mover: Mover, goals: Tile[], field: number[], maxLength: number): Tile[] | null {
-  const { costAt, canStep } = routing(world, field, mover)
-  const path = findPath(costAt, world.grid.width, world.grid.height, tileOf(mover.pos), goals, { canStep })
+  const { costAt, rules } = routing(world, field, mover)
+  const path = findPath(costAt, world.grid.width, world.grid.height, tileOf(mover.pos), goals, rules)
   if (!path || path.length > maxLength) return null
   return path.some((t) => getZone(world.grid, t.x, t.y) === "airlock") ? null : path
 }
@@ -37,7 +37,7 @@ function localRoute(world: World, mover: Mover, goals: Tile[], field: number[], 
 function startWander(world: World, mover: Mover, field: number[]): boolean {
   const anchor = mover.anchor ?? tileOf(mover.pos)
   const zone = getZone(world.grid, tileOf(mover.pos).x, tileOf(mover.pos).y)
-  const r = T.wanderRadius
+  const r = scaleFor(world.grid).wanderRadius
   for (let attempt = 0; attempt < 8; attempt++) {
     const target = {
       x: anchor.x + Math.round(randomBetween(world, -r, r)),
@@ -59,7 +59,7 @@ function startWander(world: World, mover: Mover, field: number[]): boolean {
 /** The nearest crewmate this pawn could chat with right now, if any. */
 function findChatPartner(world: World, mover: Mover): Mover | null {
   let best: Mover | null = null
-  let bestDistance: number = T.chatRange
+  let bestDistance: number = scaleFor(world.grid).chatRange
   for (const other of Object.values(world.movers)) {
     if (other === mover || !canChat(other) || other.exposure !== mover.exposure) continue
     const distance = Math.hypot(other.pos.x - mover.pos.x, other.pos.y - mover.pos.y)
@@ -78,7 +78,7 @@ function startApproach(world: World, mover: Mover, partner: Mover, field: number
   for (let dy = -1; dy <= 1; dy++) {
     for (let dx = -1; dx <= 1; dx++) if (dx !== 0 || dy !== 0) beside.push({ x: p.x + dx, y: p.y + dy })
   }
-  const path = localRoute(world, mover, beside, field, T.chatRange * 3)
+  const path = localRoute(world, mover, beside, field, scaleFor(world.grid).chatRange * 3)
   if (!path) return false
   setRoute(world, mover, path)
   mover.destination = null

@@ -128,12 +128,13 @@ export const pawnsAt = (world: World, tile: Tile) =>
   Object.values(world.movers).filter((m) => sameTile(tileOf(m.pos), tile))
 
 /**
- * Walking cost of every tile right now: the terrain, with station footprints blocked.
- * Pawns don't block each other (like RimWorld, they can pass through one another).
+ * Walking cost of every tile right now: the terrain, with the footprints of stations that aren't
+ * walk-in blocked. (Pawns getting round each other is handled in crowd.ts.)
  */
 export function costField(world: World): number[] {
   const field = world.grid.cost.slice()
   for (const station of world.stations) {
+    if (station.walkIn) continue
     for (const t of station.footprint) {
       if (inBounds(world.grid, t.x, t.y)) field[tileIndex(world.grid, t.x, t.y)] = BLOCKED
     }
@@ -148,5 +149,8 @@ export function costLookup(world: World, field: number[]) {
 }
 
 /** True if a pawn can stand on the tile right now. */
-export const isWalkable = (world: World, tile: Tile) =>
-  getCost(world.grid, tile.x, tile.y) !== BLOCKED && !stationAt(world, tile)
+export function isWalkable(world: World, tile: Tile) {
+  if (getCost(world.grid, tile.x, tile.y) === BLOCKED) return false
+  const station = stationAt(world, tile)
+  return !station || station.walkIn
+}

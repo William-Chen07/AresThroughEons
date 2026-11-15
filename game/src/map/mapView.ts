@@ -1,6 +1,7 @@
 import { Application, CanvasSource, Graphics, Sprite, Texture } from "pixi.js"
 import { Viewport } from "pixi-viewport"
 import { createBaseView, type Ghost } from "@/map/baseView"
+import { createCrewView } from "@/map/crewView"
 import { createLander } from "@/map/lander"
 import {
   CELL_PX,
@@ -12,12 +13,13 @@ import {
   type VoxelTerrain,
 } from "@/map/voxelTerrain"
 import type { Base } from "@/sim/base"
+import type { World } from "@/sim/pathing"
 
 /*
  * The Pixi scene for the base map: the terrain as one background sprite inside
  * a camera (pixi-viewport) that drags, pinches and wheel-zooms, the lander
- * coming down in the middle, the base (modules and tubes), and a highlight on
- * the cell under the pointer, or a ghost of what a click would build.
+ * coming down in the middle, the base (modules and tubes), the crew, and a
+ * highlight on the cell under the pointer, or a ghost of what a click would build.
  */
 
 /** While something is being placed: what a click on the pointed-at cell would build. */
@@ -30,13 +32,22 @@ export interface MapView {
   setBase: (base: Base, grid: Uint8Array) => void
   /** Starts or stops showing the placement ghost under the pointer. */
   setPlacement: (placement: Placement | null) => void
+  /** Redraws the crew where they are now (see map/crewView.ts). */
+  drawCrew: (world: World, colors: Record<string, number>) => void
+  /** Calls `update` every frame with the real time since the last one, in ms. Returns a function that stops it. */
+  onFrame: (update: (deltaMs: number) => void) => () => void
   destroy: () => void
+}
+
+/** Keys held during a click. */
+export interface ClickKeys {
+  shift: boolean
 }
 
 export interface MapEvents {
   onHover: (cell: Cell | null) => void
   /** A click or tap on a cell (not the end of a drag). */
-  onCellClick: (cell: Cell) => void
+  onCellClick: (cell: Cell, keys: ClickKeys) => void
   /** Null if the lander is already down. Otherwise the landing plays, and this is called at touchdown. */
   onLanded: (() => void) | null
 }
@@ -100,8 +111,9 @@ export async function createMapView(
 
   const lander = createLander(terrain)
   const base = createBaseView(terrain)
-  // Drawing order: terrain, the base, the lander, then the placement ghost and hover highlight on top.
-  viewport.addChild(ground, base.view, lander.view, base.ghost, highlight)
+  const crew = createCrewView(terrain)
+  // Drawing order: terrain, the base, the lander, the crew, then the placement ghost and hover highlight on top.
+  viewport.addChild(ground, base.view, lander.view, crew.view, base.ghost, highlight)
   app.stage.addChild(viewport)
 
   const fitZoomLimits = () => {
@@ -157,7 +169,8 @@ export async function createMapView(
   // The camera reports a click only when the pointer didn't drag the map.
   viewport.on("clicked", (e) => {
     const cell = pickCell(terrain, e.world.x, e.world.y)
-    if (cell) onCellClick(cell)
+    // Taps have no shift key; mouse and pen clicks do.
+    if (cell) onCellClick(cell, { shift: "shiftKey" in e.event && Boolean(e.event.shiftKey) })
   })
 
   return {
@@ -169,6 +182,14 @@ export async function createMapView(
     setPlacement: (next) => {
       placement = next
       showPointer()
+    },
+    drawCrew: (world, colors) => crew.draw(world, colors),
+    onFrame: (update) => {
+      const tick = () => update(app.ticker.deltaMS)
+      app.ticker.add(tick)
+      return () => {
+        app.ticker.remove(tick)
+      }
     },
     destroy: () => {
       observer.disconnect()

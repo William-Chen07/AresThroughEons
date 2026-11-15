@@ -53,26 +53,25 @@ export function selectInBox(world: World, corner1: Tile, corner2: Tile, options:
 
 /**
  * Handles a left click on a map tile, RimWorld style:
- * - on an astronaut → select it (clicking a stack of them cycles through the stack);
- *   with shift → add it to the selection, or take it out if it was already in;
+ * - on an astronaut who isn't selected → select just them (with shift → add them to the selection);
+ * - on an astronaut who is already selected → deselect them (anyone else selected stays selected);
  * - with crew selected, on a station → send them all to work there (they spread round it);
  * - with crew selected, anywhere else → send them there (they spread over nearby free tiles);
  *   with shift → queue the order after what they're already doing.
  * The tile comes from the renderer turning the mouse position into tile coordinates.
  */
 export function handleClick(world: World, tile: Tile, options: ClickOptions = {}): ClickResult {
-  const here = pawnsAt(world, tile)
+  const here = pawnsAt(world, tile).map((m) => m.pawnId)
   if (here.length > 0) {
-    if (options.shift) {
-      const id = here[0].pawnId
-      const selected = world.selectedPawnIds.includes(id)
-      selectPawns(world, selected ? world.selectedPawnIds.filter((s) => s !== id) : [...world.selectedPawnIds, id])
-      return world.selectedPawnIds.length > 0 ? { kind: "selected", pawnIds: world.selectedPawnIds } : { kind: "deselected" }
+    const selectedHere = here.filter((id) => world.selectedPawnIds.includes(id))
+    if (selectedHere.length > 0) {
+      // Clicking a selected astronaut lets go of them (all of them, if several stand on this tile).
+      selectPawns(world, world.selectedPawnIds.filter((id) => !selectedHere.includes(id)))
+    } else {
+      // Not selected yet: pick them, on their own or (with shift) along with the rest.
+      selectPawns(world, options.shift ? [...world.selectedPawnIds, here[0]] : [here[0]])
     }
-    const current = here.findIndex((m) => world.selectedPawnIds.length === 1 && m.pawnId === world.selectedPawnIds[0])
-    const next = here[(current + 1) % here.length]
-    selectPawns(world, [next.pawnId])
-    return { kind: "selected", pawnIds: [next.pawnId] }
+    return world.selectedPawnIds.length > 0 ? { kind: "selected", pawnIds: world.selectedPawnIds } : { kind: "deselected" }
   }
 
   if (world.selectedPawnIds.length === 0) return { kind: "nothing" }

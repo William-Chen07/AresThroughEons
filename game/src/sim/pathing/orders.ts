@@ -1,9 +1,9 @@
 import { isTileTaken, standingTiles } from "./crowd"
 import type { PathingEvent } from "./events"
 import { findPath } from "./pathfinding"
-import { BLOCKED, canCrossZones, getZone, inBounds, tileIndex, tileOf, type Tile } from "./grid"
+import { BLOCKED, canCrossZones, getZone, inBounds, slopeFactor, tileIndex, tileOf, type Tile } from "./grid"
 import { isJobDone } from "./stations"
-import { AIRLOCK_ROUTE_COST, PATHING_TUNING } from "./tuning"
+import { PATHING_TUNING, scaleFor } from "./tuning"
 import { costField, costLookup, findStation, type Mover, type Order, type World } from "./world"
 
 /**
@@ -32,24 +32,29 @@ export function stopMover(mover: Mover) {
 }
 
 /**
- * Pathfinding inputs for the world as it is now: walkable costs plus the inside/outside rules.
- * Planning for a pawn (`forMover`) also makes tiles where crewmates stand cost a bit more.
+ * Pathfinding inputs for the world as it is now: walkable costs, the inside/outside rules and
+ * slopes. Planning for a pawn (`forMover`) also makes tiles where crewmates stand cost a bit more.
+ * Use as `const { costAt, rules } = routing(...)` and pass `rules` as findPath's options.
  */
 export function routing(world: World, field = costField(world), forMover?: Mover) {
   const { grid } = world
   const walkCost = costLookup(world, field)
   const standing = forMover ? standingTiles(world, forMover) : null
+  const { airlockRouteCost } = scaleFor(grid)
   return {
     // Route cost: walking cost, plus airlock cycling time, plus going round standing crewmates.
     costAt: (x: number, y: number) => {
       let cost = walkCost(x, y)
       if (cost === BLOCKED) return cost
-      if (getZone(grid, x, y) === "airlock") cost += AIRLOCK_ROUTE_COST
+      if (getZone(grid, x, y) === "airlock") cost += airlockRouteCost
       if (standing?.has(tileIndex(grid, x, y))) cost += PATHING_TUNING.standingCrewmateCost
       return cost
     },
-    canStep: (fx: number, fy: number, tx: number, ty: number) =>
-      canCrossZones(getZone(grid, fx, fy), getZone(grid, tx, ty)),
+    rules: {
+      canStep: (fx: number, fy: number, tx: number, ty: number) =>
+        canCrossZones(getZone(grid, fx, fy), getZone(grid, tx, ty)),
+      stepFactor: (fx: number, fy: number, tx: number, ty: number) => slopeFactor(grid, fx, fy, tx, ty),
+    },
   }
 }
 
@@ -112,10 +117,10 @@ export function setRoute(world: World, mover: Mover, path: Tile[]) {
 export function plan(world: World, mover: Mover, field = costField(world)): boolean {
   if (!mover.order) return false
   const { goals } = goalsFor(world, mover, mover.order, field)
-  const { costAt, canStep } = routing(world, field, mover)
+  const { costAt, rules } = routing(world, field, mover)
   const start = tileOf(mover.pos)
   for (const group of goals) {
-    const path = findPath(costAt, world.grid.width, world.grid.height, start, group, { canStep })
+    const path = findPath(costAt, world.grid.width, world.grid.height, start, group, rules)
     if (path) {
       setRoute(world, mover, path)
       return true
