@@ -16,9 +16,10 @@ export function rollTraits(rng: Rng, count = 2): TraitId[] {
   let guard = 0
   while (picked.length < count && guard++ < 100) {
     const t = rng.pick(TRAIT_IDS)
-    const clash = picked.some(
-      (p) => p === t || TRAITS[p].conflictsWith?.includes(t) || TRAITS[t].conflictsWith?.includes(p),
-    )
+    // Same trait, a conflict, or a dislike (a crewmate shouldn't annoy themself) in either direction.
+    const blocks = (x: TraitId, y: TraitId) =>
+      !!(TRAITS[x].conflictsWith?.includes(y) || TRAITS[x].dislikes?.includes(y))
+    const clash = picked.some((p) => p === t || blocks(p, t) || blocks(t, p))
     if (!clash) picked.push(t)
   }
   return picked

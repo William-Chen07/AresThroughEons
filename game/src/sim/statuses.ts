@@ -108,6 +108,18 @@ export const STATUSES: Record<StatusId, StatusDef> = {
     workMultiplier: 1,
     blocksEva: true,
   },
+  friction: {
+    id: "friction",
+    label: "Not Getting Along",
+    description: "Is around a crewmate whose personality clashes with theirs.",
+    fix: "Give them different tasks so they spend less time together.",
+    severity: "mild",
+    treatable: false,
+    moralePenalty: 8,
+    healthDamagePerHour: 0,
+    workMultiplier: 1,
+    blocksEva: false,
+  },
   injured: {
     id: "injured",
     label: "Injured",

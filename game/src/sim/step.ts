@@ -1,7 +1,9 @@
 import { NASA_DATA, TUNING } from "./constants"
 import {
   addStatus,
+  areTogether,
   clamp,
+  dislikesEachOther,
   gainXp,
   hasStatus,
   isActive,
@@ -55,6 +57,7 @@ export function stepMission(prev: Mission, hours = 1): Mission {
       log("good", `${pawn.name} got better at ${ROLES[pawn.role].name} (skill ${skill}).`, pawn.id)
     }
   }
+  updateFriction(crew, mission.hour, log)
   for (const pawn of crew) updateBody(pawn, mission, hours, log)
 
   mission.hour += hours
@@ -83,6 +86,26 @@ export function advanceMission(mission: Mission, hours: number): Mission {
   let m = mission
   for (let h = 0; h < hours; h++) m = stepMission(m, 1)
   return m
+}
+
+/** Crewmates with clashing traits who spent this hour together both get "Not Getting Along". */
+function updateFriction(crew: Pawn[], hour: number, log: Log) {
+  const clashing = new Set<Pawn>()
+  for (let i = 0; i < crew.length; i++) {
+    for (let j = i + 1; j < crew.length; j++) {
+      const [a, b] = [crew[i], crew[j]]
+      if (!areTogether(a, b) || !dislikesEachOther(a, b)) continue
+      // Log only when the clash starts, not every hour it continues.
+      if (!hasStatus(a, "friction") || !hasStatus(b, "friction")) {
+        log("warning", `${a.name} and ${b.name} are getting on each other's nerves.`)
+      }
+      clashing.add(a).add(b)
+    }
+  }
+  for (const pawn of crew) {
+    if (clashing.has(pawn)) addStatus(pawn, "friction", hour)
+    else removeStatus(pawn, "friction")
+  }
 }
 
 function decideActivity(pawn: Pawn) {

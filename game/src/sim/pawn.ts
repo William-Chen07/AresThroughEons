@@ -34,6 +34,26 @@ export const canGoOnEva = (pawn: Pawn) => !pawn.statuses.some((s) => STATUSES[s.
 
 export const isActive = (pawn: Pawn) => pawn.evacuated === null
 
+/** True if either crewmate has a trait that dislikes one of the other's traits. */
+export function dislikesEachOther(a: Pawn, b: Pawn): boolean {
+  const oneWay = (x: Pawn, y: Pawn) =>
+    x.traits.some((t) => TRAITS[t].dislikes?.some((d) => y.traits.includes(d)))
+  return oneWay(a, b) || oneWay(b, a)
+}
+
+/**
+ * Are these two crewmates spending this hour together?
+ * - Working together: both actively doing the same role.
+ * - Socializing: both awake and idle in the base.
+ * TODO: when a real socialization feature exists, use it for the second case.
+ */
+export function areTogether(a: Pawn, b: Pawn): boolean {
+  if (a === b || !isActive(a) || !isActive(b)) return false
+  const working = (p: Pawn) => p.activity === "working" || p.activity === "eva"
+  if (working(a) && working(b)) return a.role === b.role
+  return a.activity === "idle" && b.activity === "idle"
+}
+
 /** True when the role is the one the pawn's occupation trained them for. */
 export const isTrainedFor = (pawn: Pawn, role: RoleId = pawn.role) => OCCUPATIONS[pawn.occupation].role === role
 

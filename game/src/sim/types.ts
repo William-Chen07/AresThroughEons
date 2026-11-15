@@ -25,6 +25,8 @@ export type TraitId =
   | "homesick"
   | "steadyHands"
   | "quickLearner"
+  | "chatty"
+  | "quiet"
 
 export type StatusId =
   // Caused by needs. Fixed by supplies or sleep, not by a medic.
@@ -35,6 +37,8 @@ export type StatusId =
   | "hypoxic"
   | "tired"
   | "grounded"
+  // Caused by being around a crewmate with a disliked trait. Ends when they're apart.
+  | "friction"
   // Picked up during play. A medic treats these.
   | "injured"
   | "stressed"

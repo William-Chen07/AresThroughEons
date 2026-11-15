@@ -3,6 +3,7 @@ import {
   advanceMission,
   assignRole,
   createMission,
+  dislikesEachOther,
   hasStatus,
   isTrainedFor,
   NASA_DATA,
@@ -314,5 +315,76 @@ describe("occupations and roles", () => {
     const m = cleanMission()
     byOcc(m, "medic").evacuated = { hour: 0, reason: "test" }
     expect(assignRole(m, byOcc(m, "medic").id, "building")).toBe(m)
+  })
+})
+
+describe("traits that dislike each other", () => {
+  /** Engineer is Chatty, researcher is Quiet: they clash. */
+  function clashMission(): Mission {
+    const m = cleanMission()
+    byOcc(m, "engineer").traits = ["chatty"]
+    byOcc(m, "researcher").traits = ["quiet"]
+    return m
+  }
+  const work = (m: Mission) => {
+    m.colony.constructionQueue.push({ id: "x", name: "X", workRequired: 1000, workDone: 0 })
+    m.colony.researchQueue.push({ id: "y", name: "Y", workRequired: 1000, workDone: 0 })
+    return m
+  }
+
+  it("a dislike works in both directions", () => {
+    const m = clashMission()
+    expect(dislikesEachOther(byOcc(m, "engineer"), byOcc(m, "researcher"))).toBe(true)
+    expect(dislikesEachOther(byOcc(m, "researcher"), byOcc(m, "engineer"))).toBe(true)
+    expect(dislikesEachOther(byOcc(m, "engineer"), byOcc(m, "medic"))).toBe(false)
+  })
+
+  it("working the same role together causes friction for both and lowers morale", () => {
+    let m = work(clashMission())
+    m = assignRole(m, byOcc(m, "researcher").id, "building")
+    m = advanceMission(m, 6)
+    for (const occ of ["engineer", "researcher"] as const) {
+      expect(hasStatus(byOcc(m, occ), "friction")).toBe(true)
+    }
+    expect(hasStatus(byOcc(m, "medic"), "friction")).toBe(false)
+    expect(m.log.filter((e) => e.text.includes("getting on each other's nerves"))).toHaveLength(1)
+
+    let calm = work(cleanMission())
+    calm = assignRole(calm, byOcc(calm, "researcher").id, "building")
+    calm = advanceMission(calm, 6)
+    expect(byOcc(m, "engineer").needs.morale).toBeLessThan(byOcc(calm, "engineer").needs.morale)
+  })
+
+  it("hanging out idle together also causes friction (socializing)", () => {
+    const m = stepMission(clashMission()) // nothing queued: both idle in the base
+    expect(hasStatus(byOcc(m, "engineer"), "friction")).toBe(true)
+  })
+
+  it("no friction when they work on different tasks, and it clears once separated", () => {
+    let m = work(clashMission())
+    m = stepMission(m)
+    expect(hasStatus(byOcc(m, "engineer"), "friction")).toBe(false)
+
+    m = assignRole(m, byOcc(m, "researcher").id, "building")
+    m = stepMission(m)
+    expect(hasStatus(byOcc(m, "engineer"), "friction")).toBe(true)
+    m = assignRole(m, byOcc(m, "researcher").id, "researching")
+    m = stepMission(m)
+    expect(hasStatus(byOcc(m, "engineer"), "friction")).toBe(false)
+    expect(hasStatus(byOcc(m, "researcher"), "friction")).toBe(false)
+  })
+
+  it("sleeping crewmates aren't together", () => {
+    const m = clashMission()
+    byOcc(m, "engineer").needs.rest = 5
+    const after = stepMission(m)
+    expect(byOcc(after, "engineer").activity).toBe("sleeping")
+    expect(hasStatus(byOcc(after, "researcher"), "friction")).toBe(false)
+  })
+
+  it("never rolls a crewmate who dislikes their own traits", () => {
+    for (let seed = 0; seed < 200; seed++) {
+      for (const p of createMission(seed).crew) expect(dislikesEachOther(p, p)).toBe(false)
+    }
   })
 })

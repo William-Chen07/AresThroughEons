@@ -25,7 +25,16 @@ export interface TraitDef {
   /** Kid-facing, one sentence. */
   description: string
   modifiers: TraitModifiers
+  /** Traits that can never be rolled on the SAME crewmate. Checked both ways. */
   conflictsWith?: TraitId[]
+  /**
+   * Traits this one doesn't get along with on OTHER crewmates. When two such
+   * crewmates are together (see areTogether), both get "Not Getting Along",
+   * which lowers morale. Checked both ways, so list each pair on one side only.
+   * Disliked traits are also never rolled on the same crewmate (no need to repeat
+   * them in conflictsWith).
+   */
+  dislikes?: TraitId[]
 }
 
 export const TRAITS: Record<TraitId, TraitDef> = {
@@ -34,6 +43,7 @@ export const TRAITS: Record<TraitId, TraitDef> = {
     name: "Hard Worker",
     description: "Works faster, but gets tired sooner.",
     modifiers: { workSpeed: 1.2, needDecay: { rest: 1.25 } },
+    dislikes: ["clumsy"], // has to redo work after clumsy mistakes
   },
   calm: {
     id: "calm",
@@ -73,6 +83,10 @@ export const TRAITS: Record<TraitId, TraitDef> = {
     name: "Light Sleeper",
     description: "Needs more time in bed to feel rested.",
     modifiers: { restRecovery: 0.8 },
+    dislikes: [
+      "chatty", // keeps talking at bedtime
+      "bigAppetite", // midnight snacking wakes them up
+    ],
   },
   homesick: {
     id: "homesick",
@@ -87,6 +101,23 @@ export const TRAITS: Record<TraitId, TraitDef> = {
     description: "Careful and precise: better at healing and building.",
     modifiers: { roleBonus: { healing: 1.25, building: 1.15 } },
     conflictsWith: ["clumsy"],
+    dislikes: ["clumsy"], // careful people get frustrated by clumsy mistakes
+  },
+  chatty: {
+    id: "chatty",
+    name: "Chatty",
+    description: "Loves to talk, which keeps their spirits up.",
+    modifiers: { moraleBase: 5 },
+    conflictsWith: ["quiet"],
+    dislikes: ["quiet"], // feels ignored by quiet crewmates
+  },
+  quiet: {
+    id: "quiet",
+    name: "Quiet",
+    description: "Likes peace and quiet, and focuses well on research.",
+    modifiers: { roleBonus: { researching: 1.15 } },
+    conflictsWith: ["chatty"],
+    dislikes: ["curious"], // asks too many questions while they're trying to focus
   },
   quickLearner: {
     id: "quickLearner",
