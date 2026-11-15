@@ -1,5 +1,6 @@
 import { useRef, useState } from "react"
 import { MarsGlobe, type MarsGlobeHandle } from "@/components/MarsGlobe"
+import { SaveSelect } from "@/components/SaveSelect"
 import { MARS_FACTS } from "@/content/marsFacts"
 
 type MenuAction = "start" | "credits"
@@ -136,6 +137,7 @@ function FactCard({
 
 export function MainMenu({ onStart }: { onStart: () => void }) {
   const [showCredits, setShowCredits] = useState(false)
+  const [showSaves, setShowSaves] = useState(false)
   const globeRef = useRef<MarsGlobeHandle>(null)
   const [siteId, setSiteId] = useState<string | null>(null)
   const [hiddenFromEarth, setHiddenFromEarth] = useState(false)
@@ -151,7 +153,8 @@ export function MainMenu({ onStart }: { onStart: () => void }) {
   }
 
   const handleSelect = (action: MenuAction) => {
-    if (action === "start") onStart()
+    // The game starts once a save is picked or created in the save menu.
+    if (action === "start") setShowSaves(true)
     if (action === "credits") setShowCredits(true)
   }
 
@@ -203,6 +206,8 @@ export function MainMenu({ onStart }: { onStart: () => void }) {
       <p className="absolute right-6 bottom-4 left-6 z-10 text-[11px] text-white/40 sm:left-16">
         Mars as seen from Earth, time-lapse from now · Viking MDIM 2.1 via NASA Mars Trek · MGS MOLA via USGS Astrogeology · NASA/JPL NAIF
       </p>
+
+      {showSaves && <SaveSelect onStart={onStart} onClose={() => setShowSaves(false)} />}
 
       {showCredits && (
         <div
