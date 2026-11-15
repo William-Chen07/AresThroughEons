@@ -239,6 +239,38 @@ const DATA_CREDITS: Credit[] = [
     ],
   },
   {
+    use: "Moon positions (globe)",
+    what:
+      "Orbits of Phobos and Deimos from the NASA/JPL Horizons system (satellite ephemeris mar099). On the " +
+      "globe the moons are drawn bigger and closer to Mars than they really are, so they can be seen.",
+    links: [{ label: "JPL Horizons", href: "https://ssd.jpl.nasa.gov/horizons/" }],
+  },
+  {
+    use: "Moon shapes (globe)",
+    what:
+      "P. Thomas, Shape Models of Small Bodies V2.1 (EAR-A-5-DDR-SHAPE-MODELS-V2.1): Phobos and Deimos shape " +
+      "models made from Viking Orbiter images, NASA Planetary Data System Small Bodies Node.",
+    links: [
+      {
+        label: "PDS Small Bodies Node",
+        href: "https://sbnarchive.psi.edu/pds3/non_mission/EAR_A_5_DDR_SHAPE_MODELS_V2_1/",
+      },
+    ],
+  },
+  {
+    use: "Moon surfaces (globe)",
+    what:
+      "Phobos: Viking VIS global mosaic, 5 m per pixel (Phobos_Viking_Mosaic_40ppd_DLRcontrol), via NASA " +
+      "Phobos Trek. Deimos: Viking Orbiter image mosaic (m2deimosm) from the same PDS data set as the shapes.",
+    links: [
+      { label: "NASA Phobos Trek", href: "https://trek.nasa.gov/phobos/" },
+      {
+        label: "PDS Small Bodies Node",
+        href: "https://sbnarchive.psi.edu/pds3/non_mission/EAR_A_5_DDR_SHAPE_MODELS_V2_1/",
+      },
+    ],
+  },
+  {
     use: "Planet positions",
     what: "DE442 planetary ephemeris (2025), NASA/JPL NAIF (SPICE).",
     links: [

@@ -22,6 +22,8 @@ const MENU_ITEMS: { id: MenuAction; label: string; needsSave?: boolean }[] = [
 ]
 
 const LOCKED_HINT = "Play your first mission to unlock"
+// About how tall an open fun-fact card is (the Explore button before it opens is shorter).
+const FACT_CARD_HEIGHT_PX = 260
 
 const smallButton =
   "border border-white/15 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] transition hover:border-orange-400/70 focus-visible:outline-2 focus-visible:outline-orange-400"
@@ -107,6 +109,9 @@ export function MainMenu({ onStart }: { onStart: () => void }) {
   const [panel, setPanel] = useState<Panel>(null)
   const [showSaves, setShowSaves] = useState(false)
   const globeRef = useRef<MarsGlobeHandle>(null)
+  const titleRef = useRef<HTMLHeadingElement>(null)
+  const navRef = useRef<HTMLElement>(null)
+  const factRef = useRef<HTMLDivElement>(null)
   const [siteId, setSiteId] = useState<string | null>(null)
   const [hiddenFromEarth, setHiddenFromEarth] = useState(false)
 
@@ -131,6 +136,18 @@ export function MainMenu({ onStart }: { onStart: () => void }) {
       stopMusic(0.3)
     }
   }, [])
+
+  // Where a moon picked for a fun fact must not end up: under the title, the menu or the fact
+  // card. The card may still be the small Explore button, so allow for the full card's height.
+  const keepClear = () => {
+    const rects = [titleRef.current, navRef.current].flatMap((el) => (el ? [el.getBoundingClientRect()] : []))
+    const card = factRef.current?.getBoundingClientRect()
+    if (card) {
+      const h = Math.max(card.height, FACT_CARD_HEIGHT_PX)
+      rects.push(new DOMRect(card.left, card.bottom - h, card.width, h))
+    }
+    return rects
+  }
 
   // Picking a place (tapped pin, Explore, or the arrows) turns Mars to bring it to the front.
   const focusSite = (id: string) => {
@@ -170,6 +187,7 @@ export function MainMenu({ onStart }: { onStart: () => void }) {
         className="absolute inset-0"
         selectedSiteId={siteId}
         onSelectSite={selectSite}
+        keepClear={keepClear}
       />
 
       {/* Click-through so taps reach the pins on Mars; the controls opt back in. */}
@@ -177,14 +195,14 @@ export function MainMenu({ onStart }: { onStart: () => void }) {
         <p className="text-xs font-medium uppercase tracking-[0.4em] text-orange-300/80">
           NASA Space Apps 2026
         </p>
-        <h1 className="mt-3 text-5xl font-bold uppercase leading-none tracking-wider sm:text-7xl">
+        <h1 ref={titleRef} className="mt-3 text-5xl font-bold uppercase leading-none tracking-wider sm:text-7xl">
           Ares
           <span className="block text-2xl font-light tracking-[0.5em] text-orange-200/90 sm:text-3xl">
             Through Eons
           </span>
         </h1>
 
-        <nav aria-label="Main menu" className="pointer-events-auto mt-10 flex w-full max-w-xs flex-col gap-2">
+        <nav ref={navRef} aria-label="Main menu" className="pointer-events-auto mt-10 flex w-full max-w-xs flex-col gap-2">
           {MENU_ITEMS.map((item) => {
             const locked = Boolean(item.needsSave) && !hasSave
             return (
@@ -230,7 +248,7 @@ export function MainMenu({ onStart }: { onStart: () => void }) {
       </button>
 
       {/* Bottom right: fun facts about the place picked on Mars */}
-      <div className="absolute right-6 bottom-12 z-20 w-96 max-w-[calc(100%-3rem)] max-[900px]:right-4 max-[900px]:left-4 max-[900px]:w-auto max-[900px]:max-w-none">
+      <div ref={factRef} className="absolute right-6 bottom-12 z-20 w-96 max-w-[calc(100%-3rem)] max-[900px]:right-4 max-[900px]:left-4 max-[900px]:w-auto max-[900px]:max-w-none">
         <FactCard
           siteId={siteId}
           hiddenFromEarth={hiddenFromEarth}

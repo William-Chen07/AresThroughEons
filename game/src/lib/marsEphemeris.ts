@@ -125,6 +125,8 @@ export interface MarsGeometry {
   northPoleAngle: number
   /** Sun–Mars–Earth angle, degrees. */
   phaseAngle: number
+  /** TDB Julian date at which the light seen from Earth left Mars (date minus light-time). */
+  emitJd: number
 }
 
 function toLatLon(v: Vec3, axes: MarsGeometry["axes"]) {
@@ -178,5 +180,6 @@ export function marsGeometry(date: Date, table: EphemerisTable, rotation: Rotati
     subSolar: toLatLon(toSun, axes),
     northPoleAngle,
     phaseAngle: Math.acos(Math.min(1, Math.max(-1, dot(toSun, toEarth)))) / DEG,
+    emitJd: jd - lightTime,
   }
 }

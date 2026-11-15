@@ -1,9 +1,12 @@
+import type { MoonId } from "@/lib/marsMoons"
+
 /**
- * Fun facts about places on Mars, shown as tappable pins on the main menu globe.
+ * Fun facts about places on Mars and its two moons, shown as tappable pins on the main menu globe.
  * Every fact should come from a NASA source and say which one.
  *
  * Coordinates are planetocentric degrees: latitude north-positive, longitude
  * east-positive in -180..180 (the same convention as the globe's shape data).
+ * A fact about a moon is pinned to the moon itself and moves with it.
  */
 export interface MarsFact {
   id: string
@@ -11,7 +14,7 @@ export interface MarsFact {
   /** Kid-friendly, plain language. Explain any science word in the same sentence. */
   text: string
   source: { label: string; url: string }
-  location: { lat: number; lon: number }
+  location: { lat: number; lon: number } | { moon: MoonId }
 }
 
 export const MARS_FACTS: MarsFact[] = [
@@ -52,5 +55,19 @@ export const MARS_FACTS: MarsFact[] = [
     text: "Mars has ice caps of frozen water and dry ice (frozen carbon dioxide). Future astronauts could melt ice like this to get drinking water and even oxygen to breathe.",
     source: { label: "NASA Science", url: "https://science.nasa.gov/mars/facts/" },
     location: { lat: 86, lon: 0 },
+  },
+  {
+    id: "phobos",
+    title: "Phobos",
+    text: "Mars' bigger moon is a lumpy rock only about 27 km (17 miles) long. It zooms around Mars three times a day, and it is slowly falling closer. In about 50 million years it will crash into Mars or break up into a ring!",
+    source: { label: "NASA Science: Phobos", url: "https://science.nasa.gov/mars/moons/phobos/" },
+    location: { moon: "phobos" },
+  },
+  {
+    id: "deimos",
+    title: "Deimos",
+    text: "Mars' smaller moon is only about 15 km (9 miles) long and goes around Mars once every 30 hours. Both moons were found in 1877 and named after the sons of Ares, the Greek god of war. Deimos means dread and Phobos means fear.",
+    source: { label: "NASA Science: Deimos", url: "https://science.nasa.gov/mars/moons/deimos/" },
+    location: { moon: "deimos" },
   },
 ]
