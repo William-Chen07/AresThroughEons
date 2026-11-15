@@ -100,7 +100,7 @@ export function SaveSelect({ onStart, onClose }: { onStart: () => void; onClose:
 
   return (
     <div
-      className="absolute inset-0 z-20 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      className="absolute inset-0 z-30 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
