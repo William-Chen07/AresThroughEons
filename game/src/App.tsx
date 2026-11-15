@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { MainMenu } from "@/components/MainMenu"
+import { CrewPanel } from "@/components/CrewPanel"
 
 type Screen = "menu" | "game"
 
@@ -10,17 +11,17 @@ function App() {
     return <MainMenu onStart={() => setScreen("game")} />
   }
 
-  // Placeholder until the game scene exists.
+  // Crew panel stands in until the Pixi game scene exists.
   return (
-    <main className="flex h-dvh flex-col items-center justify-center gap-6 bg-[#020104] text-white">
-      <p className="text-sm uppercase tracking-[0.3em] text-white/60">Game coming soon</p>
+    <main className="min-h-dvh bg-[#020104] text-white">
       <button
         type="button"
         onClick={() => setScreen("menu")}
-        className="border border-white/15 px-5 py-2 text-xs font-semibold uppercase tracking-[0.25em] hover:border-orange-400/70"
+        className="m-4 mb-0 border border-white/15 px-5 py-2 text-xs font-semibold uppercase tracking-[0.25em] hover:border-orange-400/70"
       >
         Back to menu
       </button>
+      <CrewPanel />
     </main>
   )
 }
