@@ -2,7 +2,7 @@ import { Application, CanvasSource, Graphics, Sprite, Texture } from "pixi.js"
 import { Viewport } from "pixi-viewport"
 import { createBaseView, type Ghost } from "@/map/baseView"
 import { createCrewView } from "@/map/crewView"
-import { createLander } from "@/map/lander"
+import { createLander, landerModelFor } from "@/map/lander"
 import {
   CELL_PX,
   cellTopLeft,
@@ -12,7 +12,7 @@ import {
   type Cell,
   type VoxelTerrain,
 } from "@/map/voxelTerrain"
-import type { Base } from "@/sim/base"
+import type { Base, LanderSpot } from "@/sim/base"
 import type { World } from "@/sim/pathing"
 
 /*
@@ -52,6 +52,14 @@ export interface MapEvents {
   onLanded: (() => void) | null
 }
 
+/** What the map shows that only changes when a new era starts (and the map screen is built again). */
+export interface MapEra {
+  /** The era the expedition is in. Modules built in an earlier one are drawn worn down. */
+  era: number
+  /** Every lander on the map, oldest first; the last is this era's, the rest are drawn worn down. */
+  landers: LanderSpot[]
+}
+
 const MAX_ZOOM = 4
 /** Zoom when the map opens: close enough to see single blocks. */
 const START_ZOOM = 1.5
@@ -65,6 +73,7 @@ export async function createMapView(
   host: HTMLElement,
   terrain: VoxelTerrain,
   { onHover, onCellClick, onLanded }: MapEvents,
+  { era, landers }: MapEra,
   signal: AbortSignal,
 ): Promise<MapView | null> {
   const app = new Application()
@@ -109,11 +118,17 @@ export async function createMapView(
   const highlight = new Graphics().rect(0, 0, CELL_PX, CELL_PX).stroke({ width: 2, color: 0xffffff, alignment: 1 })
   highlight.visible = false
 
-  const lander = createLander(terrain)
-  const base = createBaseView(terrain)
+  const current = landers[landers.length - 1]
+  const lander = createLander(terrain, current, landerModelFor(current.era))
+  const oldLanders = landers.slice(0, -1).map((spot) => {
+    const old = createLander(terrain, spot, landerModelFor(spot.era), true)
+    old.place()
+    return old
+  })
+  const base = createBaseView(terrain, era)
   const crew = createCrewView(terrain)
-  // Drawing order: terrain, the base, the lander, the crew, then the placement ghost and hover highlight on top.
-  viewport.addChild(ground, base.view, lander.view, crew.view, base.ghost, highlight)
+  // Drawing order: terrain, the base, the old landers, this era's lander, the crew, then the placement ghost and hover highlight on top.
+  viewport.addChild(ground, base.view, ...oldLanders.map((old) => old.view), lander.view, crew.view, base.ghost, highlight)
   app.stage.addChild(viewport)
 
   const fitZoomLimits = () => {

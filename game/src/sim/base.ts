@@ -28,12 +28,23 @@ export interface PlacedModule {
   /** The north-west (top-left) cell of its footprint. */
   col: number
   row: number
+  /** The era it was built in (see sim/saves.ts). Modules from an earlier era than the save's are drawn worn down. Missing = era 1. */
+  era?: number
+}
+
+/** A lander on the map: the cell under its middle, and the era it brought a crew in. */
+export interface LanderSpot {
+  col: number
+  row: number
+  era: number
 }
 
 export interface Base {
   modules: PlacedModule[]
   /** Every cell that has a piece of tube on it. */
   tubes: Cell[]
+  /** Every lander that has come down, oldest first; the last is this era's. Missing = just the first one, in the middle. */
+  landers?: LanderSpot[]
 }
 
 export const EMPTY_BASE: Base = { modules: [], tubes: [] }
@@ -44,10 +55,58 @@ export const LANDER = 1
 export const MODULE = 2
 export const TUBE = 3
 
-export function landerFootprint(size: number): Rect {
+/** The first era's lander comes down in the middle of the map. */
+export function firstLander(size: number): LanderSpot {
   const middle = Math.floor(size / 2)
+  return { col: middle, row: middle, era: 1 }
+}
+
+/** Every lander on the map, oldest first (the last one is this era's). */
+export function landersOf(base: Base, size: number): LanderSpot[] {
+  return base.landers && base.landers.length > 0 ? base.landers : [firstLander(size)]
+}
+
+/** The cells a lander stands on: 3 × 3, centred on its spot. */
+export function landerRect(spot: Cell): Rect {
   const half = Math.floor(LANDER_CELLS / 2)
-  return { col: middle - half, row: middle - half, width: LANDER_CELLS, height: LANDER_CELLS }
+  return { col: spot.col - half, row: spot.row - half, width: LANDER_CELLS, height: LANDER_CELLS }
+}
+
+/** Where this era's lander stands. */
+export function landerFootprint(size: number, base?: Base): Rect {
+  const landers = base ? landersOf(base, size) : [firstLander(size)]
+  return landerRect(landers[landers.length - 1])
+}
+
+/**
+ * Where the next era's lander can come down: the free spot nearest the middle of the map with
+ * open ground (no module, tube or old lander) right round it, so the new crew can step out.
+ */
+export function nextLanderSpot(size: number, base: Base, era: number): LanderSpot {
+  const grid = occupancy(size, base)
+  const middle = Math.floor(size / 2)
+  const margin = 2
+  const clear = (col: number, row: number) => {
+    const rect = landerRect({ col, row })
+    for (let r = rect.row - margin; r < rect.row + rect.height + margin; r++) {
+      for (let c = rect.col - margin; c < rect.col + rect.width + margin; c++) {
+        if (r < 0 || c < 0 || r >= size || c >= size || grid[r * size + c] !== FREE) return false
+      }
+    }
+    return true
+  }
+  // Rings outward from the middle, nearest first.
+  for (let ring = 1; ring < size / 2; ring++) {
+    const spots: Cell[] = []
+    for (let d = -ring; d <= ring; d++) {
+      spots.push({ col: middle + d, row: middle - ring }, { col: middle + d, row: middle + ring })
+      spots.push({ col: middle - ring, row: middle + d }, { col: middle + ring, row: middle + d })
+    }
+    spots.sort((a, b) => Math.hypot(a.col - middle, a.row - middle) - Math.hypot(b.col - middle, b.row - middle))
+    const spot = spots.find(({ col, row }) => clear(col, row))
+    if (spot) return { ...spot, era }
+  }
+  return { col: middle, row: middle, era }
 }
 
 export function moduleRect(module: PlacedModule): Rect {
@@ -81,7 +140,7 @@ export function occupancy(size: number, base: Base): Uint8Array {
   }
   for (const tube of base.tubes) mark({ ...tube, width: 1, height: 1 }, TUBE)
   for (const module of base.modules) mark(moduleRect(module), MODULE)
-  mark(landerFootprint(size), LANDER)
+  for (const lander of landersOf(base, size)) mark(landerRect(lander), LANDER)
   return grid
 }
 

@@ -6,6 +6,10 @@
  * `row` its place in that column. `requires` lists the projects that must be
  * researched first; keep them in the tier just before, so the lines of the
  * tree stay short. Every `text` is a real fact from the NASA page in `source`.
+ *
+ * Each era has its own tree (`era`, missing = era 1). The research panel shows the tree of the
+ * era the expedition is in, or the last era that has one. What was researched in an earlier era
+ * stays researched.
  */
 export interface ResearchProject {
   id: string
@@ -13,6 +17,8 @@ export interface ResearchProject {
   tier: number
   row: number
   requires: string[]
+  /** The era whose tree this project is in. Missing = era 1. */
+  era?: number
   /** Kid-friendly, plain language. Explain any science word in the same sentence. */
   text: string
   source: { label: string; url: string }
@@ -120,7 +126,54 @@ export const RESEARCH_PROJECTS: ResearchProject[] = [
       url: "https://www.nasa.gov/directorates/stmd/tech-demo-missions-program/kilopower-hmqzw/",
     },
   },
+  // ---- Era 2 (PLACEHOLDER: a small first tree; more projects to come) ----
+  {
+    id: "mars-helicopter",
+    name: "Mars Helicopter",
+    era: 2,
+    tier: 0,
+    row: 0,
+    requires: [],
+    text: "Flying on Mars is hard because the air is so thin. On April 19, 2021, NASA's Ingenuity helicopter made the first powered, controlled flight on another planet, and it went on to fly 72 times.",
+    source: {
+      label: "NASA Ingenuity Mars Helicopter",
+      url: "https://science.nasa.gov/mission/mars-2020-perseverance/ingenuity-mars-helicopter/",
+    },
+  },
+  {
+    id: "laser-messages",
+    name: "Laser Messages",
+    era: 2,
+    tier: 0,
+    row: 1,
+    requires: [],
+    text: "Radio is slow for sending big pictures across space. In 2023 NASA's Deep Space Optical Communications test sent data with a laser from about 16 million kilometres away.",
+    source: {
+      label: "NASA Deep Space Optical Communications",
+      url: "https://www.nasa.gov/mission/deep-space-optical-communications-dsoc/",
+    },
+  },
+  {
+    id: "long-stays",
+    name: "Long Stays",
+    era: 2,
+    tier: 1,
+    row: 1,
+    requires: ["laser-messages"],
+    text: "Living in space for a long time changes the body. Astronaut Scott Kelly lived on the space station for nearly a year while his twin brother Mark stayed on Earth, so doctors could compare them.",
+    source: { label: "NASA Twins Study", url: "https://www.nasa.gov/humans-in-space/twins-study/" },
+  },
 ]
+
+/** The era of a project's tree. */
+export const projectEra = (project: ResearchProject) => project.era ?? 1
+
+/** The projects in the tree for this era: its own, or the last era's that has a tree. */
+export function researchTree(era: number): ResearchProject[] {
+  const eras = RESEARCH_PROJECTS.map(projectEra).filter((e) => e <= era)
+  const shown = eras.length > 0 ? Math.max(...eras) : 1
+  return RESEARCH_PROJECTS.filter((project) => projectEra(project) === shown)
+}
 
 export function researchProject(id: string): ResearchProject | undefined {
   return RESEARCH_PROJECTS.find((project) => project.id === id)
