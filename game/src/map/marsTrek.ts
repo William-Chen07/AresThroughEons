@@ -158,10 +158,14 @@ async function stitch(layer: TileLayer, bounds: Bounds): Promise<Stitched> {
   return { ctx, left: left - col0 * size, top: top - row0 * size, width: right - left, height: bottom - top }
 }
 
-/** The red channel of resampled pixels, with 0 wherever the layer is see-through (no data). */
+/**
+ * The red channel of resampled pixels, with 0 wherever the layer has no data.
+ * A pixel that is even slightly see-through counts as no data: at the edge of
+ * a gap, resampling blends real pixels with empty ones and leaves a dark line.
+ */
 function greyOf(rgba: Uint8ClampedArray): Uint8Array {
   const grey = new Uint8Array(rgba.length / 4)
-  for (let i = 0; i < grey.length; i++) grey[i] = rgba[i * 4 + 3] < 128 ? 0 : Math.max(1, rgba[i * 4])
+  for (let i = 0; i < grey.length; i++) grey[i] = rgba[i * 4 + 3] < 250 ? 0 : Math.max(1, rgba[i * 4])
   return grey
 }
 

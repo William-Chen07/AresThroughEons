@@ -10,6 +10,9 @@ function App() {
   const [screen, setScreen] = useState<Screen>("menu")
   // The save the player picked in the menu (see sim/saves.ts).
   const save = useSaves((s) => (s.activeSlot === null ? null : s.slots[s.activeSlot]))
+  const activeSlot = useSaves((s) => s.activeSlot)
+  const markLanded = useSaves((s) => s.markLanded)
+  const setBase = useSaves((s) => s.setBase)
 
   if (screen === "menu") {
     return <MainMenu onStart={() => setScreen("game")} />
@@ -17,7 +20,18 @@ function App() {
 
   // The base map for the save's landing site. Transitions into it come later.
   if (save) {
-    return <GameMap name={save.name} site={devSiteOverride() ?? save.site} onExit={() => setScreen("menu")} />
+    return (
+      <GameMap
+        name={save.name}
+        site={devSiteOverride() ?? save.site}
+        landed={save.landed}
+        onLanded={() => activeSlot !== null && markLanded(activeSlot)}
+        modules={save.modules}
+        tubes={save.tubes}
+        onBaseChange={(base) => activeSlot !== null && setBase(activeSlot, base)}
+        onExit={() => setScreen("menu")}
+      />
+    )
   }
 
   // Only reachable if the active save is deleted while the game is open.

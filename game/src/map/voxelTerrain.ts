@@ -133,6 +133,38 @@ function brightnessRange(values: Float32Array) {
   return { dark: (dark + light) / 2 - span / 2, span }
 }
 
+/**
+ * The detail imagery with its gaps (zeros) filled from the soft imagery. The
+ * two layers measure different things, so the soft values are first shifted
+ * and scaled to the same average and spread as the detail has where both
+ * exist. Without that a gap shows as a band of the wrong brightness. (The
+ * detail mosaic has such a gap along the 180° longitude line.)
+ */
+function fillGaps(detail: Uint8Array, soft: Uint8Array): Uint8Array {
+  let count = 0
+  let detailSum = 0
+  let softSum = 0
+  for (let i = 0; i < detail.length; i++) {
+    if (detail[i] === 0) continue
+    count++
+    detailSum += detail[i]
+    softSum += soft[i]
+  }
+  if (count === detail.length) return detail
+  if (count === 0) return soft
+  const detailMean = detailSum / count
+  const softMean = softSum / count
+  let detailSpread = 0
+  let softSpread = 0
+  for (let i = 0; i < detail.length; i++) {
+    if (detail[i] === 0) continue
+    detailSpread += (detail[i] - detailMean) ** 2
+    softSpread += (soft[i] - softMean) ** 2
+  }
+  const scale = softSpread > 0 ? Math.sqrt(detailSpread / softSpread) : 1
+  return detail.map((value, i) => value || Math.max(1, Math.min(255, detailMean + (soft[i] - softMean) * scale)))
+}
+
 /** Redraws the site's imagery as pixel art (see above). Returns red, green, blue per texel. */
 function pixelArt(region: SiteRegion): Uint8Array {
   const side = region.size * TEXELS_PER_CELL
@@ -143,7 +175,7 @@ function pixelArt(region: SiteRegion): Uint8Array {
   }
   // Where the detail layer has no data (or didn't load), fall back to the soft colour imagery.
   const detail = region.detail
-  const grey = sharpen(detail ? detail.map((value, i) => value || softBrightness[i]) : softBrightness, side)
+  const grey = sharpen(detail ? fillGaps(detail, softBrightness) : softBrightness, side)
   const range = brightnessRange(grey)
 
   const texture = new Uint8Array(count * 3)
@@ -211,6 +243,17 @@ function levelAt(terrain: VoxelTerrain, col: number, row: number) {
 /** Where a cell's top face is drawn, in map pixels (its top-left corner; the face is CELL_PX square). */
 export function cellTopLeft(terrain: VoxelTerrain, { col, row }: Cell) {
   return { x: col * CELL_PX, y: TOP_MARGIN_PX + row * CELL_PX - levelAt(terrain, col, row) * LEVEL_PX }
+}
+
+/**
+ * Where something covering several cells is drawn (its top-left corner): at
+ * the height of the cell under its middle. `col` and `row` are its north-west
+ * cell. Works for footprints hanging off the map's edge too.
+ */
+export function footprintTopLeft(terrain: VoxelTerrain, col: number, row: number, width: number, height: number) {
+  const onMap = (value: number) => Math.max(0, Math.min(terrain.size - 1, value))
+  const level = levelAt(terrain, onMap(col + Math.floor(width / 2)), onMap(row + Math.floor(height / 2)))
+  return { x: col * CELL_PX, y: TOP_MARGIN_PX + row * CELL_PX - level * LEVEL_PX }
 }
 
 /** The cell drawn at a point of the map, or null outside it. Taller columns in front hide the ones behind. */

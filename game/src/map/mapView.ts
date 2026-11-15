@@ -1,5 +1,7 @@
 import { Application, CanvasSource, Graphics, Sprite, Texture } from "pixi.js"
 import { Viewport } from "pixi-viewport"
+import { createBaseView, type Ghost } from "@/map/baseView"
+import { createLander } from "@/map/lander"
 import {
   CELL_PX,
   cellTopLeft,
@@ -9,16 +11,34 @@ import {
   type Cell,
   type VoxelTerrain,
 } from "@/map/voxelTerrain"
+import type { Base } from "@/sim/base"
 
 /*
  * The Pixi scene for the base map: the terrain as one background sprite inside
- * a camera (pixi-viewport) that drags, pinches and wheel-zooms, plus a
- * highlight on the cell under the pointer. Game objects will be added to
- * `viewport` on top of the terrain.
+ * a camera (pixi-viewport) that drags, pinches and wheel-zooms, the lander
+ * coming down in the middle, the base (modules and tubes), and a highlight on
+ * the cell under the pointer, or a ghost of what a click would build.
  */
 
+/** While something is being placed: what a click on the pointed-at cell would build. */
+export interface Placement {
+  preview: (cell: Cell) => Ghost
+}
+
 export interface MapView {
+  /** Redraws the base. `grid` is its occupancy (see sim/base.ts). */
+  setBase: (base: Base, grid: Uint8Array) => void
+  /** Starts or stops showing the placement ghost under the pointer. */
+  setPlacement: (placement: Placement | null) => void
   destroy: () => void
+}
+
+export interface MapEvents {
+  onHover: (cell: Cell | null) => void
+  /** A click or tap on a cell (not the end of a drag). */
+  onCellClick: (cell: Cell) => void
+  /** Null if the lander is already down. Otherwise the landing plays, and this is called at touchdown. */
+  onLanded: (() => void) | null
 }
 
 const MAX_ZOOM = 4
@@ -33,7 +53,7 @@ const START_ZOOM = 1.5
 export async function createMapView(
   host: HTMLElement,
   terrain: VoxelTerrain,
-  onHover: (cell: Cell | null) => void,
+  { onHover, onCellClick, onLanded }: MapEvents,
   signal: AbortSignal,
 ): Promise<MapView | null> {
   const app = new Application()
@@ -78,7 +98,10 @@ export async function createMapView(
   const highlight = new Graphics().rect(0, 0, CELL_PX, CELL_PX).stroke({ width: 2, color: 0xffffff, alignment: 1 })
   highlight.visible = false
 
-  viewport.addChild(ground, highlight)
+  const lander = createLander(terrain)
+  const base = createBaseView(terrain)
+  // Drawing order: terrain, the base, the lander, then the placement ghost and hover highlight on top.
+  viewport.addChild(ground, base.view, lander.view, base.ghost, highlight)
   app.stage.addChild(viewport)
 
   const fitZoomLimits = () => {
@@ -88,7 +111,19 @@ export async function createMapView(
   }
   fitZoomLimits()
   viewport.setZoom(START_ZOOM, true)
-  viewport.moveCenter(world.width / 2, world.height / 2)
+  viewport.moveCenter(lander.center.x, lander.center.y)
+  // The landing plays only the first time an expedition's map opens. People who ask their system for less motion get the lander already down.
+  // The camera shake moves the whole stage, so it doesn't fight the player's own panning.
+  if (onLanded) {
+    lander.land(
+      app.ticker,
+      !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+      (dx, dy) => app.stage.position.set(dx, dy),
+      onLanded,
+    )
+  } else {
+    lander.place()
+  }
 
   app.renderer.on("resize", (width, height) => {
     viewport.resize(width, height, world.width, world.height)
@@ -99,11 +134,17 @@ export async function createMapView(
   observer.observe(host)
 
   let hovered: Cell | null = null
+  let placement: Placement | null = null
+  /** Shows the hover highlight, or the placement ghost in its place while a module is being placed. */
+  const showPointer = () => {
+    highlight.visible = hovered !== null && placement === null
+    if (hovered) highlight.position.copyFrom(cellTopLeft(terrain, hovered))
+    base.showGhost(hovered && placement ? placement.preview(hovered) : null)
+  }
   const setHovered = (cell: Cell | null) => {
     if (cell?.col === hovered?.col && cell?.row === hovered?.row) return
     hovered = cell
-    highlight.visible = cell !== null
-    if (cell) highlight.position.copyFrom(cellTopLeft(terrain, cell))
+    showPointer()
     onHover(cell)
   }
   viewport.eventMode = "static"
@@ -113,8 +154,22 @@ export async function createMapView(
   })
   const clearHover = () => setHovered(null)
   app.canvas.addEventListener("pointerleave", clearHover)
+  // The camera reports a click only when the pointer didn't drag the map.
+  viewport.on("clicked", (e) => {
+    const cell = pickCell(terrain, e.world.x, e.world.y)
+    if (cell) onCellClick(cell)
+  })
 
   return {
+    setBase: (next, grid) => {
+      base.draw(next, grid)
+      // The base under the pointer may have changed what fits there.
+      showPointer()
+    },
+    setPlacement: (next) => {
+      placement = next
+      showPointer()
+    },
     destroy: () => {
       observer.disconnect()
       app.canvas.removeEventListener("pointerleave", clearHover)
