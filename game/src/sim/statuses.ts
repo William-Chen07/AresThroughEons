@@ -111,7 +111,7 @@ export const STATUSES: Record<StatusId, StatusDef> = {
   friction: {
     id: "friction",
     label: "Not Getting Along",
-    description: "Is around a crewmate whose personality clashes with theirs.",
+    description: "Is around a crewmate they don't like.",
     fix: "Give them different tasks so they spend less time together.",
     severity: "mild",
     treatable: false,

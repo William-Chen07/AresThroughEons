@@ -3,7 +3,7 @@ import {
   addStatus,
   areTogether,
   clamp,
-  dislikesEachOther,
+  dislikesCrewmate,
   gainXp,
   hasStatus,
   isActive,
@@ -88,23 +88,19 @@ export function advanceMission(mission: Mission, hours: number): Mission {
   return m
 }
 
-/** Crewmates with clashing traits who spent this hour together both get "Not Getting Along". */
+/**
+ * A crewmate who spent this hour with someone they dislike gets "Not Getting Along".
+ * One-way: only the one doing the disliking is affected.
+ */
 function updateFriction(crew: Pawn[], hour: number, log: Log) {
-  const clashing = new Set<Pawn>()
-  for (let i = 0; i < crew.length; i++) {
-    for (let j = i + 1; j < crew.length; j++) {
-      const [a, b] = [crew[i], crew[j]]
-      if (!areTogether(a, b) || !dislikesEachOther(a, b)) continue
-      // Log only when the clash starts, not every hour it continues.
-      if (!hasStatus(a, "friction") || !hasStatus(b, "friction")) {
-        log("warning", `${a.name} and ${b.name} are getting on each other's nerves.`)
-      }
-      clashing.add(a).add(b)
-    }
-  }
   for (const pawn of crew) {
-    if (clashing.has(pawn)) addStatus(pawn, "friction", hour)
-    else removeStatus(pawn, "friction")
+    const annoyedBy = crew.find((other) => areTogether(pawn, other) && dislikesCrewmate(pawn, other))
+    if (!annoyedBy) {
+      removeStatus(pawn, "friction")
+    } else if (addStatus(pawn, "friction", hour)) {
+      // Log only when it starts, not every hour it continues.
+      log("warning", `${pawn.name} is annoyed by ${annoyedBy.name}.`, pawn.id)
+    }
   }
 }
 
