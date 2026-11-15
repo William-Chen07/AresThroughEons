@@ -66,16 +66,20 @@ export interface Cell {
  * The pattern of light and dark is the real ground; the colours are a palette.
  */
 
-/** Dark to light. Each step also shifts hue (cool shadows, warm highlights), as pixel-art ramps do. */
+/**
+ * Dark to light. Each step also shifts hue (cooler shadows, warmer highlights), as pixel-art ramps do.
+ * The dark end stops at a mid brown on purpose: the infrared imagery shows cold, shadowed slopes as
+ * nearly black, and with darker tones here whole valleys turned into black holes.
+ */
 const TONES = [
-  [58, 34, 40],
-  [82, 47, 46],
-  [92, 51, 44],
-  [125, 71, 52],
-  [156, 93, 63],
-  [184, 120, 80],
-  [211, 151, 105],
-  [234, 187, 140],
+  [104, 60, 56],
+  [124, 72, 60],
+  [144, 86, 64],
+  [163, 101, 71],
+  [182, 118, 82],
+  [201, 138, 98],
+  [219, 160, 118],
+  [236, 188, 144],
 ]
 /** Ordered-dither thresholds (Bayer 4 × 4), from 0 to 1. */
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((n) => (n + 0.5) / 16)
@@ -291,7 +295,7 @@ export function renderTerrain(terrain: VoxelTerrain): HTMLCanvasElement {
         if (col - reach >= 0) westShadow = Math.max(westShadow, terrain.levels[index - reach] - level - (reach - 1))
         if (row - reach >= 0) northShadow = Math.max(northShadow, terrain.levels[index - reach * size] - level - (reach - 1))
       }
-      const shadow = Math.min(3, westShadow) * 0.08 + Math.min(3, northShadow) * 0.05
+      const shadow = Math.min(3, westShadow) * 0.05 + Math.min(3, northShadow) * 0.03
       // Each level up is a little lighter, so height reads even where there's no step nearby.
       // The lowest ground is drawn at nearly full brightness: darkening it made whole maps murky.
       const light = Math.min(1.3, 0.96 + 0.035 * level) - shadow
@@ -317,7 +321,7 @@ export function renderTerrain(terrain: VoxelTerrain): HTMLCanvasElement {
       // dark where it drops away from it. This is what shows steps running north-south.
       if (west < level) tone(x, y, 2, CELL_PX, 1.22)
       if (north < level) tone(x, y, CELL_PX, 2, 1.22)
-      if (east < level) tone(x + CELL_PX - 3, y, 3, CELL_PX, 0.66)
+      if (east < level) tone(x + CELL_PX - 3, y, 3, CELL_PX, 0.76)
 
       // South face, where this column stands above the one in front of it
       // (or above the map's edge). One band per block of height.
@@ -327,8 +331,8 @@ export function renderTerrain(terrain: VoxelTerrain): HTMLCanvasElement {
       const b = terrain.colors[index * 3 + 2]
       for (let block = level; block > south; block--) {
         const faceY = TOP_MARGIN_PX + (row + 1) * CELL_PX - block * LEVEL_PX
-        fill(x, faceY, CELL_PX, LEVEL_PX - 1, r, g, b, 0.5)
-        fill(x, faceY + LEVEL_PX - 1, CELL_PX, 1, r, g, b, 0.38)
+        fill(x, faceY, CELL_PX, LEVEL_PX - 1, r, g, b, 0.66)
+        fill(x, faceY + LEVEL_PX - 1, CELL_PX, 1, r, g, b, 0.54)
       }
     }
   }
