@@ -6,8 +6,9 @@ import type { Cell } from "@/map/voxelTerrain"
  * Pure logic, no drawing (see map/baseView.ts for that).
  *
  * The player places both by hand. Nothing connects by itself. Two modules
- * are joined when a run of tube cells leads from one to the other, or when
- * they stand right against each other. The lander is only an obstacle: tubes
+ * are joined when a run of tube cells leads from one to the other, ending at
+ * each one's wall, or when they stand right against each other. A tube that
+ * only runs past a module doesn't join it. The lander is only an obstacle: tubes
  * can't run through it and it never counts as joined to anything.
  */
 
@@ -237,8 +238,52 @@ const STEPS = [
 ]
 
 /**
+ * The module cells a block of tube opens into (index row * size + col): where a run of tube
+ * meets a module's wall. Only the end of a run opens, into the module it points at (or, if it
+ * points at none, one beside it). A lone block of tube between two modules opens into both.
+ * A tube that runs past a module, or turns beside it, doesn't open into it.
+ */
+export function tubeOpenings(size: number, grid: Uint8Array, cell: number): number[] {
+  if (grid[cell] !== TUBE) return []
+  const col = cell % size
+  const row = (cell - col) / size
+  const tubeSides: number[][] = []
+  const moduleSides: number[][] = []
+  for (const [dc, dr] of STEPS) {
+    const c = col + dc
+    const r = row + dr
+    if (c < 0 || r < 0 || c >= size || r >= size) continue
+    if (grid[r * size + c] === TUBE) tubeSides.push([dc, dr])
+    if (grid[r * size + c] === MODULE) moduleSides.push([dc, dr])
+  }
+  const at = ([dc, dr]: number[]) => (row + dr) * size + col + dc
+  if (tubeSides.length >= 2 || moduleSides.length === 0) return []
+  if (tubeSides.length === 1) {
+    const [dc, dr] = tubeSides[0]
+    const ahead = moduleSides.find(([c, r]) => c === -dc && r === -dr)
+    return [at(ahead ?? moduleSides[0])]
+  }
+  const across = moduleSides.find(([c, r]) => moduleSides.some(([c2, r2]) => c2 === -c && r2 === -r))
+  return across ? [at(across), at([-across[0], -across[1]])] : [at(moduleSides[0])]
+}
+
+/**
+ * Whether two neighbouring cells (indices) are joined, so crew and air pass between them:
+ * module to module (the same module, or two standing wall to wall), tube to tube, and a tube to
+ * the module it opens into (see tubeOpenings).
+ */
+export function cellsJoined(size: number, grid: Uint8Array, a: number, b: number): boolean {
+  const first = grid[a]
+  const second = grid[b]
+  if ((first === MODULE && second === MODULE) || (first === TUBE && second === TUBE)) return true
+  if (first === TUBE && second === MODULE) return tubeOpenings(size, grid, a).includes(b)
+  if (first === MODULE && second === TUBE) return tubeOpenings(size, grid, b).includes(a)
+  return false
+}
+
+/**
  * The modules sorted into groups that are joined to each other, by tubes or
- * by standing wall to wall. One group means the whole base is connected.
+ * by standing wall to wall (see cellsJoined). One group means the whole base is connected.
  * Each group is a list of module ids.
  */
 export function connectedGroups(size: number, base: Base, grid: Uint8Array): string[][] {
@@ -264,7 +309,7 @@ export function connectedGroups(size: number, base: Base, grid: Uint8Array): str
         const nextRow = row + dr
         if (nextCol < 0 || nextRow < 0 || nextCol >= size || nextRow >= size) continue
         const next = nextRow * size + nextCol
-        if (seen[next] || (grid[next] !== MODULE && grid[next] !== TUBE)) continue
+        if (seen[next] || !cellsJoined(size, grid, cell, next)) continue
         seen[next] = 1
         queue.push(next)
       }

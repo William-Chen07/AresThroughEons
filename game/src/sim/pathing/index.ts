@@ -33,6 +33,7 @@ export {
   canCrossZones,
   canStepBetween,
   isDoorway,
+  isWalledOff,
   isWallCrossing,
   createGrid,
   getCost,

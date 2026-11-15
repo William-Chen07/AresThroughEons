@@ -1,6 +1,6 @@
 import type { ModuleTypeId } from "@/content/modules"
 import type { VoxelTerrain } from "@/map/voxelTerrain"
-import { LANDER, MODULE, TUBE, moduleDoor, moduleRect, occupancy, type Base } from "@/sim/base"
+import { LANDER, MODULE, TUBE, cellsJoined, moduleDoor, moduleRect, occupancy, type Base } from "@/sim/base"
 import {
   BLOCKED,
   createStation,
@@ -47,7 +47,7 @@ export const moduleStationId = (moduleId: string) => `module:${moduleId}`
 
 /**
  * Cells (index row * size + col) of every module and tube joined to an Airlock, through tubes or
- * modules standing wall to wall, the Airlock itself included.
+ * modules standing wall to wall (see cellsJoined in sim/base.ts), the Airlock itself included.
  */
 export function pressurizedCells(size: number, base: Base, built = occupancy(size, base)): Set<number> {
   const pressurized = new Set<number>()
@@ -71,7 +71,7 @@ export function pressurizedCells(size: number, base: Base, built = occupancy(siz
     const row = Math.floor(i / size)
     const next = [col > 0 ? i - 1 : -1, col < size - 1 ? i + 1 : -1, row > 0 ? i - size : -1, row < size - 1 ? i + size : -1]
     for (const n of next) {
-      if (n < 0 || pressurized.has(n) || (built[n] !== MODULE && built[n] !== TUBE)) continue
+      if (n < 0 || pressurized.has(n) || !cellsJoined(size, built, i, n)) continue
       pressurized.add(n)
       queue.push(n)
     }
@@ -113,6 +113,18 @@ export function syncNavigation(world: World, terrain: NavigationTerrain, base: B
     doors.push(inside.row * size + inside.col, outside.row * size + outside.col)
   }
   grid.doors = doors
+
+  // A tube that runs past a module (rather than ending at its wall) has a wall between them.
+  const walls: number[] = []
+  for (let i = 0; i < size * size; i++) {
+    if (built[i] !== TUBE) continue
+    const col = i % size
+    for (const n of [col < size - 1 ? i + 1 : -1, i + size < size * size ? i + size : -1, col > 0 ? i - 1 : -1, i - size]) {
+      if (n < 0 || built[n] !== MODULE || cellsJoined(size, built, i, n)) continue
+      walls.push(i, n)
+    }
+  }
+  grid.walls = walls
 
   // One walk-in station per module. Keep the Station object for modules that are still there,
   // so any work done on them isn't lost; stations that aren't modules are left alone.

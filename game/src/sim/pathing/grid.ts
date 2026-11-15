@@ -47,6 +47,12 @@ export interface Grid {
    * whole array to change them (lookups are cached per array).
    */
   doors: number[]
+  /**
+   * Walls between neighbouring tiles of the same zone, e.g. between a tube and a module it runs
+   * past without opening into: pairs of tile indices, flattened like `doors`. Replace the whole
+   * array to change them.
+   */
+  walls: number[]
 }
 
 /** Default tile size for maps that don't say: a few steps across, like a room-scale base. */
@@ -63,6 +69,7 @@ export function createGrid(width: number, height: number, cost = 1, metersPerTil
     elevation: Array.from({ length: size }, () => 0),
     airlocksRequired: true,
     doors: [],
+    walls: [],
   }
 }
 
@@ -93,36 +100,57 @@ export const canCrossZones = (from: Zone, to: Zone) =>
 export const isWallCrossing = (grid: Grid, fx: number, fy: number, tx: number, ty: number) =>
   !canCrossZones(getZone(grid, fx, fy), getZone(grid, tx, ty))
 
-/** Each doors array as a set of steps (both ways), built the first time it's needed. */
-const doorSteps = new WeakMap<number[], Set<number>>()
+/** Each list of tile pairs (doors, walls) as a set of steps both ways, built the first time it's needed. */
+const pairSteps = new WeakMap<number[], Set<number>>()
 
-/** True if the step between two tiles goes through one of the grid's doors (either way). */
-export function isDoorway(grid: Grid, fx: number, fy: number, tx: number, ty: number) {
-  if (!inBounds(grid, fx, fy) || !inBounds(grid, tx, ty)) return false
+/** True if the step between two tiles is one of the pairs listed (either way). */
+function isListedStep(grid: Grid, pairs: number[], fx: number, fy: number, tx: number, ty: number) {
+  if (pairs.length === 0 || !inBounds(grid, fx, fy) || !inBounds(grid, tx, ty)) return false
   const tiles = grid.width * grid.height
-  let steps = doorSteps.get(grid.doors)
+  let steps = pairSteps.get(pairs)
   if (!steps) {
     steps = new Set()
-    for (let i = 0; i + 1 < grid.doors.length; i += 2) {
-      steps.add(grid.doors[i] * tiles + grid.doors[i + 1])
-      steps.add(grid.doors[i + 1] * tiles + grid.doors[i])
+    for (let i = 0; i + 1 < pairs.length; i += 2) {
+      steps.add(pairs[i] * tiles + pairs[i + 1])
+      steps.add(pairs[i + 1] * tiles + pairs[i])
     }
-    doorSteps.set(grid.doors, steps)
+    pairSteps.set(pairs, steps)
   }
   return steps.has(tileIndex(grid, fx, fy) * tiles + tileIndex(grid, tx, ty))
 }
 
+/** True if the step between two tiles goes through one of the grid's doors (either way). */
+export const isDoorway = (grid: Grid, fx: number, fy: number, tx: number, ty: number) =>
+  isListedStep(grid, grid.doors, fx, fy, tx, ty)
+
+/** True if a wall stands between two neighbouring tiles of the same zone (see Grid.walls). */
+export const isWalledOff = (grid: Grid, fx: number, fy: number, tx: number, ty: number) =>
+  isListedStep(grid, grid.walls, fx, fy, tx, ty)
+
+/** A step straight along a row or column, as far as zones, doors and walls go. */
+function canStepStraight(grid: Grid, fx: number, fy: number, tx: number, ty: number) {
+  if (isWalledOff(grid, fx, fy, tx, ty)) return false
+  if (getZone(grid, fx, fy) !== getZone(grid, tx, ty)) return isDoorway(grid, fx, fy, tx, ty)
+  return true
+}
+
 /**
  * Whether a pawn may take this step as far as zones go (see Grid.airlocksRequired). Without
- * airlocks, inside and outside connect only through doors, and a diagonal step must stay in one
- * zone so it never clips the corner of a building.
+ * airlocks, inside and outside connect only through doors, and walls (Grid.walls) can't be
+ * walked through. A diagonal step must stay in one zone and be clear both ways round, so it
+ * never clips the corner of a building or a wall.
  */
 export function canStepBetween(grid: Grid, fx: number, fy: number, tx: number, ty: number) {
-  if (grid.airlocksRequired) return !isWallCrossing(grid, fx, fy, tx, ty)
+  if (grid.airlocksRequired) return !isWallCrossing(grid, fx, fy, tx, ty) && !isWalledOff(grid, fx, fy, tx, ty)
+  if (fx === tx || fy === ty) return canStepStraight(grid, fx, fy, tx, ty)
   const zone = getZone(grid, fx, fy)
-  if (getZone(grid, tx, ty) !== zone) return isDoorway(grid, fx, fy, tx, ty)
-  if (fx === tx || fy === ty) return true
-  return getZone(grid, tx, fy) === zone && getZone(grid, fx, ty) === zone
+  if (getZone(grid, tx, ty) !== zone) return false
+  return (
+    canStepStraight(grid, fx, fy, tx, fy) &&
+    canStepStraight(grid, tx, fy, tx, ty) &&
+    canStepStraight(grid, fx, fy, fx, ty) &&
+    canStepStraight(grid, fx, ty, tx, ty)
+  )
 }
 
 /** The steepest ground a suited astronaut will walk up or down. Steeper counts as a cliff. Game-feel. */

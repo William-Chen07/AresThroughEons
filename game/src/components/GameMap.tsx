@@ -51,9 +51,9 @@ import type { Weather } from "@/sim/weather"
  * from NASA imagery and elevation (see map/), with the lander and the base on
  * it. For now the base (modules, and the tubes between them) is built by hand
  * from the Build panel (the Build button or the ` key).
- * Modules and tubes turn see-through so the crew inside can be seen and clicked: a module with
- * someone in it, the tubes while anyone is inside, and every module while an astronaut is
- * selected or after a click on a module (another click closes them up again).
+ * Modules and tubes turn see-through so the crew inside can be seen and clicked: only the module
+ * someone is in, and the tubes while someone is walking along one. A click on a module opens up
+ * every module to look inside (another click closes them up again).
  * The crew are placeholders: three astronauts who appear beside the lander once
  * it's down. Click one, then click where to send them (sim/pathing moves them).
  * Where they stand isn't saved yet, so they start beside the lander each time the map opens.
@@ -485,24 +485,24 @@ export function GameMap({
     const unsaved = { hours: 0, ms: 0 }
     /** What was last made see-through for the crew inside, so the map is only told when it changes. */
     let shownInside = ""
-    /** Fades every module someone is in, and the tubes while anyone is inside the base at all. */
+    /** Fades only the modules someone is in, and the tubes while someone is in a tube. */
     const showCrewInside = (crew: World) => {
       const occupied = new Set<string>()
-      let anyoneInside = false
+      let anyoneInTube = false
       for (const mover of Object.values(crew.movers)) {
         const x = Math.round(mover.pos.x)
         const y = Math.round(mover.pos.y)
         if (getZone(crew.grid, x, y) === "outside") continue
-        anyoneInside = true
         const inModule = moduleAt(modulesRef.current, { col: x, row: y })
         if (inModule) occupied.add(inModule.id)
+        else anyoneInTube = true
       }
       const ids = [...occupied].sort()
-      const next = `${anyoneInside}:${ids.join(",")}`
+      const next = `${anyoneInTube}:${ids.join(",")}`
       if (next === shownInside) return
       shownInside = next
       view.setOpenModules(ids)
-      view.setTubesSeeThrough(anyoneInside)
+      view.setTubesSeeThrough(anyoneInTube)
     }
     const handOver = () => {
       const world = crewRef.current?.world
@@ -548,12 +548,10 @@ export function GameMap({
     }
   }, [view])
 
-  // While any astronaut is selected, or after a click on a module, the whole base turns
-  // see-through, so crew inside can be seen and clicked.
-  const anySelected = selectedCrew.length > 0
+  // After a click on a module the whole base turns see-through, until the next click on one.
   useEffect(() => {
-    view?.setSeeThrough(anySelected || baseOpen)
-  }, [view, anySelected, baseOpen])
+    view?.setSeeThrough(baseOpen)
+  }, [view, baseOpen])
 
   // While a tool that builds is picked in the Build panel, the map shows what a click would build.
   useEffect(() => {
