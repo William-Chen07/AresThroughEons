@@ -1,5 +1,6 @@
-import { useState } from "react"
-import { MarsGlobe } from "@/components/MarsGlobe"
+import { useRef, useState } from "react"
+import { MarsGlobe, type MarsGlobeHandle } from "@/components/MarsGlobe"
+import { MARS_FACTS } from "@/content/marsFacts"
 
 type MenuAction = "start" | "credits"
 
@@ -14,6 +15,15 @@ const DATA_CREDITS: { use: string; what: string; links: { label: string; href: s
     use: "Surface imagery",
     what: "Viking MDIM 2.1 colour mosaic (Mars_Viking_MDIM21_ClrMosaic_global_232m), via NASA Mars Trek.",
     links: [{ label: "NASA Mars Trek", href: "https://trek.nasa.gov/mars/" }],
+  },
+  {
+    use: "Fun facts",
+    what: "Places and facts from NASA's Mars pages and the Perseverance and Curiosity mission pages.",
+    links: [
+      { label: "NASA Science: Mars", href: "https://science.nasa.gov/mars/facts/" },
+      { label: "Perseverance", href: "https://science.nasa.gov/mission/mars-2020-perseverance/" },
+      { label: "Curiosity", href: "https://science.nasa.gov/mission/msl-curiosity/" },
+    ],
   },
   {
     use: "Shape and terrain",
@@ -45,8 +55,100 @@ const DATA_CREDITS: { use: string; what: string; links: { label: string; href: s
   },
 ]
 
+const smallButton =
+  "border border-white/15 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] transition hover:border-orange-400/70 focus-visible:outline-2 focus-visible:outline-orange-400"
+
+/**
+ * Fun fact for the selected place on Mars, or an "Explore Mars" prompt when none is picked.
+ * The arrows step through places; the globe fast-forwards until each one faces Earth.
+ */
+function FactCard({
+  siteId,
+  hiddenFromEarth,
+  onSelect,
+  onStep,
+}: {
+  siteId: string | null
+  hiddenFromEarth: boolean
+  onSelect: (id: string | null) => void
+  onStep: (id: string) => void
+}) {
+  const index = MARS_FACTS.findIndex((f) => f.id === siteId)
+  const fact = MARS_FACTS[index]
+  const step = (delta: number) =>
+    onStep(MARS_FACTS[(Math.max(index, 0) + delta + MARS_FACTS.length) % MARS_FACTS.length].id)
+
+  if (!fact) {
+    return (
+      <button
+        type="button"
+        onClick={() => onStep(MARS_FACTS[0].id)}
+        className="group flex w-full items-center gap-3 border border-white/15 bg-white/5 px-4 py-3 text-left backdrop-blur-sm transition hover:border-orange-400/70 hover:bg-orange-500/15 focus-visible:outline-2 focus-visible:outline-orange-400"
+      >
+        <span className="size-3 shrink-0 rounded-full border-2 border-white bg-teal-400 shadow-[0_0_12px_rgba(45,212,191,0.8)]" />
+        <span>
+          <span className="block text-sm font-semibold uppercase tracking-[0.25em]">Explore Mars</span>
+          <span className="block text-sm text-white/60">Tap a glowing dot on Mars for a fun fact</span>
+        </span>
+      </button>
+    )
+  }
+
+  return (
+    <section
+      aria-live="polite"
+      aria-label={`Fun fact: ${fact.title}`}
+      className="w-full border border-white/15 bg-neutral-950/80 p-5 backdrop-blur-md"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <h2 className="text-lg font-semibold uppercase tracking-[0.2em] text-orange-300">{fact.title}</h2>
+        <button type="button" aria-label="Close fun fact" onClick={() => onSelect(null)} className={smallButton}>
+          ✕
+        </button>
+      </div>
+      <p className="mt-2 text-sm leading-relaxed text-white/85">{fact.text}</p>
+      {hiddenFromEarth && (
+        <p className="mt-2 text-sm text-white/55">
+          This place is tipped away from Earth right now, so we can&apos;t see it on the globe.
+        </p>
+      )}
+      <div className="mt-4 flex items-center justify-between gap-3">
+        <a
+          href={fact.source.url}
+          target="_blank"
+          rel="noreferrer"
+          className="text-sm text-orange-300 underline underline-offset-2"
+        >
+          Source: {fact.source.label}
+        </a>
+        <div className="flex shrink-0 gap-2">
+          <button type="button" aria-label="Previous place" onClick={() => step(-1)} className={smallButton}>
+            ←
+          </button>
+          <button type="button" aria-label="Next place" onClick={() => step(1)} className={smallButton}>
+            →
+          </button>
+        </div>
+      </div>
+    </section>
+  )
+}
+
 export function MainMenu({ onStart }: { onStart: () => void }) {
   const [showCredits, setShowCredits] = useState(false)
+  const globeRef = useRef<MarsGlobeHandle>(null)
+  const [siteId, setSiteId] = useState<string | null>(null)
+  const [hiddenFromEarth, setHiddenFromEarth] = useState(false)
+
+  // A tapped pin is already in view; a stepped-to place needs the globe to turn to it.
+  const selectSite = (id: string | null) => {
+    setSiteId(id)
+    setHiddenFromEarth(false)
+  }
+  const stepToSite = (id: string) => {
+    setSiteId(id)
+    setHiddenFromEarth(!(globeRef.current?.focusSite(id) ?? true))
+  }
 
   const handleSelect = (action: MenuAction) => {
     if (action === "start") onStart()
@@ -55,9 +157,15 @@ export function MainMenu({ onStart }: { onStart: () => void }) {
 
   return (
     <main className="relative h-dvh w-full overflow-hidden bg-[#020104] text-white">
-      <MarsGlobe className="absolute inset-0" />
+      <MarsGlobe
+        ref={globeRef}
+        className="absolute inset-0"
+        selectedSiteId={siteId}
+        onSelectSite={selectSite}
+      />
 
-      <div className="relative z-10 flex h-full flex-col justify-center px-6 sm:px-16 max-[900px]:justify-start max-[900px]:pt-[12vh]">
+      {/* Click-through so taps reach the pins on Mars; the controls opt back in. */}
+      <div className="pointer-events-none relative z-10 flex h-full flex-col justify-center px-6 sm:px-16 max-[900px]:justify-start max-[900px]:pt-[12vh]">
         <p className="text-xs font-medium uppercase tracking-[0.4em] text-orange-300/80">
           NASA Space Apps 2026
         </p>
@@ -68,7 +176,7 @@ export function MainMenu({ onStart }: { onStart: () => void }) {
           </span>
         </h1>
 
-        <nav className="mt-12 flex w-full max-w-xs flex-col gap-3">
+        <nav className="pointer-events-auto mt-12 flex w-full max-w-xs flex-col gap-3">
           {MENU_ITEMS.map((item) => (
             <button
               key={item.id}
@@ -81,6 +189,15 @@ export function MainMenu({ onStart }: { onStart: () => void }) {
             </button>
           ))}
         </nav>
+
+        <div className="pointer-events-auto mt-8 w-full max-w-sm max-[900px]:fixed max-[900px]:inset-x-4 max-[900px]:bottom-12 max-[900px]:mt-0 max-[900px]:max-w-none">
+          <FactCard
+            siteId={siteId}
+            hiddenFromEarth={hiddenFromEarth}
+            onSelect={selectSite}
+            onStep={stepToSite}
+          />
+        </div>
       </div>
 
       <p className="absolute right-6 bottom-4 left-6 z-10 text-[11px] text-white/40 sm:left-16">
