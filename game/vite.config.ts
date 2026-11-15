@@ -1,7 +1,7 @@
 import path from "path"
 import tailwindcss from "@tailwindcss/vite"
 import react from "@vitejs/plugin-react"
-import { defineConfig } from "vite"
+import { defineConfig, searchForWorkspaceRoot } from "vite"
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
@@ -10,5 +10,9 @@ export default defineConfig({
     // Windows: a lower-case drive letter in the cwd (e.g. "c:\\") vs __dirname ("C:\\")
     // otherwise makes the bundler include React twice and hooks crash.
     dedupe: ["react", "react-dom"],
+  },
+  server: {
+    // Menu audio is imported from the repo's root Audio/ folder (see src/lib/sound.ts).
+    fs: { allow: [searchForWorkspaceRoot(process.cwd()), path.resolve(__dirname, "../Audio")] },
   },
 })

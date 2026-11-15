@@ -38,7 +38,7 @@ const ROTATION_MODEL: RotationModel = marsRotation
  *
  * Fun facts: tapping a pin selects it and pauses the clock so the pin stays put. Focusing a
  * place (focusSite) never spins Mars by hand — it fast-forwards the clock (less than one sol)
- * until that place faces Earth, so the globe always shows a real moment.
+ * until that place faces Earth (just left of centre), so the globe always shows a real moment.
  */
 
 /** Simulated seconds per real second. 720 → one Martian day (24h 37m) in about 2 minutes. */
@@ -64,6 +64,10 @@ const PIN_MIN_FACING = 0.12
 const PIN_MIN_SUNLIGHT = -0.05
 const TAP_SLOP_PX = 6 // pointer may move this far and still count as a tap
 const SEEK_MS = 1600 // duration of the fast-forward to a focused place
+// Stop a focused place this many degrees before it reaches the disc centre. Surface
+// features cross the disc from left to right, so it rests on the left half — clear of the
+// fun-fact card in the bottom-right corner. 30° stays in daylight at any Mars phase (≤ ~47°).
+const FOCUS_LEAD_DEG = 30
 const DAY_MS = 86_400_000
 
 export interface MarsGlobeHandle {
@@ -421,7 +425,7 @@ export function MarsGlobe({ className, ref, selectedSiteId = null, onSelectSite 
       if (!fact || !ephemeris) return false
       // The point facing Earth drifts west as Mars turns, so wait until it reaches the site.
       const now = marsGeometry(new Date(simTime), ephemeris, ROTATION_MODEL)
-      const degreesToGo = (((now.subEarth.lon - fact.location.lon) % 360) + 360) % 360
+      const degreesToGo = (((now.subEarth.lon - fact.location.lon - FOCUS_LEAD_DEG) % 360) + 360) % 360
       const target = simTime + (degreesToGo / ROTATION_MODEL.pm[1]) * DAY_MS
       seek = reduceMotion ? null : { from: simTime, to: target, start: performance.now() }
       if (reduceMotion) simTime = target

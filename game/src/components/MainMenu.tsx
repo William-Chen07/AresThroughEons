@@ -1,60 +1,28 @@
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
+import { Lock, Volume2, VolumeX } from "lucide-react"
 import { MarsGlobe, type MarsGlobeHandle } from "@/components/MarsGlobe"
+import { CodexDialog, CreditsDialog, HowToPlayDialog, SettingsDialog } from "@/components/MenuDialogs"
 import { SaveSelect } from "@/components/SaveSelect"
 import { MARS_FACTS } from "@/content/marsFacts"
+import { useSettings } from "@/lib/settings"
+import { playSfx, startMusic, stopMusic, unlockAudio } from "@/lib/sound"
+import { useProgress } from "@/sim/progress"
+import { useSaves } from "@/sim/saves"
 
-type MenuAction = "start" | "credits"
+type MenuAction = "start" | "continue" | "howto" | "codex" | "settings" | "credits"
+type Panel = "howto" | "codex" | "settings" | "credits" | null
 
-const MENU_ITEMS: { id: MenuAction; label: string }[] = [
+/** Locked items need at least one saved expedition (sim/saves.ts) before they open. */
+const MENU_ITEMS: { id: MenuAction; label: string; needsSave?: boolean }[] = [
   { id: "start", label: "Begin Expedition" },
+  { id: "continue", label: "Continue", needsSave: true },
+  { id: "howto", label: "How to Play" },
+  { id: "codex", label: "Mars Codex", needsSave: true },
+  { id: "settings", label: "Settings" },
   { id: "credits", label: "Credits" },
 ]
 
-/** Every external dataset behind the Mars globe (see MarsGlobe.tsx / lib/marsEphemeris.ts). */
-const DATA_CREDITS: { use: string; what: string; links: { label: string; href: string }[] }[] = [
-  {
-    use: "Surface imagery",
-    what: "Viking MDIM 2.1 colour mosaic (Mars_Viking_MDIM21_ClrMosaic_global_232m), via NASA Mars Trek.",
-    links: [{ label: "NASA Mars Trek", href: "https://trek.nasa.gov/mars/" }],
-  },
-  {
-    use: "Fun facts",
-    what: "Places and facts from NASA's Mars pages and the Perseverance and Curiosity mission pages.",
-    links: [
-      { label: "NASA Science: Mars", href: "https://science.nasa.gov/mars/facts/" },
-      { label: "Perseverance", href: "https://science.nasa.gov/mission/mars-2020-perseverance/" },
-      { label: "Curiosity", href: "https://science.nasa.gov/mission/msl-curiosity/" },
-    ],
-  },
-  {
-    use: "Shape and terrain",
-    what:
-      "Mars MGS MOLA DEM 463m, NASA Goddard Space Flight Center / USGS Astrogeology, CC0 (public " +
-      "domain), on the Mars ellipsoid from NASA/JPL NAIF.",
-    links: [{ label: "USGS Astrogeology", href: "https://astrogeology.usgs.gov/search/map/mars_mgs_mola_dem_463m" }],
-  },
-  {
-    use: "Planet positions",
-    what: "DE442 planetary ephemeris (2025), NASA/JPL NAIF (SPICE).",
-    links: [
-      { label: "NAIF usage rules", href: "https://naif.jpl.nasa.gov/naif/rules.html" },
-      { label: "Generic kernels", href: "https://naif.jpl.nasa.gov/naif/data_generic.html" },
-    ],
-  },
-  {
-    use: "Mars rotation and tilt",
-    what:
-      "Konopliv et al. 2026, “Updated Mars Orientation and Gravity Field and Indication of Decadal " +
-      "Changes in Rotation Rate”, The Planetary Science Journal, as distributed by NASA/JPL NAIF. " +
-      "Mars radii in the same file are the IAU Working Group (WGCCRE) values.",
-    links: [
-      {
-        label: "mars_konopliv_2026_v1 (NAIF)",
-        href: "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/pck/mars_konopliv_2026_v1.tpc",
-      },
-    ],
-  },
-]
+const LOCKED_HINT = "Play your first mission to unlock"
 
 const smallButton =
   "border border-white/15 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] transition hover:border-orange-400/70 focus-visible:outline-2 focus-visible:outline-orange-400"
@@ -84,7 +52,7 @@ function FactCard({
       <button
         type="button"
         onClick={() => onStep(MARS_FACTS[0].id)}
-        className="group flex w-full items-center gap-3 border border-white/15 bg-white/5 px-4 py-3 text-left backdrop-blur-sm transition hover:border-orange-400/70 hover:bg-orange-500/15 focus-visible:outline-2 focus-visible:outline-orange-400"
+        className="group flex w-full items-center gap-3 border border-white/15 bg-neutral-950/60 px-4 py-3 text-left backdrop-blur-sm transition hover:border-orange-400/70 hover:bg-orange-500/15 focus-visible:outline-2 focus-visible:outline-orange-400"
       >
         <span className="size-3 shrink-0 rounded-full border-2 border-white bg-teal-400 shadow-[0_0_12px_rgba(45,212,191,0.8)]" />
         <span>
@@ -95,11 +63,12 @@ function FactCard({
     )
   }
 
+  // See-through so Mars shows behind the card; the text shadow keeps the words readable over it.
   return (
     <section
       aria-live="polite"
       aria-label={`Fun fact: ${fact.title}`}
-      className="w-full border border-white/15 bg-neutral-950/80 p-5 backdrop-blur-md"
+      className="w-full border border-white/15 bg-neutral-950/50 p-5 backdrop-blur-[2px] [text-shadow:0_1px_3px_rgba(0,0,0,0.9)]"
     >
       <div className="flex items-start justify-between gap-3">
         <h2 className="text-lg font-semibold uppercase tracking-[0.2em] text-orange-300">{fact.title}</h2>
@@ -136,11 +105,42 @@ function FactCard({
 }
 
 export function MainMenu({ onStart }: { onStart: () => void }) {
-  const [showCredits, setShowCredits] = useState(false)
+  const [panel, setPanel] = useState<Panel>(null)
   const [showSaves, setShowSaves] = useState(false)
   const globeRef = useRef<MarsGlobeHandle>(null)
   const [siteId, setSiteId] = useState<string | null>(null)
   const [hiddenFromEarth, setHiddenFromEarth] = useState(false)
+
+  const loadSave = useSaves((s) => s.loadSave)
+  // Slot index of the most recently played save, or null when there are none.
+  const latestSave = useSaves((s) =>
+    s.slots.reduce<number | null>(
+      (best, slot, i) =>
+        slot && (best === null || slot.lastPlayedAt > (s.slots[best]?.lastPlayedAt ?? 0)) ? i : best,
+      null,
+    ),
+  )
+  const hasSave = latestSave !== null
+  const codexIds = useProgress((s) => s.codexIds)
+  const muted = useSettings((s) => s.muted)
+  const setSettings = useSettings((s) => s.setSettings)
+
+  // Browsers block audio until the first click or key press, so start the music then.
+  useEffect(() => {
+    const unlock = () => {
+      unlockAudio()
+      startMusic()
+      window.removeEventListener("pointerdown", unlock)
+      window.removeEventListener("keydown", unlock)
+    }
+    window.addEventListener("pointerdown", unlock)
+    window.addEventListener("keydown", unlock)
+    return () => {
+      window.removeEventListener("pointerdown", unlock)
+      window.removeEventListener("keydown", unlock)
+      stopMusic(0.3)
+    }
+  }, [])
 
   // A tapped pin is already in view; a stepped-to place needs the globe to turn to it.
   const selectSite = (id: string | null) => {
@@ -152,10 +152,32 @@ export function MainMenu({ onStart }: { onStart: () => void }) {
     setHiddenFromEarth(!(globeRef.current?.focusSite(id) ?? true))
   }
 
-  const handleSelect = (action: MenuAction) => {
-    // The game starts once a save is picked or created in the save menu.
-    if (action === "start") setShowSaves(true)
-    if (action === "credits") setShowCredits(true)
+  const handleSelect = (action: MenuAction, locked: boolean) => {
+    if (locked) {
+      playSfx("locked")
+      return
+    }
+    if (action === "start") {
+      // The game starts once a save is picked or created in the save menu.
+      playSfx("open")
+      setShowSaves(true)
+      return
+    }
+    if (action === "continue") {
+      // Jump straight back into the most recently played expedition.
+      if (latestSave === null) return
+      playSfx("click")
+      loadSave(latestSave)
+      startGame()
+      return
+    }
+    playSfx("open")
+    setPanel(action)
+  }
+  const closePanel = () => setPanel(null)
+  const startGame = () => {
+    stopMusic(0.8)
+    onStart()
   }
 
   return (
@@ -168,7 +190,7 @@ export function MainMenu({ onStart }: { onStart: () => void }) {
       />
 
       {/* Click-through so taps reach the pins on Mars; the controls opt back in. */}
-      <div className="pointer-events-none relative z-10 flex h-full flex-col justify-center px-6 sm:px-16 max-[900px]:justify-start max-[900px]:pt-[12vh]">
+      <div className="pointer-events-none relative z-10 flex h-full flex-col justify-center px-6 pb-8 sm:px-16 max-[900px]:justify-start max-[900px]:pt-[8vh]">
         <p className="text-xs font-medium uppercase tracking-[0.4em] text-orange-300/80">
           NASA Space Apps 2026
         </p>
@@ -179,90 +201,71 @@ export function MainMenu({ onStart }: { onStart: () => void }) {
           </span>
         </h1>
 
-        <nav className="pointer-events-auto mt-12 flex w-full max-w-xs flex-col gap-3">
-          {MENU_ITEMS.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => handleSelect(item.id)}
-              className="group relative border border-white/15 bg-white/5 px-6 py-3 text-left text-sm font-semibold uppercase tracking-[0.25em] backdrop-blur-sm transition hover:border-orange-400/70 hover:bg-orange-500/15 focus-visible:outline-2 focus-visible:outline-orange-400"
-            >
-              <span className="absolute inset-y-0 left-0 w-0.5 bg-orange-400 opacity-0 transition group-hover:opacity-100" />
-              {item.label}
-            </button>
-          ))}
+        <nav aria-label="Main menu" className="pointer-events-auto mt-10 flex w-full max-w-xs flex-col gap-2">
+          {MENU_ITEMS.map((item) => {
+            const locked = Boolean(item.needsSave) && !hasSave
+            return (
+              <button
+                key={item.id}
+                type="button"
+                aria-disabled={locked || undefined}
+                aria-label={locked ? `${item.label} (locked). ${LOCKED_HINT}.` : undefined}
+                onPointerEnter={(e) => e.pointerType === "mouse" && !locked && playSfx("hover")}
+                onClick={() => handleSelect(item.id, locked)}
+                className={`group relative flex items-center justify-between gap-3 border px-6 py-2.5 text-left text-sm font-semibold uppercase tracking-[0.25em] backdrop-blur-sm transition focus-visible:outline-2 focus-visible:outline-orange-400 ${
+                  locked
+                    ? "cursor-not-allowed border-white/10 bg-white/[0.02] text-white/35"
+                    : "border-white/15 bg-white/5 hover:border-orange-400/70 hover:bg-orange-500/15"
+                }`}
+              >
+                {!locked && (
+                  <span className="absolute inset-y-0 left-0 w-0.5 bg-orange-400 opacity-0 transition group-hover:opacity-100" />
+                )}
+                <span>
+                  {item.label}
+                  {locked && (
+                    <span className="mt-0.5 block text-xs font-normal normal-case tracking-normal text-white/45">
+                      {LOCKED_HINT}
+                    </span>
+                  )}
+                </span>
+                {locked && <Lock className="size-4 shrink-0" aria-hidden />}
+              </button>
+            )
+          })}
         </nav>
+      </div>
 
-        <div className="pointer-events-auto mt-8 w-full max-w-sm max-[900px]:fixed max-[900px]:inset-x-4 max-[900px]:bottom-12 max-[900px]:mt-0 max-[900px]:max-w-none">
-          <FactCard
-            siteId={siteId}
-            hiddenFromEarth={hiddenFromEarth}
-            onSelect={selectSite}
-            onStep={stepToSite}
-          />
-        </div>
+      {/* Top right: quick mute */}
+      <button
+        type="button"
+        aria-label={muted ? "Turn sound on" : "Turn sound off"}
+        onClick={() => setSettings({ muted: !muted })}
+        className="absolute top-4 right-4 z-20 flex size-11 items-center justify-center border border-white/15 bg-neutral-950/60 backdrop-blur-sm transition hover:border-orange-400/70 focus-visible:outline-2 focus-visible:outline-orange-400"
+      >
+        {muted ? <VolumeX className="size-5" aria-hidden /> : <Volume2 className="size-5" aria-hidden />}
+      </button>
+
+      {/* Bottom right: fun facts about the place picked on Mars */}
+      <div className="absolute right-6 bottom-12 z-20 w-96 max-w-[calc(100%-3rem)] max-[900px]:right-4 max-[900px]:left-4 max-[900px]:w-auto max-[900px]:max-w-none">
+        <FactCard
+          siteId={siteId}
+          hiddenFromEarth={hiddenFromEarth}
+          onSelect={selectSite}
+          onStep={stepToSite}
+        />
       </div>
 
       <p className="absolute right-6 bottom-4 left-6 z-10 text-[11px] text-white/40 sm:left-16">
         Mars as seen from Earth, time-lapse from now · Viking MDIM 2.1 via NASA Mars Trek · MGS MOLA via USGS Astrogeology · NASA/JPL NAIF
       </p>
 
-      {showSaves && <SaveSelect onStart={onStart} onClose={() => setShowSaves(false)} />}
+      {showSaves && <SaveSelect onStart={startGame} onClose={() => setShowSaves(false)} />}
 
-      {showCredits && (
-        <div
-          className="absolute inset-0 z-20 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
-          onClick={() => setShowCredits(false)}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="credits-title"
-            className="max-h-full w-full max-w-lg overflow-y-auto border border-white/15 bg-neutral-950/90 p-8"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 id="credits-title" className="text-lg font-semibold uppercase tracking-[0.25em]">
-              Credits
-            </h2>
-            <p className="mt-4 text-sm text-white/70">
-              Built for the 2026 NASA Space Apps Challenge. The Mars globe is shown as seen from
-              Earth right now, then sped up 720× so you can watch it turn. The background stars
-              are decorative, not real star positions.
-            </p>
-            <h3 className="mt-5 text-xs font-semibold uppercase tracking-[0.25em] text-white/50">
-              Data sources
-            </h3>
-            <ul className="mt-3 space-y-3 text-sm text-white/70">
-              {DATA_CREDITS.map((credit) => (
-                <li key={credit.use}>
-                  <span className="text-white/90">{credit.use}:</span> {credit.what}
-                  <span className="mt-0.5 flex flex-wrap gap-x-3">
-                    {credit.links.map((link) => (
-                      <a
-                        key={link.href}
-                        href={link.href}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-orange-300 underline underline-offset-2"
-                      >
-                        {link.label}
-                      </a>
-                    ))}
-                  </span>
-                </li>
-              ))}
-            </ul>
-            <button
-              type="button"
-              autoFocus
-              onClick={() => setShowCredits(false)}
-              className="mt-6 border border-white/15 px-5 py-2 text-xs font-semibold uppercase tracking-[0.25em] transition hover:border-orange-400/70"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      )}
+      <HowToPlayDialog open={panel === "howto"} onClose={closePanel} />
+      <CodexDialog open={panel === "codex"} onClose={closePanel} codexIds={codexIds} />
+      <SettingsDialog open={panel === "settings"} onClose={closePanel} />
+      <CreditsDialog open={panel === "credits"} onClose={closePanel} />
     </main>
   )
 }
