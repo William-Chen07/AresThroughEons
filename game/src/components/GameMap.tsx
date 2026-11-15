@@ -28,7 +28,7 @@ import {
 } from "@/sim/base"
 import { describeFinds, type Trip, type TripNews, type TripReport } from "@/sim/explore"
 import { healthOf, type CrewHealth, type CrewMember } from "@/sim/lifeSupport"
-import { buildNavigation, syncNavigation } from "@/sim/navigation"
+import { buildNavigation, pressurizedCells, syncNavigation } from "@/sim/navigation"
 import {
   addPawn,
   clearSelection,
@@ -37,6 +37,7 @@ import {
   isWalkable,
   pawnsAt,
   removePawn,
+  selectPawns,
   stepPathing,
   type ClickResult,
   type PathingEvent,
@@ -55,6 +56,8 @@ import type { Weather } from "@/sim/weather"
  * Where they stand isn't saved yet, so they start beside the lander each time the map opens.
  * An astronaut whose health runs out is evacuated: gone from the map for good.
  * Astronauts sent out from the explore map (the Explore button) are off this map until they are back.
+ * Crew outside the modules joined to an Airlock (out on the surface, or in a module with no
+ * Airlock) breathe the base's oxygen faster (see sim/navigation.ts and sim/lifeSupport.ts).
  * The panels copy the look of MainMenu.
  */
 
@@ -240,6 +243,8 @@ export function GameMap({
   const [buildOpen, setBuildOpen] = useState(false)
   const [researchOpen, setResearchOpen] = useState(false)
   const [exploreOpen, setExploreOpen] = useState(false)
+  /** The map's data credits, bottom right. Folded away to start with. */
+  const [creditsOpen, setCreditsOpen] = useState(false)
   const [tool, setTool] = useState<BuildTool>(null)
   const [message, setMessage] = useState<string | null>(null)
   /** Where the run of tube being laid starts, once the first click of the tube tool has set it. */
@@ -248,6 +253,8 @@ export function GameMap({
   const crewRef = useRef<{ terrain: VoxelTerrain; world: World } | null>(null)
   const [selectedCrew, setSelectedCrew] = useState<string[]>([])
   const [crewMessage, setCrewMessage] = useState<string | null>(null)
+  /** Modules the player clicked open to see inside (see-through), by id. */
+  const [openModules, setOpenModules] = useState<string[]>([])
 
   // What's on screen belongs to this site and this try; anything else is still loading.
   const key = `${site.lat},${site.lon},${attempt}`
@@ -273,6 +280,12 @@ export function GameMap({
   const base = useMemo<Base>(() => ({ modules, tubes, landers }), [modules, tubes, landers])
   // What stands on each cell, worked out once per change to the base.
   const grid = useMemo(() => (terrain ? occupancy(terrain.size, base) : null), [terrain, base])
+  /** Cells of modules and tubes joined to an Airlock: no oxygen is used up there. */
+  const pressurized = useMemo(() => (terrain && grid ? pressurizedCells(terrain.size, base, grid) : null), [terrain, base, grid])
+  const pressurizedRef = useRef(pressurized)
+  useEffect(() => {
+    pressurizedRef.current = pressurized
+  }, [pressurized])
   const groupCount = useMemo(
     () => (terrain && grid ? connectedGroups(terrain.size, base, grid).length : 0),
     [terrain, base, grid],
@@ -284,6 +297,20 @@ export function GameMap({
     if (!tool) {
       const crew = crewRef.current?.world
       if (!crew) return
+      // With nobody selected, clicking a module (not an astronaut in it) opens it up to see inside, or closes it again.
+      const clickedModule = moduleAt(modules, cell)
+      const tile = { x: cell.col, y: cell.row }
+      if (clickedModule && crew.selectedPawnIds.length === 0 && pawnsAt(crew, tile).length === 0) {
+        const name = moduleType(clickedModule.type).name
+        if (openModules.includes(clickedModule.id)) {
+          setOpenModules(openModules.filter((id) => id !== clickedModule.id))
+          setCrewMessage(`Closed up the ${name}.`)
+        } else {
+          setOpenModules([...openModules, clickedModule.id])
+          setCrewMessage(`You can see inside the ${name} now. Click it again to close it up.`)
+        }
+        return
+      }
       setCrewMessage(describeClick(crew, handleClick(crew, { x: cell.col, y: cell.row }, { shift: keys.shift })))
       setSelectedCrew([...crew.selectedPawnIds])
       return
@@ -320,7 +347,7 @@ export function GameMap({
       )
     }
 
-    const check = checkModule(size, grid, tool.type, placementOrigin(tool.type, cell), crypto.randomUUID())
+    const check = checkModule(size, grid, tool.type, placementOrigin(tool.type, cell), crypto.randomUUID(), terrain.levels)
     if (!check.ok) return setMessage(check.reason)
     onBaseChange({ modules: [...modules, check.module], tubes })
     setMessage(`Placed a ${moduleType(tool.type).name}. It isn't joined to anything until you lay a tube to it.`)
@@ -456,9 +483,15 @@ export function GameMap({
     // storage on every change, so time is handed over about once a second, not on every frame.
     const unsaved = { hours: 0, ms: 0 }
     const handOver = () => {
-      const crew = Object.values(crewRef.current?.world.movers ?? {}).map((mover) => ({
+      const world = crewRef.current?.world
+      const cells = pressurizedRef.current
+      const crew = Object.values(world?.movers ?? {}).map((mover) => ({
         id: mover.pawnId,
         outside: mover.exposure === "outside",
+        // In a module or tube joined to an Airlock (see pressurizedCells).
+        pressurized: Boolean(
+          world && cells?.has(Math.round(mover.pos.y) * world.grid.width + Math.round(mover.pos.x)),
+        ),
       }))
       if (unsaved.hours > 0 && !resettingRef.current) onTimePassedRef.current(unsaved.hours, crew)
       unsaved.hours = unsaved.ms = 0
@@ -492,6 +525,16 @@ export function GameMap({
     }
   }, [view])
 
+  // While any astronaut is selected the base turns see-through, so crew inside can be seen and clicked.
+  const anySelected = selectedCrew.length > 0
+  useEffect(() => {
+    view?.setSeeThrough(anySelected)
+  }, [view, anySelected])
+  // Modules clicked open stay see-through on their own.
+  useEffect(() => {
+    view?.setOpenModules(openModules)
+  }, [view, openModules])
+
   // While a tool that builds is picked in the dev tools panel, the map shows what a click would build.
   useEffect(() => {
     if (!view || !terrain || !grid) return
@@ -501,7 +544,7 @@ export function GameMap({
       view.setPlacement({
         preview: (cell) => {
           const origin = placementOrigin(type, cell)
-          return { rect: { ...origin, width, height }, tubes: [], ok: checkModule(size, grid, type, origin).ok }
+          return { rect: { ...origin, width, height }, tubes: [], ok: checkModule(size, grid, type, origin, "new", terrain.levels).ok }
         },
       })
     } else if (tool?.kind === "tube") {
@@ -552,6 +595,21 @@ export function GameMap({
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
   }, [tubeStart, tool, researchOpen, exploreOpen])
+
+  /** A name in the Crew panel was clicked: select that astronaut, like clicking it on the map. */
+  const selectFromPanel = (id: string, shift: boolean) => {
+    const crew = crewRef.current?.world
+    if (!crew?.movers[id]) return
+    const already = crew.selectedPawnIds.includes(id)
+    if (shift) selectPawns(crew, already ? crew.selectedPawnIds.filter((p) => p !== id) : [...crew.selectedPawnIds, id])
+    else selectPawns(crew, already ? [] : [id])
+    setSelectedCrew([...crew.selectedPawnIds])
+    setCrewMessage(
+      crew.selectedPawnIds.length > 0
+        ? `${listNames(crew.selectedPawnIds)} selected. Click where to send them, or a module to work in.`
+        : "Nobody selected.",
+    )
+  }
 
   const hoveredIndex = terrain && hovered ? hovered.row * terrain.size + hovered.col : null
 
@@ -608,38 +666,51 @@ export function GameMap({
               <div className={`${panelClass} max-w-xs`} aria-live="polite">
                 <p className={kickerClass}>Crew</p>
                 <ul className="mt-2 flex flex-col gap-1 text-sm">
-                  {PLACEHOLDER_CREW.map((member) => (
-                    <li
-                      key={member.id}
-                      className={`flex items-center gap-2 ${evacuated.includes(member.id) || away.includes(member.id) ? "text-white/30" : selectedCrew.includes(member.id) ? "text-white" : "text-white/55"}`}
-                    >
-                      <span className="size-2.5 rounded-full" style={{ background: hex(member.color) }} />
-                      {member.name}
-                      {selectedCrew.includes(member.id) && !away.includes(member.id) && (
-                        <span className="text-[11px] text-white/50">selected</span>
-                      )}
-                      {/* Health sits at the right edge of the row; it turns orange once it has dropped below half. */}
-                      {evacuated.includes(member.id) ? (
-                        <span className="ml-auto pl-4 text-[11px] font-semibold uppercase tracking-[0.15em] text-orange-300/80">
-                          Evacuated
-                        </span>
-                      ) : away.includes(member.id) ? (
-                        <span className="ml-auto pl-4 text-[11px] font-semibold uppercase tracking-[0.15em] text-white/50">
-                          Exploring
-                        </span>
-                      ) : (
-                        <span
-                          className={`ml-auto pl-4 text-[11px] font-semibold uppercase tracking-[0.15em] tabular-nums ${healthOf(health, member.id) < 50 ? "text-orange-300" : "text-white/50"}`}
+                  {PLACEHOLDER_CREW.map((member) => {
+                    const gone = evacuated.includes(member.id) || away.includes(member.id)
+                    const selected = selectedCrew.includes(member.id) && !away.includes(member.id)
+                    return (
+                      <li
+                        key={member.id}
+                        className={`flex items-center gap-2 ${gone ? "text-white/30" : selected ? "text-white" : "text-white/55"}`}
+                      >
+                        {/* Clicking a name selects that astronaut, like clicking it on the map. */}
+                        <button
+                          type="button"
+                          aria-pressed={selected}
+                          disabled={gone}
+                          onClick={(e) => selectFromPanel(member.id, e.shiftKey)}
+                          className="pointer-events-auto flex items-center gap-2 whitespace-nowrap enabled:hover:text-white focus-visible:outline-2 focus-visible:outline-orange-400"
                         >
-                          Health {Math.ceil(healthOf(health, member.id))}
-                        </span>
-                      )}
-                    </li>
-                  ))}
+                          <span className="size-2.5 rounded-full" style={{ background: hex(member.color) }} />
+                          {member.name}
+                          {selected && <span className="text-[11px] text-white/50">selected</span>}
+                        </button>
+                        {/* Health sits at the right edge of the row; it turns orange once it has dropped below half. */}
+                        {evacuated.includes(member.id) ? (
+                          <span className="ml-auto whitespace-nowrap pl-4 text-[11px] font-semibold uppercase tracking-[0.15em] text-orange-300/80">
+                            Evacuated
+                          </span>
+                        ) : away.includes(member.id) ? (
+                          <span className="ml-auto whitespace-nowrap pl-4 text-[11px] font-semibold uppercase tracking-[0.15em] text-white/50">
+                            Exploring
+                          </span>
+                        ) : (
+                          <span
+                            className={`ml-auto whitespace-nowrap pl-4 text-[11px] font-semibold uppercase tracking-[0.15em] tabular-nums ${healthOf(health, member.id) < 50 ? "text-orange-300" : "text-white/50"}`}
+                          >
+                            Health {Math.ceil(healthOf(health, member.id))}
+                          </span>
+                        )}
+                      </li>
+                    )
+                  })}
                 </ul>
                 <p className="mt-2 text-[11px] text-white/50">
-                  Click an astronaut, then click where to go, or a module to work in. Shift-click to pick more or to
-                  queue an order. Click a selected astronaut again (or press Esc) to let go.
+                  Click an astronaut (or a name here), then click where to go, or a module to go in and work. Shift-click to pick more or
+                  to queue an order. Crew go in and out of a module by its door, on the front wall. With nobody selected, click a module
+                  to see inside it. Click a selected astronaut again (or press Esc) to let go. Crew breathe the base's
+                  oxygen twice as fast outside the modules joined to an Airlock (by tubes, or wall to wall).
                 </p>
                 {crewMessage && <p className="mt-2 text-xs text-orange-200">{crewMessage}</p>}
               </div>
@@ -681,11 +752,26 @@ export function GameMap({
               </>
             )}
           </p>
-          <p className={`${panelClass} max-w-xl py-2 text-[11px] text-white/50`}>
-            Drawn as pixel art from real Mars data, via NASA Mars Trek. Detail: Mars Odyssey THEMIS infrared mosaic,
-            NASA/JPL-Caltech/Arizona State University/USGS. Colour: Viking MDIM 2.1, NASA Ames/USGS. Elevation: MGS MOLA,
-            NASA GSFC/USGS. Colours are simplified and block heights exaggerated. Full credits are on the main menu.
-          </p>
+          {/* The map's data credits: folded away until asked for, so they don't cover the map. */}
+          <div className="pointer-events-auto flex max-w-xl flex-col items-end gap-2">
+            {creditsOpen && (
+              <p id="map-credits" className={`${panelClass} py-2 text-[11px] text-white/50`}>
+                Drawn as pixel art from real Mars data, via NASA Mars Trek. Detail: Mars Odyssey THEMIS infrared mosaic,
+                NASA/JPL-Caltech/Arizona State University/USGS. Colour: Viking MDIM 2.1, NASA Ames/USGS. Elevation: MGS
+                MOLA, NASA GSFC/USGS. Colours are simplified and block heights exaggerated. Full credits are on the main
+                menu.
+              </p>
+            )}
+            <button
+              type="button"
+              aria-expanded={creditsOpen}
+              aria-controls="map-credits"
+              onClick={() => setCreditsOpen((open) => !open)}
+              className={buttonClass}
+            >
+              {creditsOpen ? "Hide map credits" : "Map credits"}
+            </button>
+          </div>
         </div>
       </div>
 

@@ -35,6 +35,10 @@ export interface MapView {
   setPlacement: (placement: Placement | null) => void
   /** Redraws the crew where they are now (see map/crewView.ts). */
   drawCrew: (world: World, colors: Record<string, number>) => void
+  /** Fades the base so crew inside the modules can be seen (see map/baseView.ts). */
+  setSeeThrough: (on: boolean) => void
+  /** Fades just these modules (by id) so what's inside them shows. */
+  setOpenModules: (ids: string[]) => void
   /** Calls `update` every frame with the real time since the last one, in ms. Returns a function that stops it. */
   onFrame: (update: (deltaMs: number) => void) => () => void
   destroy: () => void
@@ -128,8 +132,18 @@ export async function createMapView(
   })
   const base = createBaseView(terrain, era)
   const crew = createCrewView(terrain)
-  // Drawing order: terrain, the base, the old landers, this era's lander, the crew, then the placement ghost and hover highlight on top.
-  viewport.addChild(ground, base.view, ...oldLanders.map((old) => old.view), lander.view, crew.view, base.ghost, highlight)
+  // Drawing order: terrain, crew inside the base, the base, the old landers, this era's lander,
+  // crew outside, then the placement ghost and hover highlight on top.
+  viewport.addChild(
+    ground,
+    crew.insideView,
+    base.view,
+    ...oldLanders.map((old) => old.view),
+    lander.view,
+    crew.view,
+    base.ghost,
+    highlight,
+  )
   app.stage.addChild(viewport)
 
   const fitZoomLimits = () => {
@@ -177,16 +191,23 @@ export async function createMapView(
     showPointer()
     onHover(cell)
   }
+  /**
+   * The cell at a map point. Pointing at a crewmate means their cell. A module is drawn taller
+   * than its footprint, so pointing at its roof or wall means the module. Neither applies while
+   * placing something: then it's the ground there.
+   */
+  const cellAt = (x: number, y: number) =>
+    (placement ? null : (crew.crewCellAt(x, y) ?? base.moduleCellAt(x, y))) ?? pickCell(terrain, x, y)
   viewport.eventMode = "static"
   viewport.on("pointermove", (e) => {
     const point = viewport.toLocal(e.global)
-    setHovered(pickCell(terrain, point.x, point.y))
+    setHovered(cellAt(point.x, point.y))
   })
   const clearHover = () => setHovered(null)
   app.canvas.addEventListener("pointerleave", clearHover)
   // The camera reports a click only when the pointer didn't drag the map.
   viewport.on("clicked", (e) => {
-    const cell = pickCell(terrain, e.world.x, e.world.y)
+    const cell = cellAt(e.world.x, e.world.y)
     // Taps have no shift key; mouse and pen clicks do.
     if (cell) onCellClick(cell, { shift: "shiftKey" in e.event && Boolean(e.event.shiftKey) })
   })
@@ -202,6 +223,8 @@ export async function createMapView(
       showPointer()
     },
     drawCrew: (world, colors) => crew.draw(world, colors),
+    setSeeThrough: (on) => base.setSeeThrough(on),
+    setOpenModules: (ids) => base.setOpenModules(ids),
     onFrame: (update) => {
       const tick = () => update(app.ticker.deltaMS)
       app.ticker.add(tick)

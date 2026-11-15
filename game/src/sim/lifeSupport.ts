@@ -12,6 +12,12 @@ import type { Resources } from "@/content/resources"
  * 100 lasts about 330 game-hours (roughly 13 Mars days, or 37 minutes of play).
  */
 export const OXYGEN_PER_ASTRONAUT_HOUR = 0.1
+/**
+ * How many times faster an astronaut uses oxygen when not in a pressurized module (one joined to
+ * an Airlock, see sim/navigation.ts): out on the surface on suit air, or in a module with no
+ * Airlock. A game number to tune.
+ */
+export const UNPRESSURIZED_OXYGEN_FACTOR = 2
 
 export const FULL_HEALTH = 100
 /**
@@ -39,7 +45,13 @@ export function needEvacuating(health: CrewHealth, crew: readonly CrewMember[]):
 export interface CrewMember {
   id: string
   outside: boolean
+  /** In a module or tube joined to an Airlock. Leave out to count as pressurized. */
+  pressurized?: boolean
 }
+
+/** Oxygen one astronaut uses in one game-hour, where they are. */
+export const oxygenPerHour = ({ pressurized = true }: CrewMember) =>
+  OXYGEN_PER_ASTRONAUT_HOUR * (pressurized ? 1 : UNPRESSURIZED_OXYGEN_FACTOR)
 
 /**
  * What `hours` game-hours do to a base with these astronauts in it: they breathe the oxygen
@@ -55,7 +67,7 @@ export function liveThrough(
   hours: number,
   storm: { hours: number; healthLostPerHour: number } | null = null,
 ): { resources: Resources; health: CrewHealth } {
-  const needed = OXYGEN_PER_ASTRONAUT_HOUR * crew.length * hours
+  const needed = crew.reduce((sum, member) => sum + oxygenPerHour(member), 0) * hours
   if (needed <= 0) return { resources, health }
   const breathed = Math.min(resources.oxygen, needed)
   // The share of the time there was nothing left to breathe.

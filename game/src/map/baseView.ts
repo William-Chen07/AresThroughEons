@@ -1,4 +1,4 @@
-import { Container, Graphics, Text } from "pixi.js"
+import { AlphaFilter, Container, Graphics, Text } from "pixi.js"
 import { moduleType } from "@/content/modules"
 import { CELL_PX, cellTopLeft, footprintTopLeft, type Cell, type VoxelTerrain } from "@/map/voxelTerrain"
 import { MODULE, TUBE, moduleRect, type Base, type PlacedModule, type Rect } from "@/sim/base"
@@ -16,6 +16,8 @@ const TUBE_SHINE = 0xf4f0e8
 const WALL_PX = 8
 const GHOST_OK = 0x5ad17a
 const GHOST_BLOCKED = 0xe2574c
+/** How opaque the base is drawn while see-through (crew inside can be seen and clicked). */
+const SEE_THROUGH_ALPHA = 0.4
 
 /** What a click would build: a module's footprint, a run of tube cells, or both empty for nothing. */
 export interface Ghost {
@@ -32,6 +34,15 @@ export interface BaseView {
   /** `grid` is the base's occupancy (see sim/base.ts). */
   draw: (base: Base, grid: Uint8Array) => void
   showGhost: (ghost: Ghost | null) => void
+  /** Fades the whole base so crew inside the modules show through. */
+  setSeeThrough: (on: boolean) => void
+  /** Fades just these modules (by id), e.g. ones the player clicked to look inside. */
+  setOpenModules: (ids: string[]) => void
+  /**
+   * The module cell drawn at a map point (roof or south wall), or null. A module is drawn taller
+   * than its footprint, so this is what a click on it means, rather than the ground cell there.
+   */
+  moduleCellAt: (x: number, y: number) => Cell | null
 }
 
 /** A colour made lighter (factor above 1) or darker (below 1). */
@@ -72,6 +83,19 @@ export function createBaseView(terrain: VoxelTerrain, era = 1): BaseView {
   const modulesLayer = new Container()
   const view = new Container()
   view.addChild(tubes, modulesLayer)
+  // One filter for the whole base, so overlapping shapes fade together instead of showing through each other.
+  const fade = new AlphaFilter({ alpha: SEE_THROUGH_ALPHA })
+  /** Each module's footprint, front (south) first, for moduleCellAt. */
+  let drawnRects: Rect[] = []
+  /** Each drawn module's piece, by module id, for fading one at a time. */
+  let pieces = new Map<string, Container>()
+  let wholeBaseFaded = false
+  let openModules = new Set<string>()
+  /** Fades the whole base, or else just the opened modules. */
+  const applyFade = () => {
+    view.filters = wholeBaseFaded ? [fade] : []
+    for (const [id, piece] of pieces) piece.filters = !wholeBaseFaded && openModules.has(id) ? [fade] : []
+  }
 
   const ghostShape = new Graphics()
   const ghost = new Container()
@@ -128,8 +152,8 @@ export function createBaseView(terrain: VoxelTerrain, era = 1): BaseView {
       .fill(tone(color, worn ? 1.1 : 1.25))
       .rect(3, height - 5 - WALL_PX, width - 6, 2)
       .fill(tone(color, 0.82))
-      // A hatch in the middle of the south wall.
-      .rect(width / 2 - 3, height - 1 - WALL_PX, 6, WALL_PX - 3)
+      // The door: a hatch in the middle of the south wall, on the cell crew walk through (see moduleDoor).
+      .rect((Math.floor(rect.width / 2) + 0.5) * CELL_PX - 3, height - 1 - WALL_PX, 6, WALL_PX - 3)
       .fill(OUTLINE)
 
     if (worn) {
@@ -190,7 +214,38 @@ export function createBaseView(terrain: VoxelTerrain, era = 1): BaseView {
     modulesLayer.removeChildren().forEach((piece) => piece.destroy({ children: true }))
     // North to south, so a module in front overlaps the one behind it.
     const ordered = [...base.modules].sort((a, b) => a.row - b.row || a.col - b.col)
-    for (const module of ordered) modulesLayer.addChild(drawModule(module))
+    pieces = new Map()
+    for (const module of ordered) {
+      const piece = drawModule(module)
+      pieces.set(module.id, piece)
+      modulesLayer.addChild(piece)
+    }
+    drawnRects = ordered.map(moduleRect).reverse()
+    applyFade()
+  }
+
+  const setSeeThrough: BaseView["setSeeThrough"] = (on) => {
+    wholeBaseFaded = on
+    applyFade()
+  }
+
+  const setOpenModules: BaseView["setOpenModules"] = (ids) => {
+    openModules = new Set(ids)
+    applyFade()
+  }
+
+  const moduleCellAt: BaseView["moduleCellAt"] = (x, y) => {
+    for (const rect of drawnRects) {
+      const corner = footprintCorner(rect)
+      const width = rect.width * CELL_PX
+      const height = rect.height * CELL_PX
+      if (x < corner.x || x >= corner.x + width || y < corner.y - WALL_PX || y >= corner.y + height) continue
+      // The roof is drawn WALL_PX up from the footprint; the south wall below it belongs to the last row.
+      const col = rect.col + Math.floor((x - corner.x) / CELL_PX)
+      const row = rect.row + Math.min(rect.height - 1, Math.floor((y - corner.y + WALL_PX) / CELL_PX))
+      return { col, row }
+    }
+    return null
   }
 
   const showGhost: BaseView["showGhost"] = (next) => {
@@ -215,5 +270,5 @@ export function createBaseView(terrain: VoxelTerrain, era = 1): BaseView {
     }
   }
 
-  return { view, ghost, draw, showGhost }
+  return { view, ghost, draw, showGhost, setSeeThrough, setOpenModules, moduleCellAt }
 }
