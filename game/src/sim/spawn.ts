@@ -6,9 +6,9 @@ import { TRAITS, TRAIT_IDS } from "./traits"
 import type { Colony, Mission, OccupationId, Pawn, RoleId, Skill, TraitId } from "./types"
 
 const NAMES = [
-  "Ada", "Ben", "Cleo", "Dev", "Esme", "Femi", "Gus", "Hana",
-  "Ivan", "Juno", "Kai", "Lena", "Milo", "Nia", "Omar", "Pia",
-  "Quinn", "Rosa", "Sami", "Tara", "Uri", "Vera", "Wes", "Yuki",
+  "Hailey", "William", "Brandon", "Syan", "Derek", "Esteban", "Neil", "Vian",
+  "Cavasos", "Juno", "Billiam", "Victory", "Milo", "Nia", "Omar", "Pia",
+  "Quincy", "Rosa", "Sami", "Tara", "Uri", "Vera", "Wes", "Yuki", "Underscore"
 ]
 
 export function rollTraits(rng: Rng, count = 2): TraitId[] {
