@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { DevConsole, type DevTool } from "@/components/DevConsole"
+import { BuildPanel, type BuildTool } from "@/components/BuildPanel"
 import { SpaceWeatherPanel } from "@/components/SpaceWeatherPanel"
 import { moduleType, type ModuleTypeId } from "@/content/modules"
 import { createMapView, type ClickKeys, type MapView } from "@/map/mapView"
@@ -35,7 +35,7 @@ import {
  * The base map screen: the ground around the expedition's landing site, built
  * from NASA imagery and elevation (see map/), with the lander and the base on
  * it. For now the base (modules, and the tubes between them) is built by hand
- * from the dev console (the ` key).
+ * from the build panel (the Build button or the ` key).
  * The crew are placeholders: three astronauts who appear beside the lander once
  * it's down. Click one, then click where to send them (sim/pathing moves them).
  * They aren't saved yet, so they start beside the lander each time the map opens.
@@ -160,8 +160,8 @@ export function GameMap({
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [hovered, setHovered] = useState<Cell | null>(null)
   const [view, setView] = useState<MapView | null>(null)
-  const [consoleOpen, setConsoleOpen] = useState(false)
-  const [tool, setTool] = useState<DevTool>(null)
+  const [buildOpen, setBuildOpen] = useState(false)
+  const [tool, setTool] = useState<BuildTool>(null)
   const [message, setMessage] = useState<string | null>(null)
   /** Where the run of tube being laid starts, once the first click of the tube tool has set it. */
   const [tubeStart, setTubeStart] = useState<Cell | null>(null)
@@ -320,7 +320,7 @@ export function GameMap({
     })
   }, [view])
 
-  // While a tool that builds is picked in the dev console, the map shows what a click would build.
+  // While a tool that builds is picked in the build panel, the map shows what a click would build.
   useEffect(() => {
     if (!view || !terrain || !grid) return
     const { size } = terrain
@@ -344,7 +344,7 @@ export function GameMap({
     }
   }, [view, terrain, grid, tool, tubeStart])
 
-  const pickTool = (next: DevTool) => {
+  const pickTool = (next: BuildTool) => {
     setTool(next)
     setTubeStart(null)
     setMessage(null)
@@ -353,7 +353,7 @@ export function GameMap({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.code === "Backquote") {
-        setConsoleOpen((open) => !open)
+        setBuildOpen((open) => !open)
         setTool(null)
         setTubeStart(null)
         setMessage(null)
@@ -390,8 +390,8 @@ export function GameMap({
                 Landing site on Mars. Each block is about {terrain ? Math.round(terrain.metersPerCell) : 163} m wide.
               </p>
             </div>
-            {consoleOpen && terrain && (
-              <DevConsole
+            {buildOpen && terrain && (
+              <BuildPanel
                 tool={tool}
                 onTool={pickTool}
                 tubeStarted={tubeStart !== null}
@@ -405,7 +405,7 @@ export function GameMap({
                   setMessage("Cleared the base.")
                 }}
                 onClose={() => {
-                  setConsoleOpen(false)
+                  setBuildOpen(false)
                   pickTool(null)
                 }}
               />
@@ -438,10 +438,10 @@ export function GameMap({
               Back to menu
             </button>
             <SpaceWeatherPanel />
-            {/* Shown on a developer's machine only. On the live site the ` key still opens the console. */}
-            {import.meta.env.DEV && !consoleOpen && terrain && (
-              <button type="button" onClick={() => setConsoleOpen(true)} className={buttonClass}>
-                Dev console
+            {/* Opens the build panel; the ` key toggles it too. */}
+            {!buildOpen && terrain && (
+              <button type="button" onClick={() => setBuildOpen(true)} className={buttonClass}>
+                Build
               </button>
             )}
           </div>
