@@ -36,9 +36,13 @@ const ROTATION_MODEL: RotationModel = marsRotation
  * visible, and the camera sits along the Earth→Mars line with celestial north up (what a
  * telescope on Earth would show, without image inversion).
  *
- * Fun facts: tapping a pin selects it and pauses the clock so the pin stays put. Focusing a
- * place (focusSite) never spins Mars by hand — it fast-forwards the clock (less than one sol)
- * until that place faces Earth (just left of centre), so the globe always shows a real moment.
+ * Spinning: dragging sideways winds the clock forward or back (surface follows the pointer),
+ * and a flick coasts to a stop. Mars therefore only ever turns about its real axis and every
+ * frame is still a true view from Earth, just at another moment.
+ *
+ * Fun facts: selecting a place pauses the clock. Focusing a place (focusSite) also never
+ * spins Mars by hand — it moves the clock (the shorter way, under half a sol) until that place
+ * faces Earth just left of centre.
  */
 
 /** Simulated seconds per real second. 720 → one Martian day (24h 37m) in about 2 minutes. */
@@ -63,6 +67,9 @@ const PIN_MIN_FACING = 0.12
 // would look like it floats in empty space.
 const PIN_MIN_SUNLIGHT = -0.05
 const TAP_SLOP_PX = 6 // pointer may move this far and still count as a tap
+const SPIN_FRICTION_MS = 350 // how quickly a flung globe slows down (time constant)
+const MAX_FLING_DEG_PER_S = 180 // a hard flick never spins Mars faster than this
+const FLING_HOLD_MS = 80 // pausing this long before letting go means no fling
 const SEEK_MS = 1600 // duration of the fast-forward to a focused place
 // Stop a focused place this many degrees before it reaches the disc centre. Surface
 // features cross the disc from left to right, so it rests on the left half — clear of the
@@ -344,6 +351,7 @@ export function MarsGlobe({ className, ref, selectedSiteId = null, onSelectSite 
     }
 
     // --- Layout: place the disc on the right on wide screens, lower-centre on narrow ones ---
+    let discRadiusPx = 1
     const resize = () => {
       const { clientWidth: w, clientHeight: h } = container
       if (!w || !h) return
@@ -353,6 +361,7 @@ export function MarsGlobe({ className, ref, selectedSiteId = null, onSelectSite 
       const discRadius = wide ? Math.min(0.4, (0.4 * (w / h)) / 1.78) : Math.min(0.34, (0.42 * w) / h)
       camera.fov = 2 * Math.atan(0.5 / (discRadius * CAMERA_DISTANCE)) * (180 / Math.PI)
       camera.aspect = w / h
+      discRadiusPx = discRadius * h
       const shiftX = wide ? Math.min(0.17 * w, w / 2 - discRadius * h - 0.04 * w) : 0
       const shiftY = wide ? 0 : 0.2 * h
       camera.setViewOffset(w, h, -shiftX, -shiftY, w, h)
@@ -396,37 +405,94 @@ export function MarsGlobe({ className, ref, selectedSiteId = null, onSelectSite 
       return best
     }
 
-    let pointerDown: { id: number; x: number; y: number } | null = null
+    // The simulated clock. The time-lapse, dragging and focusing a place all move it.
+    let simTime = Number.isNaN(frozenTime) ? Date.now() : frozenTime
+    let seek: { from: number; to: number; start: number } | null = null
+
+    // --- Pointer: tap a pin to select it, drag sideways to spin Mars ---
+    canvas.style.touchAction = "none"
+    canvas.style.cursor = "grab"
+    // Clock time (ms) that turns Mars by one pixel at the disc centre.
+    const simMsPerPx = () => (THREE.MathUtils.RAD2DEG / discRadiusPx / ROTATION_MODEL.pm[1]) * DAY_MS
+    let pointer: { id: number; startX: number; startY: number; lastX: number; lastT: number; dragging: boolean } | null =
+      null
+    let spinVelocity = 0 // clock ms per real ms, left over from a flick
+
     const onPointerDown = (event: PointerEvent) => {
-      pointerDown = { id: event.pointerId, x: event.clientX, y: event.clientY }
-    }
-    const onPointerUp = (event: PointerEvent) => {
-      const down = pointerDown
-      pointerDown = null
-      if (!down || down.id !== event.pointerId) return
-      if (Math.hypot(event.clientX - down.x, event.clientY - down.y) > TAP_SLOP_PX) return
-      onSelectRef.current?.(pickPin(event))
+      if (pointer) return
+      try {
+        canvas.setPointerCapture(event.pointerId) // keep the drag going if the pointer leaves the canvas
+      } catch {
+        // Synthetic or already-released pointers can't be captured; dragging still works.
+      }
+      pointer = {
+        id: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        lastX: event.clientX,
+        lastT: performance.now(),
+        dragging: false,
+      }
+      spinVelocity = 0
     }
     const onPointerMove = (event: PointerEvent) => {
-      if (event.pointerType === "mouse") canvas.style.cursor = pickPin(event) ? "pointer" : ""
+      if (!pointer) {
+        if (event.pointerType === "mouse") canvas.style.cursor = pickPin(event) ? "pointer" : "grab"
+        return
+      }
+      if (event.pointerId !== pointer.id) return
+      if (!pointer.dragging) {
+        if (Math.hypot(event.clientX - pointer.startX, event.clientY - pointer.startY) <= TAP_SLOP_PX) return
+        pointer.dragging = true
+        seek = null
+        canvas.style.cursor = "grabbing"
+      }
+      // Surface features cross the disc left → right as time goes on, so dragging right winds forward.
+      const now = performance.now()
+      const step = (event.clientX - pointer.lastX) * simMsPerPx()
+      simTime += step
+      spinVelocity = THREE.MathUtils.lerp(spinVelocity, step / Math.max(now - pointer.lastT, 8), 0.5)
+      pointer.lastX = event.clientX
+      pointer.lastT = now
+    }
+    const onPointerUp = (event: PointerEvent) => {
+      if (!pointer || event.pointerId !== pointer.id) return
+      const wasDrag = pointer.dragging
+      const lastMoveT = pointer.lastT
+      pointer = null
+      canvas.style.cursor = "grab"
+      if (wasDrag) {
+        const held = performance.now() - lastMoveT > FLING_HOLD_MS
+        const maxVelocity = (MAX_FLING_DEG_PER_S / ROTATION_MODEL.pm[1]) * (DAY_MS / 1000)
+        spinVelocity = reduceMotion || held ? 0 : THREE.MathUtils.clamp(spinVelocity, -maxVelocity, maxVelocity)
+        return
+      }
+      onSelectRef.current?.(pickPin(event))
+    }
+    const onPointerCancel = () => {
+      pointer = null
+      spinVelocity = 0
+      canvas.style.cursor = "grab"
     }
     canvas.addEventListener("pointerdown", onPointerDown)
-    canvas.addEventListener("pointerup", onPointerUp)
     canvas.addEventListener("pointermove", onPointerMove)
+    canvas.addEventListener("pointerup", onPointerUp)
+    canvas.addEventListener("pointercancel", onPointerCancel)
 
     // --- Animation: real ephemeris, sped-up clock starting now ---
-    // The clock pauses while a fun fact is open, and can fast-forward to a focused place.
-    let simTime = Number.isNaN(frozenTime) ? Date.now() : frozenTime
+    // (simTime and seek are declared above, next to the pointer handlers that also move them.)
     let lastReal = performance.now()
-    let seek: { from: number; to: number; start: number } | null = null
 
     focusRef.current = (id) => {
       const fact = MARS_FACTS.find((f) => f.id === id)
       if (!fact || !ephemeris) return false
-      // The point facing Earth drifts west as Mars turns, so wait until it reaches the site.
+      // The point facing Earth drifts west as Mars turns: move the clock (whichever way is
+      // shorter, so under half a sol) until the site sits FOCUS_LEAD_DEG left of centre.
       const now = marsGeometry(new Date(simTime), ephemeris, ROTATION_MODEL)
-      const degreesToGo = (((now.subEarth.lon - fact.location.lon - FOCUS_LEAD_DEG) % 360) + 360) % 360
+      const offset = now.subEarth.lon - fact.location.lon - FOCUS_LEAD_DEG
+      const degreesToGo = ((((offset + 180) % 360) + 360) % 360) - 180
       const target = simTime + (degreesToGo / ROTATION_MODEL.pm[1]) * DAY_MS
+      spinVelocity = 0
       seek = reduceMotion ? null : { from: simTime, to: target, start: performance.now() }
       if (reduceMotion) simTime = target
       // Visible if the site faces Earth well enough at that moment (not tipped over the limb).
@@ -452,8 +518,11 @@ export function MarsGlobe({ className, ref, selectedSiteId = null, onSelectSite 
         const k = Math.min((nowReal - seek.start) / SEEK_MS, 1)
         simTime = seek.from + (seek.to - seek.from) * easeInOutCubic(k)
         if (k === 1) seek = null
-      } else if (!selectedRef.current) {
-        simTime += dt * timeScale
+      } else if (!pointer?.dragging) {
+        // A flick keeps turning and slows down; the time-lapse runs unless a fact is open.
+        simTime += spinVelocity * dt
+        spinVelocity *= Math.exp(-dt / SPIN_FRICTION_MS)
+        if (!selectedRef.current) simTime += dt * timeScale
       }
       update(new Date(simTime))
 
@@ -479,8 +548,9 @@ export function MarsGlobe({ className, ref, selectedSiteId = null, onSelectSite 
       cancelAnimationFrame(frame)
       observer.disconnect()
       canvas.removeEventListener("pointerdown", onPointerDown)
-      canvas.removeEventListener("pointerup", onPointerUp)
       canvas.removeEventListener("pointermove", onPointerMove)
+      canvas.removeEventListener("pointerup", onPointerUp)
+      canvas.removeEventListener("pointercancel", onPointerCancel)
       focusRef.current = () => false
       pinMaterial.map?.dispose()
       pinMaterial.dispose()
