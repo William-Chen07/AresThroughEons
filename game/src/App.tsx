@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { MainMenu } from "@/components/menu/MainMenu"
+import { MainMenu } from "@/components/MainMenu"
 
 type Screen = "menu" | "game"
 
@@ -7,18 +7,17 @@ function App() {
   const [screen, setScreen] = useState<Screen>("menu")
 
   if (screen === "menu") {
-    // TODO(game): onStart receives "new" or "continue"; use it to start fresh or load the saved era.
     return <MainMenu onStart={() => setScreen("game")} />
   }
 
   // Placeholder until the game scene exists.
   return (
-    <main className="flex h-dvh flex-col items-center justify-center gap-6 bg-background text-foreground">
-      <p className="font-heading text-2xl">Game coming soon</p>
+    <main className="flex h-dvh flex-col items-center justify-center gap-6 bg-[#020104] text-white">
+      <p className="text-sm uppercase tracking-[0.3em] text-white/60">Game coming soon</p>
       <button
         type="button"
         onClick={() => setScreen("menu")}
-        className="rounded-3xl border-2 border-white/15 px-6 py-3 font-heading text-lg font-semibold hover:border-primary"
+        className="border border-white/15 px-5 py-2 text-xs font-semibold uppercase tracking-[0.25em] hover:border-orange-400/70"
       >
         Back to menu
       </button>
