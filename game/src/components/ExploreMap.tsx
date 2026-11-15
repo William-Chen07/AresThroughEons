@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react"
 import { EXPLORE_BASE, EXPLORE_PLACES, explorePlace } from "@/content/explore"
 import { exploreEvent } from "@/content/exploreEvents"
+import { ResourceIcon } from "@/components/ResourceIcon"
 import { RESOURCE_TYPES } from "@/content/resources"
 import { exploreBackdrop } from "@/map/exploreBackdrop"
 import { describeFinds, tripHours, tripReach, type Trip, type TripReport } from "@/sim/explore"
@@ -188,9 +189,17 @@ export function ExploreMap({
                 <p className="mt-2 text-white/70">{place.text}</p>
                 <p className="mt-2 text-xs text-white/55">
                   The trip there and back takes {aboutHours(tripHours(place))}. Might bring back:{" "}
-                  {place.finds
-                    .map((find) => RESOURCE_TYPES.find((type) => type.id === find.resource)?.name.toLowerCase())
-                    .join(", ")}
+                  {place.finds.map((find, i) => {
+                    const type = RESOURCE_TYPES.find((t) => t.id === find.resource)
+                    if (!type) return null
+                    return (
+                      <span key={find.resource} className="inline-flex items-center gap-1 align-middle">
+                        {i > 0 && ", "}
+                        <ResourceIcon id={type.id} color={type.color} className="size-3.5" />
+                        {type.name.toLowerCase()}
+                      </span>
+                    )
+                  })}
                   . Each astronaut carries a share, so a bigger group brings more.
                 </p>
 
