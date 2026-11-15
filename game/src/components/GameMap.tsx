@@ -52,7 +52,7 @@ import type { Weather } from "@/sim/weather"
  * it. For now the base (modules, and the tubes between them) is built by hand
  * from the Build panel (the Build button or the ` key).
  * Modules and tubes turn see-through so the crew inside can be seen and clicked: only the module
- * someone is in, and the tubes while someone is walking along one. A click on a module opens up
+ * someone is in, and the piece of tube someone is walking along. A click on a module opens up
  * every module to look inside (another click closes them up again).
  * The crew are placeholders: three astronauts who appear beside the lander once
  * it's down. Click one, then click where to send them (sim/pathing moves them).
@@ -332,7 +332,7 @@ export function GameMap({
     if (tool.kind === "tube") {
       // The first click picks where the run starts; the second lays it and starts the next run from its end.
       const run = tubeStart ? tubeRun(tubeStart, cell) : [cell]
-      const check = checkTubes(size, grid, run)
+      const check = checkTubes(size, grid, run, modules)
       if (!check.ok) return setMessage(check.reason)
       if (!tubeStart) {
         setTubeStart(cell)
@@ -485,24 +485,24 @@ export function GameMap({
     const unsaved = { hours: 0, ms: 0 }
     /** What was last made see-through for the crew inside, so the map is only told when it changes. */
     let shownInside = ""
-    /** Fades only the modules someone is in, and the tubes while someone is in a tube. */
+    /** Fades only the modules someone is in, and only the pieces of tube someone is walking along. */
     const showCrewInside = (crew: World) => {
       const occupied = new Set<string>()
-      let anyoneInTube = false
+      const inTubes: Cell[] = []
       for (const mover of Object.values(crew.movers)) {
         const x = Math.round(mover.pos.x)
         const y = Math.round(mover.pos.y)
         if (getZone(crew.grid, x, y) === "outside") continue
         const inModule = moduleAt(modulesRef.current, { col: x, row: y })
         if (inModule) occupied.add(inModule.id)
-        else anyoneInTube = true
+        else inTubes.push({ col: x, row: y })
       }
       const ids = [...occupied].sort()
-      const next = `${anyoneInTube}:${ids.join(",")}`
+      const next = `${inTubes.map((c) => `${c.col},${c.row}`).sort().join(";")}:${ids.join(",")}`
       if (next === shownInside) return
       shownInside = next
       view.setOpenModules(ids)
-      view.setTubesSeeThrough(anyoneInTube)
+      view.setOpenTubes(inTubes)
     }
     const handOver = () => {
       const world = crewRef.current?.world
@@ -569,13 +569,13 @@ export function GameMap({
       view.setPlacement({
         preview: (cell) => {
           const run = tubeStart ? tubeRun(tubeStart, cell) : [cell]
-          return { rect: null, tubes: run, ok: checkTubes(size, grid, run).ok }
+          return { rect: null, tubes: run, ok: checkTubes(size, grid, run, modules).ok }
         },
       })
     } else {
       view.setPlacement(null)
     }
-  }, [view, terrain, grid, tool, tubeStart])
+  }, [view, terrain, grid, tool, tubeStart, modules])
 
   const pickTool = (next: BuildTool) => {
     setTool(next)
@@ -726,7 +726,7 @@ export function GameMap({
                 </ul>
                 <p className="mt-2 text-[11px] text-white/50">
                   Click an astronaut (or a name here), then click where to go, or a module to go in and work. Shift-click to pick more or
-                  to queue an order. Crew go in and out of a module by its door, on the front wall. With nobody selected, click a module
+                  to queue an order. Crew go in and out of a module by the doorways in the middle of each side. With nobody selected, click a module
                   to see inside them all. Click a selected astronaut again (or press Esc) to let go. Crew breathe the base's
                   oxygen twice as fast outside the modules joined to an Airlock (by tubes, or wall to wall).
                 </p>

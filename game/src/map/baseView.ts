@@ -1,7 +1,7 @@
 import { AlphaFilter, Container, Graphics, Text } from "pixi.js"
 import { moduleType } from "@/content/modules"
 import { CELL_PX, cellTopLeft, footprintTopLeft, type Cell, type VoxelTerrain } from "@/map/voxelTerrain"
-import { TUBE, moduleAt, moduleRect, tubeOpenings, type Base, type PlacedModule, type Rect } from "@/sim/base"
+import { TUBE, moduleAt, moduleDoorways, moduleRect, tubeOpenings, type Base, type PlacedModule, type Rect } from "@/sim/base"
 
 /*
  * Draws the base on the map: tubes first, then the modules on top of them,
@@ -38,8 +38,11 @@ export interface BaseView {
   setSeeThrough: (on: boolean) => void
   /** Fades just these modules (by id), e.g. ones with crew inside. */
   setOpenModules: (ids: string[]) => void
-  /** Fades the tubes, e.g. while crew are inside the base and could be walking along them. */
-  setTubesSeeThrough: (on: boolean) => void
+  /**
+   * Fades just the pieces of tube with these cells in them, e.g. where crew are walking. A piece
+   * is one connected run of tube, out to the modules it joins.
+   */
+  setOpenTubes: (cells: Cell[]) => void
   /**
    * The module cell drawn at a map point (roof or south wall), or null. A module is drawn taller
    * than its footprint, so this is what a click on it means, rather than the ground cell there.
@@ -81,7 +84,8 @@ export function createBaseView(terrain: VoxelTerrain, era = 1): BaseView {
   }
   const footprintCorner = (rect: Rect) => footprintTopLeft(terrain, rect.col, rect.row, rect.width, rect.height)
 
-  const tubes = new Graphics()
+  /** One drawing per piece of tube (a connected run), so each can fade on its own. */
+  const tubes = new Container()
   const modulesLayer = new Container()
   const view = new Container()
   view.addChild(tubes, modulesLayer)
@@ -93,11 +97,16 @@ export function createBaseView(terrain: VoxelTerrain, era = 1): BaseView {
   let pieces = new Map<string, Container>()
   let wholeBaseFaded = false
   let openModules = new Set<string>()
-  let tubesFaded = false
-  /** Fades the whole base, or else just the opened modules and the tubes. */
+  /** Each piece of tube's drawing, and which piece every tube cell (row * size + col) is in. */
+  let tubePieces: Graphics[] = []
+  let pieceOfCell = new Map<number, number>()
+  /** Tube cells crew are in: the pieces of tube with these in them are faded. */
+  let openTubeCells: Cell[] = []
+  /** Fades the whole base, or else just the opened modules and pieces of tube. */
   const applyFade = () => {
     view.filters = wholeBaseFaded ? [fade] : []
-    tubes.filters = !wholeBaseFaded && tubesFaded ? [fade] : []
+    const openTubes = new Set(openTubeCells.map((cell) => pieceOfCell.get(cell.row * size + cell.col)))
+    tubePieces.forEach((piece, i) => (piece.filters = !wholeBaseFaded && openTubes.has(i) ? [fade] : []))
     for (const [id, piece] of pieces) piece.filters = !wholeBaseFaded && openModules.has(id) ? [fade] : []
   }
 
@@ -113,9 +122,9 @@ export function createBaseView(terrain: VoxelTerrain, era = 1): BaseView {
    * wall, so no tube shows inside a module when it's see-through, and a tube that only runs past
    * a module doesn't reach into it. Nothing is drawn toward the lander: tubes don't connect to it.
    */
-  const traceTubes = (shape: Graphics, base: Base, grid: Uint8Array, width: number) => {
+  const traceTubes = (shape: Graphics, cells: Cell[], base: Base, grid: Uint8Array, width: number) => {
     const half = width / 2
-    for (const cell of base.tubes) {
+    for (const cell of cells) {
       const here = cellCenter(cell)
       shape.moveTo(here.x - 0.5, here.y).lineTo(here.x + 0.5, here.y)
       // Each tube-to-tube link is drawn once, from its west or north end.
@@ -128,7 +137,7 @@ export function createBaseView(terrain: VoxelTerrain, era = 1): BaseView {
         const there = cellCenter(next)
         shape.moveTo(here.x, here.y).lineTo(there.x, there.y)
       }
-      for (const opening of tubeOpenings(size, grid, cell.row * size + cell.col)) {
+      for (const opening of tubeOpenings(size, base, grid, cell.row * size + cell.col)) {
         const into = { col: opening % size, row: Math.floor(opening / size) }
         const module = moduleAt(base.modules, into)
         if (!module) continue
@@ -175,9 +184,18 @@ export function createBaseView(terrain: VoxelTerrain, era = 1): BaseView {
       .fill(tone(color, worn ? 1.1 : 1.25))
       .rect(3, height - 5 - WALL_PX, width - 6, 2)
       .fill(tone(color, 0.82))
-      // The door: a hatch in the middle of the south wall, on the cell crew walk through (see moduleDoor).
-      .rect((Math.floor(rect.width / 2) + 0.5) * CELL_PX - 3, height - 1 - WALL_PX, 6, WALL_PX - 3)
-      .fill(OUTLINE)
+
+    // The doorways, one in the middle of each side (see moduleDoorways): a hatch in the south
+    // wall, and a notch at the roof's edge for the other three, which face away or sideways.
+    for (const door of moduleDoorways(rect)) {
+      const x = (door.inside.col - rect.col + 0.5) * CELL_PX
+      const y = (door.inside.row - rect.row + 0.5) * CELL_PX - WALL_PX
+      if (door.side === "south") shape.rect(x - 3, height - 1 - WALL_PX, 6, WALL_PX - 3)
+      else if (door.side === "north") shape.rect(x - 3, 1 - WALL_PX, 6, 4)
+      else if (door.side === "west") shape.rect(1, y - 3, 4, 6)
+      else shape.rect(width - 5, y - 3, 4, 6)
+      shape.fill(OUTLINE)
+    }
 
     if (worn) {
       // Dust drifted onto the roof, dark scuffs and a crack or two.
@@ -220,18 +238,56 @@ export function createBaseView(terrain: VoxelTerrain, era = 1): BaseView {
     return piece
   }
 
+  /** The tube cells sorted into pieces: runs of tube joined end to end or side by side. */
+  const tubePiecesOf = (base: Base) => {
+    const all = new Map(base.tubes.map((cell) => [cell.row * size + cell.col, cell]))
+    const pieces: Cell[][] = []
+    const seen = new Set<number>()
+    for (const [start] of all) {
+      if (seen.has(start)) continue
+      const piece: Cell[] = []
+      const queue = [start]
+      seen.add(start)
+      for (let head = 0; head < queue.length; head++) {
+        const cell = all.get(queue[head])!
+        piece.push(cell)
+        for (const [dc, dr] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ]) {
+          const col = cell.col + dc
+          const row = cell.row + dr
+          const next = row * size + col
+          if (col < 0 || row < 0 || col >= size || row >= size || seen.has(next) || !all.has(next)) continue
+          seen.add(next)
+          queue.push(next)
+        }
+      }
+      pieces.push(piece)
+    }
+    return pieces
+  }
+
   const draw: BaseView["draw"] = (base, grid) => {
-    tubes.clear()
-    if (base.tubes.length > 0) {
+    tubes.removeChildren().forEach((piece) => piece.destroy())
+    tubePieces = []
+    pieceOfCell = new Map()
+    for (const cells of tubePiecesOf(base)) {
+      const shape = new Graphics()
       // Drawn three times, widest first: a dark edge, the tube, then a thin shine along it.
       for (const [width, color] of [
         [10, OUTLINE],
         [6, TUBE_COLOR],
         [2, TUBE_SHINE],
       ]) {
-        traceTubes(tubes, base, grid, width)
-        tubes.stroke({ width, color, cap: "square", join: "miter" })
+        traceTubes(shape, cells, base, grid, width)
+        shape.stroke({ width, color, cap: "square", join: "miter" })
       }
+      for (const cell of cells) pieceOfCell.set(cell.row * size + cell.col, tubePieces.length)
+      tubePieces.push(shape)
+      tubes.addChild(shape)
     }
 
     modulesLayer.removeChildren().forEach((piece) => piece.destroy({ children: true }))
@@ -257,8 +313,8 @@ export function createBaseView(terrain: VoxelTerrain, era = 1): BaseView {
     applyFade()
   }
 
-  const setTubesSeeThrough: BaseView["setTubesSeeThrough"] = (on) => {
-    tubesFaded = on
+  const setOpenTubes: BaseView["setOpenTubes"] = (cells) => {
+    openTubeCells = cells
     applyFade()
   }
 
@@ -298,5 +354,5 @@ export function createBaseView(terrain: VoxelTerrain, era = 1): BaseView {
     }
   }
 
-  return { view, ghost, draw, showGhost, setSeeThrough, setOpenModules, setTubesSeeThrough, moduleCellAt }
+  return { view, ghost, draw, showGhost, setSeeThrough, setOpenModules, setOpenTubes, moduleCellAt }
 }
