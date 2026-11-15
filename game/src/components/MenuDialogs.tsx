@@ -239,18 +239,6 @@ const DATA_CREDITS: Credit[] = [
     ],
   },
   {
-    use: "Space weather",
-    what:
-      "Live alerts on the base map from DONKI, the Space Weather Database Of Notifications, Knowledge, " +
-      "Information, by the Community Coordinated Modeling Center at NASA Goddard. The last 7 days of alerts " +
-      "are requested from NASA's open API (DONKI notifications) with our team's api.nasa.gov API key, " +
-      "which stays on our server and is never sent to your browser.",
-    links: [
-      { label: "NASA DONKI", href: "https://ccmc.gsfc.nasa.gov/tools/DONKI/" },
-      { label: "api.nasa.gov", href: "https://api.nasa.gov/" },
-    ],
-  },
-  {
     use: "Planet positions",
     what: "DE442 planetary ephemeris (2025), NASA/JPL NAIF (SPICE).",
     links: [
@@ -268,6 +256,19 @@ const DATA_CREDITS: Credit[] = [
       {
         label: "mars_konopliv_2026_v1 (NAIF)",
         href: "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/pck/mars_konopliv_2026_v1.tpc",
+      },
+    ],
+  },
+  {
+    use: "Base resources (ice and regolith)",
+    what:
+      "The two raw materials dug out of Mars in the game follow NASA’s overview of in-situ resource " +
+      "utilization (ISRU): water deposits in the soil of Mars, and that soil itself (regolith) used " +
+      "for manufacturing and construction.",
+    links: [
+      {
+        label: "NASA: Overview of In-Situ Resource Utilization",
+        href: "https://www.nasa.gov/overview-in-situ-resource-utilization/",
       },
     ],
   },

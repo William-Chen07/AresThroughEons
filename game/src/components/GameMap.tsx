@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { BuildPanel, type BuildTool } from "@/components/BuildPanel"
-import { SpaceWeatherPanel } from "@/components/SpaceWeatherPanel"
+import { ResearchPanel } from "@/components/ResearchPanel"
+import { ResourceBar } from "@/components/ResourceBar"
 import { moduleType, type ModuleTypeId } from "@/content/modules"
+import type { Resources } from "@/content/resources"
 import { createMapView, type ClickKeys, type MapView } from "@/map/mapView"
 import { formatSite, type MarsSite } from "@/map/marsSite"
 import { loadTerrain, type Cell, type VoxelTerrain } from "@/map/voxelTerrain"
@@ -135,6 +137,9 @@ export function GameMap({
   modules,
   tubes,
   onBaseChange,
+  researched,
+  onResearch,
+  resources,
   onExit,
 }: {
   name: string
@@ -146,6 +151,11 @@ export function GameMap({
   modules: Base["modules"]
   tubes: Base["tubes"]
   onBaseChange: (base: Base) => void
+  /** Ids of the research projects this expedition has finished. */
+  researched: string[]
+  onResearch: (projectId: string) => void
+  /** How much of each resource the base has. */
+  resources: Resources
   onExit: () => void
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
@@ -161,6 +171,7 @@ export function GameMap({
   const [hovered, setHovered] = useState<Cell | null>(null)
   const [view, setView] = useState<MapView | null>(null)
   const [buildOpen, setBuildOpen] = useState(false)
+  const [researchOpen, setResearchOpen] = useState(false)
   const [tool, setTool] = useState<BuildTool>(null)
   const [message, setMessage] = useState<string | null>(null)
   /** Where the run of tube being laid starts, once the first click of the tube tool has set it. */
@@ -352,6 +363,11 @@ export function GameMap({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // While the research tree is open it has the keyboard: Esc closes it and nothing else happens.
+      if (researchOpen) {
+        if (e.key === "Escape") setResearchOpen(false)
+        return
+      }
       if (e.code === "Backquote") {
         setBuildOpen((open) => !open)
         setTool(null)
@@ -371,7 +387,7 @@ export function GameMap({
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [tubeStart, tool])
+  }, [tubeStart, tool, researchOpen])
 
   const hoveredIndex = terrain && hovered ? hovered.row * terrain.size + hovered.col : null
 
@@ -434,14 +450,22 @@ export function GameMap({
             )}
           </div>
           <div className="flex flex-col items-end gap-3">
-            <button type="button" onClick={onExit} className={buttonClass}>
-              Back to menu
-            </button>
-            <SpaceWeatherPanel />
+            {/* The resources run along the top, left of Back to menu. */}
+            <div className="flex flex-wrap items-stretch justify-end gap-3">
+              <ResourceBar resources={resources} />
+              <button type="button" onClick={onExit} className={buttonClass}>
+                Back to menu
+              </button>
+            </div>
             {/* Opens the build panel; the ` key toggles it too. */}
             {!buildOpen && terrain && (
               <button type="button" onClick={() => setBuildOpen(true)} className={buttonClass}>
                 Build
+              </button>
+            )}
+            {terrain && (
+              <button type="button" onClick={() => setResearchOpen(true)} className={buttonClass}>
+                Research
               </button>
             )}
           </div>
@@ -463,6 +487,10 @@ export function GameMap({
           </p>
         </div>
       </div>
+
+      {researchOpen && (
+        <ResearchPanel researched={researched} onResearch={onResearch} onClose={() => setResearchOpen(false)} />
+      )}
 
       {!terrain && (
         <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center p-4">

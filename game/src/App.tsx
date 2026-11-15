@@ -13,6 +13,7 @@ function App() {
   const activeSlot = useSaves((s) => s.activeSlot)
   const markLanded = useSaves((s) => s.markLanded)
   const setBase = useSaves((s) => s.setBase)
+  const research = useSaves((s) => s.research)
 
   if (screen === "menu") {
     return <MainMenu onStart={() => setScreen("game")} />
@@ -29,6 +30,9 @@ function App() {
         modules={save.modules}
         tubes={save.tubes}
         onBaseChange={(base) => activeSlot !== null && setBase(activeSlot, base)}
+        researched={save.researched}
+        resources={save.resources}
+        onResearch={(projectId) => activeSlot !== null && research(activeSlot, projectId)}
         onExit={() => setScreen("menu")}
       />
     )
