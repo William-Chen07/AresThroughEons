@@ -25,6 +25,8 @@ GAME_DIR = os.path.dirname(os.path.dirname(BLENDER_DIR))
 PREVIEW_DIR = os.path.join(BLENDER_DIR, "out")
 # How much the "in game" picture is blown up, so the pixels are easy to see.
 INGAME_SCALE = 6
+# The sample team colour used for tint-mask parts in the review pictures (not in the sprites).
+REVIEW_TINT = (0.91, 0.45, 0.23)
 
 _slicer = {}
 _collection = None
@@ -191,6 +193,17 @@ def finish(era, cells_x, cells_y, layers, icon=True, edge_darken=None):
     strip = bpy.data.images.load(written[0])
     source = list(strip.pixels)
     bpy.data.images.remove(strip)
+    # Parts the game recolours are pure white in the sprite, which shows nothing on a white
+    # page. In the review picture only, they are given a sample team colour.
+    tint_path = written[0].replace("_stack.png", "_tint.png")
+    if tint_path in written:
+        tint = bpy.data.images.load(tint_path)
+        mask = list(tint.pixels)
+        bpy.data.images.remove(tint)
+        for at in range(0, len(source), 4):
+            if mask[at + 3] > 0:
+                for channel in range(3):
+                    source[at + channel] *= REVIEW_TINT[channel]
     tall = height + layers - 1
     flat = [0.0] * (width * tall * 4)
     for layer in range(layers):
