@@ -1,9 +1,16 @@
 """
-E1-0 Astronaut pawn: 1x1 cells. The astronaut in a Mars suit, facing south.
+E1-0 Astronaut pawn: 1x1 cells, facing south, in two versions:
+
+  pawn         outdoors, in a Mars suit and helmet
+  pawn_indoor  indoors (inside a module), in a jumpsuit with no helmet
 
 The suit (legs, body and arms) is white TINT_MASK, so the game can give every astronaut their
 own colour from one sprite. The helmet is white with a dark visor, like the placeholder the
 game draws now. The figure is 12 layers tall, so it fits under a door frame.
+
+The indoor astronaut wears a jumpsuit in the same TINT_MASK, so their colour carries from one
+sprite to the other. The palette has no skin colour, so skin is REGOLITH_TAN and hair is
+DARK_TRIM, the same for everyone.
 
 It is built on the pixel grid: at this size a part half a pixel off simply vanishes.
 
@@ -45,6 +52,27 @@ def parts(visor="DARK_TRIM", chest=True):
     kit.block(visor, 6, 5, 4, 1, 8, 10)
 
 
+def indoor_parts():
+    """The astronaut indoors: shoes, a jumpsuit, bare hands and head, and a mission patch on the chest."""
+    # Shoes, then legs with a gap between them.
+    for x in (5, 9):
+        kit.block("DARK_TRIM", x, 6, 2, 4, 0, 1)
+        kit.block("TINT_MASK", x, 6, 2, 4, 1, 3)
+    # Body and arms, with bare hands.
+    kit.block("TINT_MASK", 5, 6, 6, 4, 3, 7)
+    kit.block("TINT_MASK", 4, 7, 1, 2, 3, 7)
+    kit.block("TINT_MASK", 11, 7, 1, 2, 3, 7)
+    kit.block("REGOLITH_TAN", 4, 7, 1, 2, 2, 3)
+    kit.block("REGOLITH_TAN", 11, 7, 1, 2, 2, 3)
+    # A white collar, and a yellow mission patch on the chest.
+    kit.block("HULL_WHITE", 6, 6, 4, 3, 7, 8)
+    kit.block("LIGHT_YELLOW", 9, 5, 1, 1, 5, 6)
+    # The head, narrower than the helmet, with hair on top and down the back.
+    kit.block("REGOLITH_TAN", 6, 6, 4, 2, 8, 11)
+    kit.block("DARK_TRIM", 6, 8, 4, 1, 8, 11)
+    kit.block("DARK_TRIM", 6, 6, 4, 3, 11, 12)
+
+
 def finish(era):
     # No edge dimming: every pixel of a figure this small is an edge, so dimming would just
     # make the whole astronaut grey (and dull every team colour).
@@ -54,4 +82,7 @@ def finish(era):
 if __name__ == "__main__":
     kit.begin(era=1, name="pawn")
     parts()
+    finish(era=1)
+    kit.begin(era=1, name="pawn_indoor")
+    indoor_parts()
     finish(era=1)
