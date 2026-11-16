@@ -1,17 +1,42 @@
 import { useEffect, useRef, type ReactNode } from "react"
-import { Eraser, FastForward, Lock, Radiation, RotateCcw, Trash2, X } from "lucide-react"
+import {
+  AlarmClock,
+  Atom,
+  Eraser,
+  FastForward,
+  Lock,
+  Mountain,
+  PackageX,
+  Radiation,
+  RotateCcw,
+  Shovel,
+  Sparkles,
+  Sun,
+  SunDim,
+  Sunset,
+  Tornado,
+  Trash2,
+  X,
+  Zap,
+  type LucideIcon,
+} from "lucide-react"
 import { MODULE_RESEARCH, MODULE_TYPES, moduleUnlocked, type BuildCost, type ModuleType, type ModuleTypeId } from "@/content/modules"
 import { researchProject } from "@/content/research"
 import { RESOURCE_TYPES } from "@/content/resources"
 import { ResourceIcon } from "@/components/ResourceIcon"
+import { EXPLORE_EVENTS, type ExploreEventEffect } from "@/content/exploreEvents"
+import { WEATHER_EVENTS, weatherEvent, type WeatherId } from "@/content/weather"
+import { TEST_ERUPTION_TRAVEL_HOURS, type TestSpaceEvent } from "@/sim/calendar"
 
 /*
  * The Build bar along the bottom of the base map, for building the base by hand while the real
  * building rules don't exist yet: place modules, lay the tubes between them, and remove either.
  * Nothing connects by itself (see sim/base.ts). Opened from Build in the Actions dropdown or the
  * ` key. Every module and tool is a card with a picture, what it costs and what it does; the row
- * scrolls sideways when it doesn't fit. It can also start and stop a radiation storm, for trying
- * the weather out, reset the map and move on to the next era.
+ * scrolls sideways when it doesn't fit. For testing, it can also make every event in the game
+ * happen: start or end each kind of storm (or bring one close, to see the warning), put each kind
+ * of space event on the calendar, and make each explore event happen to a group out exploring.
+ * It can reset the map and move on to the next era too.
  *
  * The costs come from content/modules.ts and are placeholders: building doesn't use resources yet.
  * Tubes are free. A module that needs research (MODULE_RESEARCH) sits in its own Locked group,
@@ -111,7 +136,8 @@ function Card({
   name: string
   size?: string
   picture: ReactNode
-  cost: BuildCost | null
+  /** Left out for cards that aren't things to build, like events: then no cost line is shown. */
+  cost?: BuildCost | null
   description: string
   pressed?: boolean
   danger?: boolean
@@ -141,7 +167,11 @@ function Card({
         <span className={`text-xs font-semibold uppercase tracking-[0.15em] ${pressed ? "text-orange-100" : ""}`}>{name}</span>
         {size && <span className="text-[11px] text-white/45">{size}</span>}
       </span>
-      {locked ? <p className="text-[11px] font-semibold text-orange-200/90">{locked}</p> : <Cost cost={cost} />}
+      {locked ? (
+        <p className="text-[11px] font-semibold text-orange-200/90">{locked}</p>
+      ) : (
+        cost !== undefined && <Cost cost={cost} />
+      )}
       <span className={`text-[11px] leading-snug ${locked ? "text-white/40" : "text-white/60"}`}>{description}</span>
     </button>
   )
@@ -159,6 +189,42 @@ function Group({ label, children }: { label: string; children: ReactNode }) {
 
 const toolIcon = "size-9 text-white/80"
 
+/** A picture for each storm and explore event's card. */
+const WEATHER_ICONS: Record<WeatherId, LucideIcon> = { "radiation-storm": Radiation, "solar-storm": Sun }
+const EXPLORE_ICONS: Record<string, LucideIcon> = {
+  "stuck-in-sand": Shovel,
+  "dust-devil": Tornado,
+  meteorite: Mountain,
+  "rich-find": Sparkles,
+  "cracked-container": PackageX,
+  "sharp-rocks": Mountain,
+  "blue-sunset": Sunset,
+}
+
+/** The space events the Build panel can put on the calendar. */
+const SPACE_EVENT_CARDS: { kind: TestSpaceEvent; name: string; icon: LucideIcon; description: string }[] = [
+  {
+    kind: "eruptionToMars",
+    name: "Eruption at Mars",
+    icon: Sun,
+    description: `A solar eruption heading for Mars: it shows in the news, the storm warning comes up, and a Solar Storm hits ${TEST_ERUPTION_TRAVEL_HOURS} h later.`,
+  },
+  { kind: "eruptionAway", name: "Eruption away", icon: SunDim, description: "A solar eruption heading away from Mars. Only news: nothing happens at the base." },
+  { kind: "particleStorm", name: "Particle storm", icon: Atom, description: "Spacecraft measure fast particles from the Sun. Only news for now." },
+  { kind: "flare", name: "Solar flare", icon: Zap, description: "An X-class solar flare flashes on the Sun. Only news for now." },
+]
+
+/** What an explore event does, in a few words, for its card. */
+function effectSummary(effect: ExploreEventEffect) {
+  const parts: string[] = []
+  if (effect.waitHours) parts.push(`holds the group up ${effect.waitHours} h`)
+  if (effect.findsFactor) parts.push(`${effect.findsFactor > 1 ? "more" : "less"} to bring back (×${effect.findsFactor})`)
+  if (effect.bonus) parts.push(`brings back ${effect.bonus.min}–${effect.bonus.max} extra ${effect.bonus.resource}`)
+  if (effect.healthLost) parts.push(`everyone loses ${effect.healthLost} health`)
+  const text = parts.join(", ")
+  return `${text.charAt(0).toUpperCase()}${text.slice(1)}.`
+}
+
 /** The line on a locked module's card: the research project that unlocks it. */
 function lockedReason(id: ModuleTypeId, researched: readonly string[]) {
   if (moduleUnlocked(id, researched)) return undefined
@@ -175,8 +241,12 @@ export function BuildPanel({
   tubeCells,
   groupCount,
   message,
-  stormActive,
-  onStorm,
+  weather,
+  onWeather,
+  onStormSoon,
+  onSpaceEvent,
+  tripsOut,
+  onTripEvent,
   onResetMap,
   onNextEra,
   onClear,
@@ -196,10 +266,18 @@ export function BuildPanel({
   groupCount: number
   /** What the last click did, or why it did nothing. */
   message: string | null
-  /** True while a radiation storm is going on. */
-  stormActive: boolean
-  /** Starts a radiation storm, or ends the one going on. */
-  onStorm: () => void
+  /** The storm going on now, or null in calm weather. */
+  weather: WeatherId | null
+  /** Starts a storm now, or with null ends the one going on. */
+  onWeather: (id: WeatherId | null) => void
+  /** Brings a radiation storm close, so its warning shows. */
+  onStormSoon: () => void
+  /** Puts a test space event on the calendar now. */
+  onSpaceEvent: (kind: TestSpaceEvent) => void
+  /** How many groups are out exploring: explore events can only happen to one of them. */
+  tripsOut: number
+  /** Makes an explore event happen now to the first group out exploring. */
+  onTripEvent: (eventId: string) => void
   /** Starts the expedition over at the same landing site, as if opened for the first time: the landing replays. */
   onResetMap: () => void
   /** Ends this era and starts the next on the same map (the base wears down and a new lander comes down). */
@@ -331,19 +409,61 @@ export function BuildPanel({
           />
         </Group>
 
-        <Group label="Weather">
+        <Group label="Storms">
+          {WEATHER_EVENTS.map((event) => {
+            const Icon = WEATHER_ICONS[event.id]
+            const active = weather === event.id
+            return (
+              <Card
+                key={event.id}
+                name={active ? `End ${event.name}` : event.name}
+                picture={<Icon className={`size-9 ${active ? "text-orange-300" : "text-white/80"}`} aria-hidden />}
+                description={
+                  active
+                    ? `Ends the ${event.name.toLowerCase()} going on now, and the crew go back to what they were doing.`
+                    : `Starts a ${event.name.toLowerCase()} now, to see the crew take shelter. Anyone left outside loses health.`
+                }
+                pressed={active}
+                disabled={weather !== null && !active}
+                onClick={() => onWeather(active ? null : event.id)}
+              />
+            )
+          })}
           <Card
-            name={stormActive ? "End storm" : "Radiation storm"}
-            picture={<Radiation className={`size-9 ${stormActive ? "text-orange-300" : "text-white/80"}`} aria-hidden />}
-            cost={null}
-            description={
-              stormActive
-                ? "Ends the radiation storm going on now, and the crew go back to what they were doing."
-                : "Starts a radiation storm, to see the crew take shelter. Anyone left outside loses health."
-            }
-            pressed={stormActive}
-            onClick={onStorm}
+            name="Storm warning"
+            picture={<AlarmClock className={toolIcon} aria-hidden />}
+            description={`Brings a radiation storm ${weatherEvent("radiation-storm").warnHours} h away, so the warning shows before it hits.`}
+            disabled={weather !== null}
+            onClick={onStormSoon}
           />
+        </Group>
+
+        <Group label="Space news">
+          {SPACE_EVENT_CARDS.map((card) => (
+            <Card
+              key={card.kind}
+              name={card.name}
+              picture={<card.icon className={toolIcon} aria-hidden />}
+              description={card.description}
+              onClick={() => onSpaceEvent(card.kind)}
+            />
+          ))}
+        </Group>
+
+        <Group label="Explore trips">
+          {EXPLORE_EVENTS.map((event) => {
+            const Icon = EXPLORE_ICONS[event.id] ?? Sparkles
+            return (
+              <Card
+                key={event.id}
+                name={event.name}
+                picture={<Icon className={toolIcon} aria-hidden />}
+                description={effectSummary(event.effect)}
+                locked={tripsOut === 0 ? "Send a group exploring first" : undefined}
+                onClick={() => onTripEvent(event.id)}
+              />
+            )
+          })}
         </Group>
 
         <Group label="Expedition">

@@ -1,7 +1,7 @@
 import type { Resources } from "@/content/resources"
 import { TUNING } from "./constants"
 import { OCCUPATION_IDS } from "./occupations"
-import { addStatus, canGoOnEva, clamp, gainXp, hasStatus, isActive, traitMultiplier, workSpeed } from "./pawn"
+import { canGoOnEva, clamp, gainXp, hasStatus, injure, isActive, traitMultiplier, workSpeed } from "./pawn"
 import type { UrgentNeed } from "./pathing"
 import { OXYGEN_PER_ASTRONAUT_HOUR, UNPRESSURIZED_OXYGEN_FACTOR, type CrewMember } from "./lifeSupport"
 import { createRng } from "./rng"
@@ -182,11 +182,20 @@ export function liveCrewThrough(input: LiveCrewInput): {
     const isAway = !spot
     const outside = isAway || spot.outside
     const inStorm = !isAway && stormShare > 0
-    // Walking around outside can go wrong (traits make it more or less likely).
-    if (spot?.outside && pawn.activity !== "sleeping") {
-      const chance = TUNING.injuryChancePerHour * traitMultiplier(pawn, (m) => m.injuryChance) * hours
-      if (random() < chance && addStatus(pawn, "injured", clock)) {
-        say("warning", `${pawn.name} slipped on the rocks and got hurt.`, pawn.id)
+    // Accidents happen while awake at the base: often out on the rocks, less often inside. Traits
+    // make them more or less likely (a Clumsy crewmate slips far more than a Tough one), and getting
+    // hurt costs health at once.
+    if (spot && pawn.activity !== "sleeping") {
+      const where = spot.outside ? 1 : TUNING.indoorInjuryFactor
+      const chance = TUNING.injuryChancePerHour * where * traitMultiplier(pawn, (m) => m.injuryChance) * hours
+      if (random() < chance && injure(pawn, clock)) {
+        const clumsy = pawn.traits.includes("clumsy") ? "Being clumsy, " : ""
+        const how = spot.outside ? "slipped on the rocks" : "tripped inside the base"
+        say(
+          "warning",
+          `${clumsy}${pawn.name} ${how} and got hurt (−${TUNING.injuryHealthLoss} health).`,
+          pawn.id,
+        )
       }
     }
     const env: BodyEnv = {
@@ -238,9 +247,10 @@ export function hurtOnTrip(
   const log: LogEntry[] = []
   for (const pawn of next) {
     if (!ids.includes(pawn.id) || !isActive(pawn)) continue
-    pawn.health = Math.max(1, pawn.health - amount)
-    if (addStatus(pawn, "injured", clock)) {
-      log.push({ hour: clock, kind: "warning", text: `${pawn.name} got hurt while exploring.`, pawnId: pawn.id })
+    if (injure(pawn, clock, amount)) {
+      log.push({ hour: clock, kind: "warning", text: `${pawn.name} got hurt while exploring (−${amount} health).`, pawnId: pawn.id })
+    } else {
+      pawn.health = Math.max(1, pawn.health - amount)
     }
   }
   return { crew: next, log }
@@ -251,6 +261,18 @@ export function cheerUp(crew: readonly Pawn[], amount: number): Pawn[] {
   const next = structuredClone(crew) as Pawn[]
   for (const pawn of next) if (isActive(pawn)) pawn.needs.morale = clamp(pawn.needs.morale + amount, 0, 100)
   return next
+}
+
+/** How much faster a Researcher (by occupation) moves research on than anyone else. */
+export const RESEARCHER_SPEED = 1.5
+
+/**
+ * How much research one astronaut in a Research Lab does, compared with an ordinary crewmate:
+ * a trained Researcher does RESEARCHER_SPEED as much, and nobody researches in their sleep.
+ */
+export function researchRate(pawn: Pawn | undefined): number {
+  if (!pawn || pawn.activity === "sleeping") return pawn ? 0 : 1
+  return pawn.occupation === "researcher" ? RESEARCHER_SPEED : 1
 }
 
 /** Why this crewmate can't go out exploring right now, or null if they can. */
@@ -272,8 +294,12 @@ export function urgentNeedOf(
 ): UrgentNeed | null {
   if (!pawn || pawn.evacuated) return null
   if (hasStatus(pawn, "hypoxic") && canFix("oxygen")) return "oxygen"
-  // Storms, injuries, low oxygen and the radiation limit all mean: get (and stay) inside.
-  if (storm || !canGoOnEva(pawn)) return "shelter"
-  if (pawn.activity === "sleeping" && canFix("rest")) return "rest"
+  // Asleep: off to bed in a Habitat and stay there, not moving, until they wake up. Beds are
+  // indoors, so that's sheltered too.
+  const asleep = pawn.activity === "sleeping"
+  if (asleep && canFix("rest")) return "rest"
+  // Storms, injuries, low oxygen and the radiation limit all mean: get (and stay) inside. So does
+  // sleeping when there's no Habitat to sleep in.
+  if (storm || !canGoOnEva(pawn) || asleep) return "shelter"
   return null
 }

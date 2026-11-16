@@ -1,5 +1,6 @@
 import { AlphaFilter, Container, Graphics, Text } from "pixi.js"
 import { moduleType } from "@/content/modules"
+import { createStackSprite, loadModuleStacks, moduleStack } from "@/map/spriteStack"
 import { CELL_PX, cellTopLeft, footprintTopLeft, type Cell, type VoxelTerrain } from "@/map/voxelTerrain"
 import { TUBE, moduleAt, moduleDoorways, moduleRect, tubeOpenings, type Base, type PlacedModule, type Rect } from "@/sim/base"
 
@@ -12,8 +13,10 @@ import { TUBE, moduleAt, moduleDoorways, moduleRect, tubeOpenings, type Base, ty
 const OUTLINE = 0x2a1c1e
 const TUBE_COLOR = 0xcfc9c0
 const TUBE_SHINE = 0xf4f0e8
-/** How tall a module's south wall is drawn, in map pixels. */
+/** How tall a placeholder module's south wall is drawn, in map pixels. */
 const WALL_PX = 8
+/** What a sprite stack is tinted when its module is left from an earlier era: dusty and dim. */
+const WORN_TINT = 0xb39a86
 const GHOST_OK = 0x5ad17a
 const GHOST_BLOCKED = 0xe2574c
 /** How opaque the base is drawn while see-through (crew inside can be seen and clicked). */
@@ -91,8 +94,10 @@ export function createBaseView(terrain: VoxelTerrain, era = 1): BaseView {
   view.addChild(tubes, modulesLayer)
   // One filter for the whole base, so overlapping shapes fade together instead of showing through each other.
   const fade = new AlphaFilter({ alpha: SEE_THROUGH_ALPHA })
-  /** Each module's footprint, front (south) first, for moduleCellAt. */
-  let drawnRects: Rect[] = []
+  /** Each module's footprint and how far up its roof is drawn, front (south) first, for moduleCellAt. */
+  let drawnModules: { rect: Rect; lift: number }[] = []
+  /** What was last drawn, so the base can be drawn again once the sprite stacks have loaded. */
+  let lastDrawn: { base: Base; grid: Uint8Array } | null = null
   /** Each drawn module's piece, by module id, for fading one at a time. */
   let pieces = new Map<string, Container>()
   let wholeBaseFaded = false
@@ -161,9 +166,29 @@ export function createBaseView(terrain: VoxelTerrain, era = 1): BaseView {
     }
   }
 
+  /** How far above its footprint a module's roof is drawn, in map pixels. */
+  const liftOf = (module: PlacedModule) => {
+    const stack = moduleStack(module.type)
+    return stack ? stack.frames.length - 1 : WALL_PX
+  }
+
+  /** A module with real art: its sprite stack, over a soft shadow on the ground to the south. */
+  const drawStackedModule = (module: PlacedModule, worn: boolean) => {
+    const stack = moduleStack(module.type)!
+    const rect = moduleRect(module)
+    const shadow = new Graphics()
+      .rect(3, rect.height * CELL_PX - 3, rect.width * CELL_PX - 4, 4)
+      .fill({ color: 0x1a0c08, alpha: 0.35 })
+    const piece = new Container()
+    piece.addChild(shadow, createStackSprite(stack, worn ? WORN_TINT : 0xffffff))
+    piece.position.copyFrom(footprintCorner(rect))
+    return piece
+  }
+
   const drawModule = (module: PlacedModule) => {
     const type = moduleType(module.type)
     const worn = (module.era ?? 1) < era
+    if (moduleStack(module.type)) return drawStackedModule(module, worn)
     const color = worn ? weathered(type.color) : type.color
     const rect = moduleRect(module)
     const width = rect.width * CELL_PX
@@ -271,6 +296,7 @@ export function createBaseView(terrain: VoxelTerrain, era = 1): BaseView {
   }
 
   const draw: BaseView["draw"] = (base, grid) => {
+    lastDrawn = { base, grid }
     tubes.removeChildren().forEach((piece) => piece.destroy())
     tubePieces = []
     pieceOfCell = new Map()
@@ -299,7 +325,7 @@ export function createBaseView(terrain: VoxelTerrain, era = 1): BaseView {
       pieces.set(module.id, piece)
       modulesLayer.addChild(piece)
     }
-    drawnRects = ordered.map(moduleRect).reverse()
+    drawnModules = ordered.map((module) => ({ rect: moduleRect(module), lift: liftOf(module) })).reverse()
     applyFade()
   }
 
@@ -319,14 +345,14 @@ export function createBaseView(terrain: VoxelTerrain, era = 1): BaseView {
   }
 
   const moduleCellAt: BaseView["moduleCellAt"] = (x, y) => {
-    for (const rect of drawnRects) {
+    for (const { rect, lift } of drawnModules) {
       const corner = footprintCorner(rect)
       const width = rect.width * CELL_PX
       const height = rect.height * CELL_PX
-      if (x < corner.x || x >= corner.x + width || y < corner.y - WALL_PX || y >= corner.y + height) continue
-      // The roof is drawn WALL_PX up from the footprint; the south wall below it belongs to the last row.
+      if (x < corner.x || x >= corner.x + width || y < corner.y - lift || y >= corner.y + height) continue
+      // The roof is drawn `lift` up from the footprint; the south wall below it belongs to the last row.
       const col = rect.col + Math.floor((x - corner.x) / CELL_PX)
-      const row = rect.row + Math.min(rect.height - 1, Math.floor((y - corner.y + WALL_PX) / CELL_PX))
+      const row = rect.row + Math.min(rect.height - 1, Math.floor((y - corner.y + lift) / CELL_PX))
       return { col, row }
     }
     return null
@@ -353,6 +379,11 @@ export function createBaseView(terrain: VoxelTerrain, era = 1): BaseView {
         .stroke({ width: 2, color, alignment: 1 })
     }
   }
+
+  // The art arrives a moment after the map opens: until then modules show as placeholders.
+  void loadModuleStacks().then(() => {
+    if (lastDrawn && !view.destroyed) draw(lastDrawn.base, lastDrawn.grid)
+  })
 
   return { view, ghost, draw, showGhost, setSeeThrough, setOpenModules, setOpenTubes, moduleCellAt }
 }

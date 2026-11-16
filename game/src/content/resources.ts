@@ -9,8 +9,9 @@
  * matters on a NASA mission to Mars) are shown when the pointer rests on the
  * resource: kid-friendly, plain words, a science word explained where it is used.
  *
- * Ice and regolith are the two raw materials dug out of Mars. They are taken
- * straight from NASA's overview of in-situ resource utilization (ISRU, using
+ * Ice and regolith are the two raw materials dug out of Mars. Ice isn't kept
+ * as a resource of its own: ice the crew dig up is melted straight into water
+ * (see content/explore.ts). Both are taken straight from NASA's overview of in-situ resource utilization (ISRU, using
  * what is already there instead of bringing it from Earth), which names "water
  * deposits based in lunar, Mars, and asteroid soil (also called regolith)" as
  * the source of water and oxygen, and "regolith-based in-space manufacturing and
@@ -20,7 +21,7 @@
  * which the game doesn't have as a resource (yet).
  *
  * The five minerals at the end are mined from deposits on the base map (see
- * sim/deposits.ts), so like ice and regolith they're carried in the backpack.
+ * sim/deposits.ts), so like regolith they're carried in the backpack.
  * Where they're placed follows real NASA data only loosely, and the text says
  * so: no spacecraft has mapped copper, gold or sulfur deposits on Mars.
  */
@@ -60,15 +61,6 @@ export const RESOURCE_TYPES = [
     color: 0xe0b040,
     what: "Electricity that runs the base.",
     why: "Everything that keeps a crew alive needs it: heat, lights, and the machines that make air and water. NASA's Mars missions get theirs from solar panels or nuclear power.",
-  },
-  {
-    id: "ice",
-    mined: true,
-    name: "Ice",
-    start: 100,
-    color: 0xe6f2f8,
-    what: "Frozen water dug out of the ground on Mars.",
-    why: "NASA plans for crews to use what Mars already has. Ice can be melted into drinking water, and turned into oxygen and rocket fuel.",
   },
   {
     id: "regolith",
@@ -153,7 +145,8 @@ export function startingResources(): Resources {
  * The resources of a save made by any earlier version of the game: amounts it
  * already has are kept, a resource it doesn't have yet gets its starting amount,
  * and ones the game no longer has are dropped. "Materials" was split into ice
- * and regolith; what a save had of it becomes its regolith.
+ * and regolith; what a save had of it becomes its regolith. Ice is no longer a
+ * resource: what a save had of it is melted into its water.
  */
 export function upgradeResources(old: Record<string, number> | undefined): Resources {
   const resources = startingResources()
@@ -162,5 +155,6 @@ export function upgradeResources(old: Record<string, number> | undefined): Resou
   for (const type of RESOURCE_TYPES) {
     if (typeof old[type.id] === "number") resources[type.id] = old[type.id]
   }
+  if (typeof old.ice === "number") resources.water += old.ice
   return resources
 }

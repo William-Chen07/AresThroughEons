@@ -72,7 +72,7 @@ test("every module and tube is pressurized and provides oxygen; open ground isn'
   assert.ok(!cells.has(12 * SIZE + 12), "the lander")
   const w = buildNavigation(flat(), base)
   const provides = (id: string) => w.stations.find((s) => s.id === moduleStationId(id))!.provides
-  assert.deepEqual(provides("hab"), ["oxygen"])
+  assert.deepEqual(provides("hab"), ["rest", "oxygen"], "a Habitat has the beds")
   assert.deepEqual(provides("lab"), ["oxygen"])
   assert.deepEqual(provides("mb"), ["oxygen"])
 })
@@ -310,4 +310,65 @@ test("a single block of tube between two modules joins them both", () => {
   addPawn(w, "a", { x: 3, y: 3 })
   assert.ok(issueOrder(w, "a", { kind: "move", target: { x: 7, y: 3 } }).ok)
   assert.ok(w.movers.a.path.every((t) => at(w, t.x, t.y) === "inside"), "walks through the tube, staying inside")
+})
+
+/**
+ * Era 2: the habitat (cols 2-4, rows 2-4) was built in era 1 and has decayed; the med bay
+ * (cols 14-16, rows 2-4) is new. Era 1's lander is in the middle, era 2's at (18, 18).
+ */
+function decayedBase(): Base {
+  return {
+    modules: [{ ...mod("old", "habitat", 2, 2), era: 1 }, { ...mod("new", "medbay", 14, 2), era: 2 }],
+    tubes: [],
+    landers: [
+      { col: 12, row: 12, era: 1 },
+      { col: 18, row: 18, era: 2 },
+    ],
+  }
+}
+
+test("a decayed module from an earlier era is blocked: no way in, no air, no station", () => {
+  const base = decayedBase()
+  const w = buildNavigation(flat(), base)
+  for (let row = 2; row <= 4; row++) {
+    for (let col = 2; col <= 4; col++) {
+      assert.equal(getCost(w.grid, col, row), BLOCKED, `old habitat ${col},${row}`)
+      assert.notEqual(at(w, col, row), "inside", `old habitat ${col},${row}`)
+    }
+  }
+  assert.equal(at(w, 15, 3), "inside", "this era's med bay is still a way in")
+  assert.deepEqual(w.stations.map((s) => s.id), ["module:new"], "only this era's module is a station")
+  const cells = pressurizedCells(SIZE, base)
+  assert.ok(!cells.has(3 * SIZE + 3), "the old habitat has no air")
+  assert.ok(cells.has(3 * SIZE + 15), "the med bay has air")
+  for (let i = 0; i < w.grid.doors.length; i++) {
+    const cell = w.grid.doors[i]
+    assert.ok(!(cell % SIZE >= 2 && cell % SIZE <= 4 && Math.floor(cell / SIZE) >= 2 && Math.floor(cell / SIZE) <= 4), "no doorway on the old habitat")
+  }
+})
+
+test("crew can't be sent into a decayed module, and walk round it", () => {
+  const w = buildNavigation(flat(), decayedBase())
+  addPawn(w, "a", { x: 0, y: 3 })
+  assert.equal(issueOrder(w, "a", { kind: "move", target: { x: 3, y: 3 } }).ok, false, "can't go inside")
+  assert.ok(issueOrder(w, "a", { kind: "move", target: { x: 7, y: 3 } }).ok)
+  const decayed = new Set([2, 3, 4].flatMap((row) => [2, 3, 4].map((col) => `${col},${row}`)))
+  for (let i = 0; i < 20000; i++) {
+    const ev = stepPathing(w, 0.01)
+    const p = w.movers.a.pos
+    assert.ok(!decayed.has(`${Math.round(p.x)},${Math.round(p.y)}`), `walked into the old habitat at ${p.x},${p.y}`)
+    if (arrivedEvent(ev)) break
+  }
+  assert.deepEqual(w.movers.a.pos, { x: 7, y: 3 })
+})
+
+test("when a new era starts, crew inside a module that has decayed are put outside", () => {
+  const thisEra: Base = { ...decayedBase(), landers: [{ col: 12, row: 12, era: 1 }] }
+  const w = buildNavigation(flat(), thisEra)
+  addPawn(w, "a", { x: 3, y: 3 })
+  assert.equal(w.movers.a.exposure, "inside")
+  syncNavigation(w, flat(), decayedBase())
+  const { x, y } = w.movers.a.pos
+  assert.ok(!(x >= 2 && x <= 4 && y >= 2 && y <= 4), "moved out of the old habitat")
+  assert.equal(w.movers.a.exposure, "outside")
 })

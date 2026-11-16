@@ -5,7 +5,7 @@ import { MINED_RESOURCES, type ResourceId, type Resources } from "@/content/reso
 
 /*
  * The backpack, bottom right of the base map: the raw materials the crew have
- * dug out of Mars (ice and regolith, see content/resources.ts), kept out of
+ * dug out of Mars (regolith and minerals, see content/resources.ts), kept out of
  * the resource bar along the top. The button opens a small list above it, one
  * row per material: its picture, then how much there is. Resting the pointer
  * on a picture (or moving to it with the Tab key, or tapping it) shows the

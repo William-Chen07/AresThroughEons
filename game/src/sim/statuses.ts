@@ -63,7 +63,7 @@ export const STATUSES: Record<StatusId, StatusDef> = {
     id: "dehydrated",
     label: "Dehydrated",
     description: "No water left. Bodies can't last long without it.",
-    fix: "Melt ice that scouts find to make water.",
+    fix: "Send explorers to dig up ice: it melts into water.",
     severity: "serious",
     treatable: false,
     moralePenalty: 25,
@@ -123,7 +123,7 @@ export const STATUSES: Record<StatusId, StatusDef> = {
   injured: {
     id: "injured",
     label: "Injured",
-    description: "Got hurt outside. Working slowly and can't go on EVA.",
+    description: "Got hurt, and lost some health. Working slowly and can't go on EVA.",
     fix: "A medic can patch them up. Otherwise it heals slowly on its own.",
     severity: "serious",
     treatable: true,

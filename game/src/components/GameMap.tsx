@@ -25,6 +25,7 @@ import {
   checkTubes,
   connectedGroups,
   landerFootprint,
+  isDecayed,
   moduleAt,
   occupancy,
   placementOrigin,
@@ -34,7 +35,7 @@ import {
   type Rect,
 } from "@/sim/base"
 import { describeFinds, type Trip, type TripNews, type TripReport } from "@/sim/explore"
-import { cannotExplore, urgentNeedOf } from "@/sim/crewLife"
+import { cannotExplore, researchRate, urgentNeedOf } from "@/sim/crewLife"
 import type { CrewMember } from "@/sim/lifeSupport"
 import { workSpeed } from "@/sim/pawn"
 import type { LogEntry, Pawn } from "@/sim/types"
@@ -60,6 +61,7 @@ import {
   stationAt,
   pawnsAt,
   removePawn,
+  scaleFor,
   selectPawns,
   stepPathing,
   type ClickResult,
@@ -73,6 +75,7 @@ import { GAME_HOURS_PER_SECOND, formatRealTime } from "@/sim/clock"
 import { hoursLeft, type ResearchProgress } from "@/sim/research"
 import { playSfx } from "@/lib/sound"
 import type { Weather } from "@/sim/weather"
+import { TEST_ERUPTION_TRAVEL_HOURS, type TestSpaceEvent } from "@/sim/calendar"
 
 /*
  * The base map screen: the ground around the expedition's landing site, built
@@ -165,15 +168,20 @@ function describeClick(world: World, result: ClickResult, nameOf: NameOf): strin
   }
 }
 
-/** Crew events worth telling the player about, as plain words. */
-function describeEvent(event: PathingEvent, nameOf: NameOf): string | null {
+/** Crew events worth telling the player about, as plain words. `kindOf` is a station's kind (e.g. "research"). */
+function describeEvent(event: PathingEvent, nameOf: NameOf, kindOf: (stationId: string) => string | undefined): string | null {
   switch (event.type) {
     case "blocked":
     case "cancelled":
     case "needUnmet":
       return `${nameOf(event.pawnId)}: ${event.reason}`
+    case "workStarted":
+      return kindOf(event.stationId) === "research" ? `${nameOf(event.pawnId)} is doing research in the Research Lab.` : null
     case "needInterrupt":
+      if (event.need === "rest") return `${nameOf(event.pawnId)} is sleepy and going to bed in the Habitat.`
       return event.need === "shelter" ? `${nameOf(event.pawnId)} is heading inside to shelter.` : null
+    case "needMet":
+      return event.need === "rest" ? `${nameOf(event.pawnId)} woke up, rested.` : null
     case "exposureChanged":
       return event.exposure === "outside"
         ? `${nameOf(event.pawnId)} stepped outside onto the surface.`
@@ -221,6 +229,10 @@ export function GameMap({
   onSendExploring,
   weather,
   onWeather,
+  stormWarning,
+  onStormSoon,
+  onSpaceEvent,
+  onTripEvent,
   onResetMap,
   era,
   landers,
@@ -269,6 +281,14 @@ export function GameMap({
   weather: Weather
   /** Starts a weather event now, or with null ends the one going on (from the Build panel). */
   onWeather: (id: WeatherId | null) => void
+  /** The storm coming soon and the game-hours until it starts (see stormWarning in sim/weather.ts), or null. */
+  stormWarning: { id: WeatherId; hoursLeft: number } | null
+  /** For testing from the Build panel: brings a radiation storm close, so its warning shows. */
+  onStormSoon: () => void
+  /** For testing from the Build panel: puts a test space event on the calendar now. */
+  onSpaceEvent: (kind: TestSpaceEvent) => void
+  /** For testing from the Build panel: makes an explore event happen to the first group out exploring. */
+  onTripEvent: (eventId: string) => void
   /**
    * Starts the expedition over at the same landing site, as if opened for the first time (from
    * the Build panel). This whole screen is then thrown away and built again, so the landing replays.
@@ -357,6 +377,8 @@ export function GameMap({
   const [labCrew, setLabCrew] = useState({ staffed: 0, claimed: 0 })
   /** Set when the last astronaut working in a lab leaves it while something is being researched. */
   const [researchStopped, setResearchStopped] = useState(false)
+  /** Ids of the astronauts in a Research Lab doing research right now, for the Crew list. */
+  const [researchers, setResearchers] = useState<string[]>([])
 
   // What's on screen belongs to this site and this try; anything else is still loading.
   const key = `${site.lat},${site.lon},${attempt}`
@@ -413,6 +435,12 @@ export function GameMap({
         setCrewMessage(
           baseOpen ? "Closed up the modules." : "You can see inside every module now. Click a module again to close them up.",
         )
+        return
+      }
+      // A module left from an earlier era has decayed: nobody can go inside it (see sim/navigation.ts).
+      const clicked = moduleAt(modules, cell)
+      if (clicked && isDecayed(clicked, era) && crew.selectedPawnIds.length > 0) {
+        setCrewMessage(`This ${moduleType(clicked.type).name} is from an earlier era and has fallen apart. Nobody can go inside.`)
         return
       }
       // A Research Lab holds one astronaut: send just one of the selected crew, and none if it's taken.
@@ -701,6 +729,8 @@ export function GameMap({
     const unsaved = { hours: 0, ms: 0, labHours: 0 }
     /** Labs staffed and claimed as last told to React, so it only re-renders when they change. */
     let shownLabs = { staffed: 0, claimed: 0 }
+    /** Who was last shown as researching, as sorted ids joined by commas. */
+    let shownResearchers = ""
     /** What was last made see-through for the crew inside, so the map is only told when it changes. */
     let shownInside = ""
     /** Fades only the modules someone is in, and only the pieces of tube someone is walking along. */
@@ -767,12 +797,23 @@ export function GameMap({
           const pawn = pawnOf(id)
           return pawn ? workSpeed(pawn) : 1
         },
+        // Someone asleep doesn't move, except to get to a bed (or indoors) once they've dozed off.
+        walkSpeed: (id) =>
+          pawnOf(id)?.activity === "sleeping" && !crew.movers[id]?.interrupt ? 0 : scaleFor(crew.grid).walkTilesPerHour,
         canShelterAt: storm ? shelterRule(crew) : undefined,
       })
       if (storm) keepHidersResearching(crew)
-      // Each lab with its astronaut inside puts one astronaut's work into the research. In a storm,
-      // an astronaut hiding in a lab nobody was sent to counts as working in it.
-      const staffed = staffedLabs(crew, storm).length
+      // Each lab with its astronaut inside puts that astronaut's work into the research: a trained
+      // Researcher does more than anyone else (see researchRate). In a storm, an astronaut hiding in
+      // a lab nobody was sent to counts as working in it.
+      const inLabs = staffedLabs(crew, storm)
+      const staffed = inLabs.length
+      const labWork = inLabs.reduce((sum, lab) => sum + researchRate(pawnOf(lab.pawnId)), 0)
+      const researcherIds = inLabs.map((lab) => lab.pawnId).sort().join(",")
+      if (researcherIds !== shownResearchers) {
+        shownResearchers = researcherIds
+        setResearchers(researcherIds ? researcherIds.split(",") : [])
+      }
       const claimed = claimedLabCount(crew, storm)
       if (staffed !== shownLabs.staffed || claimed !== shownLabs.claimed) {
         // The last astronaut working in a lab just left it: research stops, and the player is told.
@@ -788,13 +829,14 @@ export function GameMap({
       // at the base or out exploring.
       if (Object.keys(crew.movers).length > 0 || someoneAwayRef.current) {
         unsaved.hours += dtHours
-        unsaved.labHours += dtHours * staffed
+        unsaved.labHours += dtHours * labWork
         unsaved.ms += deltaMs
         if (unsaved.ms >= 1000) handOver()
       }
       view.drawCrew(crew, suitColors(rosterRef.current))
       showCrewInside(crew)
-      const said = events.map((event) => describeEvent(event, nameOf)).filter((line) => line !== null)
+      const kindOf = (stationId: string) => crew.stations.find((station) => station.id === stationId)?.kind
+      const said = events.map((event) => describeEvent(event, nameOf, kindOf)).filter((line) => line !== null)
       if (said.length > 0) setCrewMessage(said[said.length - 1])
     })
     return () => {
@@ -937,7 +979,7 @@ export function GameMap({
     <main className="relative h-dvh w-full overflow-hidden bg-[#020104] text-white">
       <div ref={hostRef} className="absolute inset-0 touch-none" />
       {/* The storm's glow and clouds over the map. */}
-      {weather && terrain && <StormOverlay />}
+      {weather && terrain && <StormOverlay storm={weather.id} />}
 
       {/* Panels sit over the map but let drags and clicks through to it. */}
       {/* While the Build bar is open, what sits along the bottom moves up above it (see BuildPanel). */}
@@ -987,6 +1029,18 @@ export function GameMap({
                       const isAway = away.includes(member.id)
                       const gone = isEvacuated || isAway
                       const selected = selectedCrew.includes(member.id) && !isAway
+                      // What they're up to, shown at the end of the row.
+                      const doing = isEvacuated
+                        ? { label: "Evacuated", className: "text-orange-300/80" }
+                        : isAway
+                          ? { label: "Exploring", className: "text-emerald-300/80" }
+                          : member.activity === "sleeping"
+                            ? { label: "Sleeping", className: "text-indigo-200/80" }
+                            : researchers.includes(member.id)
+                              ? { label: "Researching", className: "text-sky-300/90" }
+                              : selected
+                                ? { label: "Selected", className: "text-orange-200" }
+                                : null
                       return (
                         <li key={member.id}>
                           {/* One row per astronaut. Clicking it selects them, like clicking them on the map. */}
@@ -1006,12 +1060,8 @@ export function GameMap({
                             <span className="flex items-center gap-1.5 text-[11px] font-semibold">
                               <span className="size-2 shrink-0 rounded-full" style={{ background: member.color }} />
                               <span className="truncate">{member.name}</span>
-                              {isEvacuated ? (
-                                <span className="ml-auto text-[9px] uppercase tracking-[0.15em] text-orange-300/80">Evacuated</span>
-                              ) : isAway ? (
-                                <span className="ml-auto text-[9px] uppercase tracking-[0.15em] text-white/50">Exploring</span>
-                              ) : (
-                                selected && <span className="ml-auto text-[9px] uppercase tracking-[0.15em] text-orange-200">Selected</span>
+                              {doing && (
+                                <span className={`ml-auto text-[9px] uppercase tracking-[0.15em] ${doing.className}`}>{doing.label}</span>
                               )}
                             </span>
                             {!gone && (
@@ -1193,8 +1243,28 @@ export function GameMap({
             tubeCells={tubes.length}
             groupCount={groupCount}
             message={message}
-            stormActive={weather !== null}
-            onStorm={() => onWeather(weather ? null : "radiation-storm")}
+            weather={weather?.id ?? null}
+            onWeather={(id) => {
+              onWeather(id)
+              setMessage(id ? `Started a ${weatherEvent(id).name.toLowerCase()}.` : "Ended the storm.")
+            }}
+            onStormSoon={() => {
+              onStormSoon()
+              setMessage(`A radiation storm is coming in ${weatherEvent("radiation-storm").warnHours} h: watch for the warning.`)
+            }}
+            onSpaceEvent={(kind) => {
+              onSpaceEvent(kind)
+              setMessage(
+                kind === "eruptionToMars"
+                  ? `Test eruption sent towards Mars: its storm hits in ${TEST_ERUPTION_TRAVEL_HOURS} h.`
+                  : "Test space event added: see the Space news under the day.",
+              )
+            }}
+            tripsOut={trips.length}
+            onTripEvent={(id) => {
+              onTripEvent(id)
+              setMessage(`${exploreEvent(id)?.name ?? "The event"} will happen to the group out exploring.`)
+            }}
             onResetMap={() => {
               resettingRef.current = true
               onResetMap()
@@ -1213,11 +1283,34 @@ export function GameMap({
         </div>
       )}
 
+      {/* A storm coming soon: which one, how long until it hits, and to get the crew in. */}
+      {!weather && stormWarning && terrain && (
+        <div className="pointer-events-none absolute inset-x-0 top-20 z-10 flex justify-center px-4" role="alert">
+          <div className="max-w-md border border-amber-300/70 bg-neutral-950/90 px-5 py-3 backdrop-blur-sm">
+            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-amber-200">
+              {weatherEvent(stormWarning.id).name} coming
+              <span className="ml-3 tracking-[0.15em] text-white/60">
+                in {Math.ceil(stormWarning.hoursLeft)} h
+                <span className="ml-1.5 normal-case tracking-normal">(about {formatRealTime(stormWarning.hoursLeft)})</span>
+              </span>
+            </p>
+            <p className="mt-1 text-sm text-white/90">{weatherEvent(stormWarning.id).soon}</p>
+          </div>
+        </div>
+      )}
+
       {/* A weather event going on: what it is, what to do, and how long is left. */}
       {weather && terrain && (
         <div className="pointer-events-none absolute inset-x-0 top-20 z-10 flex justify-center px-4" role="alert">
-          <div className="max-w-md border border-orange-400/70 bg-neutral-950/90 px-5 py-3 backdrop-blur-sm">
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-300">
+          {/* A solar storm's banner is yellow and orange, like its glow on the map. */}
+          <div
+            className={`max-w-md border px-5 py-3 backdrop-blur-sm ${
+              weather.id === "solar-storm"
+                ? "border-yellow-400/80 bg-linear-to-br from-orange-950/95 to-neutral-950/90"
+                : "border-orange-400/70 bg-neutral-950/90"
+            }`}
+          >
+            <p className={`text-xs font-semibold uppercase tracking-[0.3em] ${weather.id === "solar-storm" ? "text-yellow-300" : "text-orange-300"}`}>
               {weatherEvent(weather.id).name}
               <span className="ml-3 tracking-[0.15em] text-white/50">{Math.ceil(weather.hoursLeft)} h left</span>
             </p>
@@ -1247,7 +1340,11 @@ export function GameMap({
           })}
           trips={trips}
           tripLog={tripLog}
-          onSend={onSendExploring}
+          onSend={(placeId, crewIds) => {
+            onSendExploring(placeId, crewIds)
+            const place = explorePlace(placeId)?.name ?? "somewhere new"
+            setCrewMessage(`${listNames(crewIds)} set off to explore the ${place}.`)
+          }}
           onClose={() => setExploreOpen(false)}
         />
       )}

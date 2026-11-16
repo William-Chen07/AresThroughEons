@@ -1,6 +1,7 @@
 import { useEffect, type ReactNode } from "react"
 import { MARS_FACTS } from "@/content/marsFacts"
 import { RESEARCH_PROJECTS } from "@/content/research"
+import { WEATHER_EVENTS } from "@/content/weather"
 import { useSettings } from "@/lib/settings"
 
 const linkClass = "text-orange-300 underline underline-offset-2"
@@ -303,7 +304,20 @@ const DATA_CREDITS: Credit[] = [
     ],
   },
   {
-    use: "Base resources (ice and regolith)",
+    use: "Calendar, space news and storms",
+    what:
+      "Real solar eruptions (coronal mass ejections), particle storms and flares from DONKI, NASA's Space " +
+      "Weather Database Of Notifications, Knowledge, Information, made by the Community Coordinated Modeling " +
+      "Center at NASA Goddard. When an eruption reaches Mars is NASA's WSA-ENLIL model prediction stored in " +
+      "DONKI. The events are requested from NASA's open API (api.nasa.gov) with our team's API key, which " +
+      "stays on our server and is never sent to your browser.",
+    links: [
+      { label: "NASA DONKI", href: "https://kauai.ccmc.gsfc.nasa.gov/DONKI/" },
+      { label: "NASA Open APIs", href: "https://api.nasa.gov/" },
+    ],
+  },
+  {
+    use: "Base resources (water from ice, and regolith)",
     what:
       "The two raw materials dug out of Mars in the game follow NASA’s overview of in-situ resource " +
       "utilization (ISRU): water deposits in the soil of Mars, and that soil itself (regolith) used " +
@@ -313,6 +327,33 @@ const DATA_CREDITS: Credit[] = [
         label: "NASA: Overview of In-Situ Resource Utilization",
         href: "https://www.nasa.gov/overview-in-situ-resource-utilization/",
       },
+    ],
+  },
+]
+
+/** The libraries and the font the game is built with, and their licences. */
+const SOFTWARE_CREDITS: Credit[] = [
+  {
+    use: "Font",
+    what: "Figtree, by the Figtree Project Authors, SIL Open Font License 1.1, via Fontsource.",
+    links: [{ label: "Figtree", href: "https://github.com/erikdkennedy/figtree" }],
+  },
+  {
+    use: "Icons",
+    what: "Lucide, ISC License.",
+    links: [{ label: "Lucide", href: "https://lucide.dev" }],
+  },
+  {
+    use: "Libraries",
+    what:
+      "React (Meta), three.js, PixiJS and pixi-viewport, Base UI (MUI), Zustand, Tailwind CSS, tw-animate-css " +
+      "and shadcn/ui styles, all under the MIT License.",
+    links: [
+      { label: "React", href: "https://react.dev" },
+      { label: "three.js", href: "https://threejs.org" },
+      { label: "PixiJS", href: "https://pixijs.com" },
+      { label: "Base UI", href: "https://base-ui.com" },
+      { label: "Tailwind CSS", href: "https://tailwindcss.com" },
     ],
   },
 ]
@@ -394,8 +435,22 @@ export function CreditsDialog(props: DialogProps) {
           </li>
         ))}
       </ul>
+      <h3 className={sectionHeading}>Storm facts</h3>
+      {/* Built from the weather events, so every storm's fact is always credited. */}
+      <ul className="mt-3 space-y-2 text-sm text-white/70">
+        {WEATHER_EVENTS.map((event) => (
+          <li key={event.id}>
+            <span className="text-white/90">{event.name}:</span>{" "}
+            <a href={event.source.url} target="_blank" rel="noreferrer" className={linkClass}>
+              {event.source.label}
+            </a>
+          </li>
+        ))}
+      </ul>
       <h3 className={sectionHeading}>Music and sounds</h3>
       <CreditList credits={AUDIO_CREDITS} />
+      <h3 className={sectionHeading}>Software and fonts</h3>
+      <CreditList credits={SOFTWARE_CREDITS} />
     </MenuModal>
   )
 }

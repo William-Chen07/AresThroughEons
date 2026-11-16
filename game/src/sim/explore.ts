@@ -33,6 +33,8 @@ export interface Trip {
   events: string[]
   /** Game-hours the group is still stopped for, after an event that held them up. */
   waitHours: number
+  /** Ids of events started from the Build panel: each event point uses the first of these instead of a random pick. */
+  forced?: string[]
 }
 
 /** What a trip that came back brought with it, and the ids of the events it met on the way. */
@@ -76,6 +78,15 @@ export function startTrip(id: string, place: ExplorePlace, crew: string[], rando
   return { id, placeId: place.id, crew, totalHours: hours, hoursLeft: hours, eventPoints, events: [], waitHours: 0 }
 }
 
+/**
+ * The trip with an event made to happen to it straight away, for trying events out from the Build
+ * panel: an event point is added where the group is now, and that point gets this event.
+ */
+export function forceTripEvent(trip: Trip, eventId: string): Trip {
+  const here = 1 - trip.hoursLeft / trip.totalHours
+  return { ...trip, eventPoints: [here, ...trip.eventPoints], forced: [eventId, ...(trip.forced ?? [])] }
+}
+
 /** Picks an event at random, the heavier ones more often. */
 export function pickEvent(random: () => number): ExploreEvent {
   const total = EXPLORE_EVENTS.reduce((sum, event) => sum + event.weight, 0)
@@ -111,7 +122,7 @@ export function advanceTrips(
   const news: TripNews[] = []
   const healthLost: { crew: string[]; amount: number }[] = []
   for (const before of trips) {
-    const trip = { ...before, eventPoints: [...before.eventPoints], events: [...before.events] }
+    const trip = { ...before, eventPoints: [...before.eventPoints], events: [...before.events], forced: [...(before.forced ?? [])] }
     let left = hours
     while (left > 0 && trip.hoursLeft > 0) {
       if (trip.waitHours > 0) {
@@ -130,14 +141,17 @@ export function advanceTrips(
       trip.hoursLeft -= untilEvent
       left -= untilEvent
       trip.eventPoints.shift()
-      const event = pickEvent(random)
+      const forcedId = trip.forced.shift()
+      const event = (forcedId !== undefined ? exploreEvent(forcedId) : undefined) ?? pickEvent(random)
       trip.events.push(event.id)
       trip.waitHours += event.effect.waitHours ?? 0
       if (event.effect.healthLost) healthLost.push({ crew: trip.crew, amount: event.effect.healthLost })
       news.push({ id: `${trip.id}:${trip.events.length}`, eventId: event.id, placeId: trip.placeId, crew: trip.crew })
     }
-    if (trip.hoursLeft > 0) out.push(trip)
-    else back.push({ ...trip, hoursLeft: 0 })
+    const { forced, ...rest } = trip
+    const kept = forced.length > 0 ? { ...rest, forced } : rest
+    if (trip.hoursLeft > 0) out.push(kept)
+    else back.push({ ...kept, hoursLeft: 0 })
   }
   return { out, back, news, healthLost }
 }

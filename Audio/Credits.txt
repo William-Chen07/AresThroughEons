@@ -1,6 +1,22 @@
+Audio used in the game (see game/src/lib/sound.ts). The in-game credits are in
+game/src/components/MenuDialogs.tsx (AUDIO_CREDITS); keep the two in step.
+
+leberch-space-626368.mp3 - "space" by leberch, from Pixabay.
+  Used in the game as the menu music.
+  TODO(team): add the Pixabay page link for the track.
+
+13999_BUBBLE_MP4.mp3 - a NASA sonification (real space images turned into sound).
+  Short slices of it are the button sounds.
+  TODO(team): add the sonification's title and its NASA page link.
+
 Launch.wav - "Discovery STS-131: Sound of Launch", NASA, from NASA's Historical Sounds collection
   (original file: 590189main_ringtone_131_launchNats.mp3).
   Trimmed and reversed by our team so it sounds like a landing.
   Source: https://www.nasa.gov/historical-sounds/
   Usage: https://www.nasa.gov/multimedia/guidelines/index.html
   Used in the game as the lander's landing sound.
+
+The other files in this folder (13998_Butterfly_MP4.mp3, 14246_PISMIS_VERT_MP4.mp3,
+14260_RS_WIDE_MP4.mp3, Caldwell73_2K_Final.mp4, NGC 2392.mp3, NGC_1569_VIDEO.mp3 and
+jonasblakewood-edm-edm-music-350632.mp3) aren't used in the game yet. Add a credit here and in
+the game's credits before using one.

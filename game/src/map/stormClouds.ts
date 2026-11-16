@@ -1,6 +1,8 @@
+import type { WeatherId } from "@/content/weather"
+
 /*
- * The picture of the radiation storm's clouds: a small square of blocky green
- * cloud, drawn in code, that repeats with no visible seam. StormOverlay.tsx
+ * The picture of a storm's clouds: a small square of blocky cloud in the
+ * storm's colours (see STORM_BANDS), drawn in code, that repeats with no visible seam. StormOverlay.tsx
  * scales it up with hard pixel edges, so the clouds are pixel art like the map.
  */
 
@@ -25,19 +27,31 @@ export function wrappedNoise(x: number, y: number, period: number, seed: number)
   return top + (bottom - top) * ty
 }
 
-/**
- * Cloud bands from thin edge to thick middle: how cloudy a spot must be (0 to 1) to
- * get the band, and the band's colour. Anything less cloudy than the first is clear sky.
- */
-const BANDS = [
-  { from: 0.57, color: [70, 200, 70, 0.2] },
-  { from: 0.62, color: [95, 230, 80, 0.32] },
-  { from: 0.67, color: [140, 250, 100, 0.42] },
-  { from: 0.73, color: [200, 255, 150, 0.5] },
-] as const
+type Band = { from: number; color: readonly [number, number, number, number] }
 
-/** Draws the cloud tile, `size` pixels square, and returns it as an image URL. */
-export function stormCloudTile(size = 96, seed = 7): string {
+/**
+ * Each storm's cloud bands, from thin edge to thick middle: how cloudy a spot must be (0 to 1) to
+ * get the band, and the band's colour. Anything less cloudy than the first is clear sky. A
+ * radiation storm is green; a solar storm burns orange at the edges and yellow in the middle.
+ */
+export const STORM_BANDS: Record<WeatherId, readonly Band[]> = {
+  "radiation-storm": [
+    { from: 0.57, color: [70, 200, 70, 0.2] },
+    { from: 0.62, color: [95, 230, 80, 0.32] },
+    { from: 0.67, color: [140, 250, 100, 0.42] },
+    { from: 0.73, color: [200, 255, 150, 0.5] },
+  ],
+  "solar-storm": [
+    { from: 0.57, color: [235, 100, 25, 0.22] },
+    { from: 0.62, color: [250, 145, 35, 0.34] },
+    { from: 0.67, color: [255, 195, 55, 0.44] },
+    { from: 0.73, color: [255, 235, 120, 0.52] },
+  ],
+}
+
+/** Draws the cloud tile for a storm, `size` pixels square, and returns it as an image URL. */
+export function stormCloudTile(storm: WeatherId = "radiation-storm", size = 96, seed = 7): string {
+  const bands = STORM_BANDS[storm]
   const canvas = document.createElement("canvas")
   canvas.width = canvas.height = size
   const context = canvas.getContext("2d")
@@ -57,7 +71,7 @@ export function stormCloudTile(size = 96, seed = 7): string {
         weight += amount
       }
       cloudiness /= weight
-      const band = BANDS.findLast((b) => cloudiness >= b.from)
+      const band = bands.findLast((b) => cloudiness >= b.from)
       if (!band) continue
       const i = (y * size + x) * 4
       image.data[i] = band.color[0]
