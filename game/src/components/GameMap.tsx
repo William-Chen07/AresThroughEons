@@ -169,7 +169,7 @@ function describeClick(world: World, result: ClickResult, nameOf: NameOf): strin
   const listNames = (ids: string[]) => ids.map(nameOf).join(", ")
   switch (result.kind) {
     case "selected":
-      return `${listNames(result.pawnIds)} selected. Click where to send them, a module to work in, or a mineral deposit to mine. Right-click an astronaut for their task list.`
+      return `${listNames(result.pawnIds)} selected. Click where to send them, a module to work in, or a mineral deposit to mine. Click an astronaut for their task list.`
     case "deselected":
       return "Nobody selected."
     case "nothing":
@@ -400,7 +400,14 @@ export function GameMap({
     next: string[]
     mining: MiningChoice[]
   } | null>(null)
-  const closeTaskMenu = useCallback(() => setTaskMenu(null), [])
+  /** When the task list was last closed by a click outside it: that click only closes it. */
+  const menuClosedAtRef = useRef(0)
+  const closeTaskMenu = useCallback((how: "outside" | "escape") => {
+    if (how === "outside") menuClosedAtRef.current = performance.now()
+    setTaskMenu(null)
+  }, [])
+  /** The astronaut picked to Move from their task list: the next click on the map is where they go. */
+  const [movingFor, setMovingFor] = useState<string | null>(null)
   /** Whether the Crew list on the left is unfolded. */
   const [crewOpen, setCrewOpen] = useState(true)
   /** True once the player has clicked a module to see inside the base: every module is see-through until the next click on one. */
@@ -456,12 +463,34 @@ export function GameMap({
     [deposits],
   )
 
-  const handleCellClick = (cell: Cell, keys: ClickKeys) => {
+  const handleCellClick = (cell: Cell, keys: ClickKeys, screen: { x: number; y: number }) => {
     if (!terrain || !grid) return
     // With no dev tool picked, clicks are for the crew: pick an astronaut, then where to send them.
     if (!tool) {
       const crew = crewRef.current?.world
       if (!crew) return
+      const here = { x: cell.col, y: cell.row }
+      // A click that closed the task list does nothing else, unless it was on another astronaut.
+      const closedMenu = performance.now() - menuClosedAtRef.current < 500
+      menuClosedAtRef.current = 0
+      // After Move in an astronaut's task list, this click is where they go (shift adds it to their list).
+      if (movingFor) {
+        setMovingFor(null)
+        if (!crew.movers[movingFor]) return setCrewMessage(null)
+        setCrewMessage(describeClick(crew, orderGroup(crew, [movingFor], { kind: "move", target: here }, keys.shift), nameOf))
+        return
+      }
+      // Clicking an astronaut picks them and opens their task list. Shift-click picks several instead.
+      const [astronaut] = pawnsAt(crew, here)
+      if (astronaut && !keys.shift) {
+        selectPawns(crew, [astronaut.pawnId])
+        setSelectedCrew([astronaut.pawnId])
+        const mining = deposits ? miningChoices(crew, deposits, astronaut.pawnId) : []
+        setTaskMenu({ pawnId: astronaut.pawnId, ...screen, ...taskList(crew, astronaut), mining })
+        setCrewMessage(`${nameOf(astronaut.pawnId)} selected. Pick a task, or click where to send them.`)
+        return
+      }
+      if (closedMenu) return
       // With nobody selected, clicking a module (not an astronaut in it) opens up every module to
       // see inside, or closes them all again.
       const tile = { x: cell.col, y: cell.row }
@@ -538,16 +567,11 @@ export function GameMap({
     onBaseChange({ modules: [...modules, check.module], tubes })
     setMessage(`Placed a ${moduleType(tool.type).name}. It isn't joined to anything until you lay a tube to it.`)
   }
-  // Right-clicking an astronaut opens their task list (see TaskMenu), and picks them. Right-clicking
-  // anywhere else closes it. Not while a build tool is picked: then clicks are for building.
-  const handleCellRightClick = (cell: Cell, screen: { x: number; y: number }) => {
-    const crew = crewRef.current?.world
-    const [mover] = crew && !tool ? pawnsAt(crew, { x: cell.col, y: cell.row }) : []
-    if (!crew || !mover) return setTaskMenu(null)
-    selectPawns(crew, [mover.pawnId])
-    setSelectedCrew([mover.pawnId])
-    const mining = deposits ? miningChoices(crew, deposits, mover.pawnId) : []
-    setTaskMenu({ pawnId: mover.pawnId, ...screen, ...taskList(crew, mover), mining })
+  /** Move, from an astronaut's task list: the next click on the map is where they go. */
+  const moveFromMenu = (pawnId: string) => {
+    setTaskMenu(null)
+    setMovingFor(pawnId)
+    setCrewMessage(`Click where ${nameOf(pawnId)} should go. Shift-click adds it to their task list. Esc cancels.`)
   }
   /** Sends the astronaut whose task list is open to mine (one mineral, or the nearest deposit). */
   const mineFromMenu = (pawnId: string, mineral: MineralId | null, queue: boolean) => {
@@ -566,10 +590,8 @@ export function GameMap({
   }
   // The map calls these through refs, so they always get the latest tool and modules without being rebuilt.
   const onCellClickRef = useRef(handleCellClick)
-  const onCellRightClickRef = useRef(handleCellRightClick)
   useEffect(() => {
     onCellClickRef.current = handleCellClick
-    onCellRightClickRef.current = handleCellRightClick
   })
 
   useEffect(() => {
@@ -581,8 +603,7 @@ export function GameMap({
       terrain,
       {
         onHover: setHovered,
-        onCellClick: (cell, keys) => onCellClickRef.current(cell, keys),
-        onCellRightClick: (cell, screen) => onCellRightClickRef.current(cell, screen),
+        onCellClick: (cell, keys, screen) => onCellClickRef.current(cell, keys, screen),
         onLanded: showLanding ? () => onLandedRef.current() : null,
       },
       mapEra,
@@ -961,7 +982,10 @@ export function GameMap({
       }
       // Esc first lets go of a run of tube that has been started, then of the tool itself, then of the selected crew.
       if (e.key === "Escape") {
-        if (tubeStart) setTubeStart(null)
+        if (movingFor) {
+          setMovingFor(null)
+          setCrewMessage(null)
+        } else if (tubeStart) setTubeStart(null)
         else if (tool) setTool(null)
         else if (crewRef.current) {
           clearSelection(crewRef.current.world)
@@ -972,7 +996,7 @@ export function GameMap({
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [tubeStart, tool, researchOpen, exploreOpen])
+  }, [tubeStart, tool, researchOpen, exploreOpen, movingFor])
 
   /** Closes the Build panel and puts down whatever tool was in hand. */
   const closeBuild = () => {
@@ -1048,6 +1072,7 @@ export function GameMap({
           now={taskMenu.now}
           next={taskMenu.next}
           mining={taskMenu.mining}
+          onMove={() => moveFromMenu(taskMenu.pawnId)}
           onMine={(mineral, queue) => mineFromMenu(taskMenu.pawnId, mineral, queue)}
           onStop={() => stopFromMenu(taskMenu.pawnId)}
           onClose={closeTaskMenu}

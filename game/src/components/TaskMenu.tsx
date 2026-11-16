@@ -1,15 +1,16 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { Footprints } from "lucide-react"
 import { ResourceIcon } from "@/components/ResourceIcon"
 import { RESOURCE_TYPES } from "@/content/resources"
 import type { MineralId } from "@/sim/deposits"
 import type { MiningChoice } from "@/sim/tasks"
 
 /*
- * An astronaut's task list, opened by right-clicking them on the base map. The top shows what
- * they're doing now and what's lined up after it. Below are the tasks they can be given: for now,
- * mining the nearest deposit, or the nearest deposit of one mineral. A click replaces what they're
- * doing; a shift-click adds the task to the end of their list. Esc, or a click anywhere else,
- * closes it.
+ * An astronaut's task list, opened by clicking them on the base map. The top shows what they're
+ * doing now and what's lined up after it. Below are the tasks they can be given: moving somewhere
+ * (pick Move, then click the spot), and mining the nearest deposit, or the nearest deposit of one
+ * mineral. A click replaces what they're doing; a shift-click adds the task to the end of their
+ * list. Esc, or a click anywhere else, closes it.
  */
 
 const mineral = (id: MineralId) => RESOURCE_TYPES.find((type) => type.id === id)!
@@ -21,6 +22,7 @@ export function TaskMenu({
   now,
   next,
   mining,
+  onMove,
   onMine,
   onStop,
   onClose,
@@ -36,11 +38,14 @@ export function TaskMenu({
   next: string[]
   /** The nearest deposit of each mineral, nearest first. */
   mining: MiningChoice[]
+  /** Move: the next click on the map is where they go. */
+  onMove: () => void
   /** Send them to mine: one mineral, or null for the nearest deposit. `queue` adds it to the end of their list. */
   onMine: (mineral: MineralId | null, queue: boolean) => void
   /** Stop them and clear their list. */
   onStop: () => void
-  onClose: () => void
+  /** Closed with Esc, or by a click outside the menu. */
+  onClose: (how: "outside" | "escape") => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const [place, setPlace] = useState(position)
@@ -59,9 +64,9 @@ export function TaskMenu({
 
   // Esc or a click outside closes it.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose()
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose("escape")
     const onDown = (e: PointerEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose("outside")
     }
     window.addEventListener("keydown", onKey)
     window.addEventListener("pointerdown", onDown, true)
@@ -84,7 +89,6 @@ export function TaskMenu({
       ref={ref}
       role="menu"
       aria-label={`${name}'s tasks`}
-      onContextMenu={(e) => e.preventDefault()}
       className="pointer-events-auto absolute z-30 w-64 border border-white/15 bg-neutral-950/95 py-1 text-white backdrop-blur-sm"
       style={{ left: place.x, top: place.y }}
     >
@@ -104,6 +108,12 @@ export function TaskMenu({
           ))}
         </ol>
       </div>
+
+      <button type="button" role="menuitem" className={`${item} mt-1`} onClick={onMove}>
+        <Footprints aria-hidden className="size-3.5 text-white/70" />
+        <span className="flex-1">Move</span>
+        <span className="text-[11px] text-white/45">then click where</span>
+      </button>
 
       <p className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.25em] text-orange-300/80">Mine</p>
       {mining.length === 0 ? (
