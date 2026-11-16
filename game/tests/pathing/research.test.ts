@@ -8,6 +8,7 @@ import { test } from "node:test"
 import assert from "node:assert/strict"
 import type { Base, PlacedModule } from "@/sim/base"
 import { RESEARCH_ERAS, RESEARCH_PROJECTS, researchProject } from "@/content/research"
+import { MODULE_RESEARCH, moduleUnlocked } from "@/content/modules"
 import { claimedLabCount, keepHidersResearching, labWorker, pickLabWorker, sendResearcher, shelterRule, staffedLabs } from "@/sim/labs"
 import { buildNavigation, moduleStationId, type NavigationTerrain } from "@/sim/navigation"
 import { addPawn, issueOrder, stepPathing, type World } from "@/sim/pathing"
@@ -184,4 +185,13 @@ test("the research tree is one tree: needs sit one column back, no two projects 
       assert.ok(need.era <= project.era, `${project.id} doesn't need a project from a later era`)
     }
   }
+})
+
+test("a module that needs research is locked until that project is researched", () => {
+  for (const [id, projectId] of Object.entries(MODULE_RESEARCH)) {
+    assert.ok(researchProject(projectId!), `${id} needs ${projectId}, which is in the research tree`)
+  }
+  assert.equal(moduleUnlocked("greenhouse", []), false)
+  assert.equal(moduleUnlocked("greenhouse", ["potato-greenhouse"]), true)
+  assert.equal(moduleUnlocked("habitat", []), true, "a module that needs no research is there from the start")
 })
