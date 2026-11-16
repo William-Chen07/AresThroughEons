@@ -11,9 +11,9 @@ import { useSettings } from "@/lib/settings"
 
 type Screen = "menu" | "game"
 
-/** A real date as the player reads it, e.g. "7 March 2012". */
+/** A real date as the player reads it, month first, e.g. "March 7, 2012". */
 const readableDate = (day: string) =>
-  new Date(`${day}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" })
+  new Date(`${day}T00:00:00Z`).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })
 
 /**
  * What an era really was, for the reveal when it ends: its real dates, and the real events that
