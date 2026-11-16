@@ -1,5 +1,7 @@
 import { useEffect, type ReactNode } from "react"
 import { MARS_FACTS } from "@/content/marsFacts"
+import { NEBULAE, SOUND_CREDIT, nebulaCodexId } from "@/content/nebulae"
+import { NebulaCardBody } from "@/components/NebulaCard"
 import { RESEARCH_PROJECTS } from "@/content/research"
 import { WEATHER_EVENTS } from "@/content/weather"
 import { useSettings } from "@/lib/settings"
@@ -99,6 +101,8 @@ export function HowToPlayDialog(props: DialogProps) {
 
 export function CodexDialog({ codexIds, ...props }: DialogProps & { codexIds: string[] }) {
   const found = MARS_FACTS.filter((fact) => codexIds.includes(fact.id))
+  // Nebula cards come from the Sonification Station on the base map (see components/NebulaCard.tsx).
+  const nebulae = NEBULAE.filter((entry) => codexIds.includes(nebulaCodexId(entry.id)))
   return (
     <MenuModal {...props} title="Mars Codex">
       <p className="mt-4 text-sm text-white/70">
@@ -115,6 +119,23 @@ export function CodexDialog({ codexIds, ...props }: DialogProps & { codexIds: st
               <a href={fact.source.url} target="_blank" rel="noreferrer" className={`mt-0.5 block ${linkClass}`}>
                 Source: {fact.source.label}
               </a>
+            </li>
+          ))}
+        </ul>
+      )}
+      <h3 className={sectionHeading}>
+        Nebulae heard: {nebulae.length} of {NEBULAE.length}
+      </h3>
+      {nebulae.length === 0 ? (
+        <p className="mt-3 text-sm text-white/55">
+          None yet. Build a Sonification Station: when the music plays a nebula, a ! appears on it. Click it to add that
+          nebula here.
+        </p>
+      ) : (
+        <ul className="mt-3 space-y-4">
+          {nebulae.map((entry) => (
+            <li key={entry.id}>
+              <NebulaCardBody nebula={entry} compact />
             </li>
           ))}
         </ul>
@@ -443,6 +464,23 @@ export function CreditsDialog(props: DialogProps) {
           </li>
         ))}
       </ul>
+      <h3 className={sectionHeading}>Nebula pictures and sonifications</h3>
+      {/* Built from the nebula cards, so every picture the Sonification Station shows is credited. */}
+      <ul className="mt-3 space-y-2 text-sm text-white/70">
+        {NEBULAE.map((entry) => (
+          <li key={entry.id}>
+            <span className="text-white/90">{entry.name}:</span> Image: {entry.imageCredit}.{" "}
+            <a href={entry.source.url} target="_blank" rel="noreferrer" className={linkClass}>
+              {entry.source.label}
+            </a>
+            {" · "}
+            <a href={entry.sonification.url} target="_blank" rel="noreferrer" className={linkClass}>
+              {entry.sonification.label}
+            </a>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-xs text-white/50">{SOUND_CREDIT}.</p>
       <h3 className={sectionHeading}>Storm facts</h3>
       {/* Built from the weather events, so every storm's fact is always credited. */}
       <ul className="mt-3 space-y-2 text-sm text-white/70">

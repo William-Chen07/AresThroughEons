@@ -41,6 +41,8 @@ export interface MapView {
   setSeeThrough: (on: boolean) => void
   /** Fades just these modules (by id) so what's inside them shows. */
   setOpenModules: (ids: string[]) => void
+  /** Shows a "!" over these modules (by id), e.g. a Sonification Station with a nebula to show. */
+  setAlerts: (ids: string[]) => void
   /** Fades just the pieces of tube with these cells in them, so crew walking along them show. */
   setOpenTubes: (cells: Cell[]) => void
   /**
@@ -264,6 +266,7 @@ export async function createMapView(
     drawCrew: (world, colors, oxygen, health) => crew.draw(world, colors, oxygen, health),
     setSeeThrough: (on) => base.setSeeThrough(on),
     setOpenModules: (ids) => base.setOpenModules(ids),
+    setAlerts: (ids) => base.setAlerts(ids),
     setOpenTubes: (cells) => base.setOpenTubes(cells),
     flyShuttleTo: (pos, onPickup, onGone) => {
       if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
