@@ -47,6 +47,21 @@ export function moduleUnlocked(id: ModuleTypeId, researched: readonly string[]) 
 export type ModuleType = (typeof MODULE_TYPES)[number]
 export type ModuleTypeId = ModuleType["id"]
 
+/*
+ * Where each module's sprite stack is, under public/ (see map/spriteStack.ts). The files are
+ * `<path>_stack.png` and `<path>_stack.json`, made by assets/blender/slicer.py. A module whose
+ * files aren't there yet is drawn as a plain coloured box.
+ */
+export const MODULE_STACKS: Partial<Record<ModuleTypeId, string>> = {
+  habitat: "sprites/era1/habitat",
+  research: "sprites/era1/research",
+  storage: "sprites/era1/storage",
+  airlock: "sprites/era1/airlock",
+  greenhouse: "sprites/era2/greenhouse",
+  medbay: "sprites/era2/medbay",
+  power: "sprites/era3/power",
+}
+
 export function moduleType(id: ModuleTypeId): ModuleType {
   // Every id in a save comes from this list, so the lookup can't miss.
   return MODULE_TYPES.find((type) => type.id === id) ?? MODULE_TYPES[0]

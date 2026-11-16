@@ -1,11 +1,13 @@
-import { Container, Graphics } from "pixi.js"
+import { Container, Graphics, Sprite } from "pixi.js"
+import { FEET_FROM_BOTTOM, FIGURE_TALL, crewSprite, loadCrewSprites } from "@/map/crewSprites"
 import { CELL_PX, cellTopLeft, type Cell, type VoxelTerrain } from "@/map/voxelTerrain"
 import { getZone, type Mover, type World } from "@/sim/pathing"
 
 /*
- * Draws the crew on the map. Placeholder art for now: a round suit in the crewmate's colour with
- * a white helmet and dark visor, until real sprites exist. Where everyone is and what they're
- * doing comes from sim/pathing; this only draws it.
+ * Draws the crew on the map: each crewmate's astronaut picture (see map/crewSprites.ts), in a
+ * suit and helmet outdoors and a jumpsuit indoors. A crewmate with no picture (or before the
+ * pictures have loaded) is a round suit in their colour with a white helmet and dark visor.
+ * Where everyone is and what they're doing comes from sim/pathing; this only draws it.
  *
  * Crew inside a module or tube are drawn under the base (seen when it's see-through, see
  * map/baseView.ts); crew outside are drawn over it.
@@ -32,7 +34,7 @@ export interface CrewView {
 }
 
 /** How far from a figure's middle a click still counts as on it, in map pixels. */
-const HIT_RADIUS = 8
+const HIT_RADIUS = 9
 
 export function createCrewView(terrain: VoxelTerrain): CrewView {
   const insideShapes = new Graphics()
@@ -41,6 +43,9 @@ export function createCrewView(terrain: VoxelTerrain): CrewView {
   const shapes = new Graphics()
   const view = new Container()
   view.addChild(shapes)
+  /** Each crewmate's picture, by pawn id. It moves between the two views as they go in and out. */
+  const figures = new Map<string, Sprite>()
+  void loadCrewSprites()
 
   const clampCell = (n: number) => Math.min(terrain.size - 1, Math.max(0, n))
   const topY = (col: number, row: number) => cellTopLeft(terrain, { col: clampCell(col), row: clampCell(row) }).y
@@ -90,20 +95,49 @@ export function createCrewView(terrain: VoxelTerrain): CrewView {
       layer.stroke({ width: 1.5, color: ROUTE, alpha: 0.45 })
     }
 
+    const here = new Set<string>()
     for (const mover of movers) {
       const shapes = layerOf(mover)
       const { x, y } = centerOf(mover.pos.x, mover.pos.y)
-      drawn.push({ x, y: y - 2, cell: { col: Math.round(mover.pos.x), row: Math.round(mover.pos.y) } })
       const suit = colors[mover.pawnId] ?? 0xf97316
       // Bob very slightly while walking, so moving crew read as alive.
       const lift = mover.path.length > 0 ? Math.abs(Math.sin((mover.pos.x + mover.pos.y) * Math.PI)) * 1.5 : 0
+      const picture = crewSprite(suit, shapes === insideShapes)
+      // A click on the figure means this crewmate: the picture is taller than the plain shapes, so its middle is higher.
+      drawn.push({
+        x,
+        y: picture ? y + 4 - FIGURE_TALL / 2 : y - 2,
+        cell: { col: Math.round(mover.pos.x), row: Math.round(mover.pos.y) },
+      })
       if (selected.has(mover.pawnId)) {
         shapes.circle(x, y + 1, 8).stroke({ width: 2, color: SELECTED })
       }
       shapes.ellipse(x, y + 4, 4.5, 1.8).fill({ color: 0x000000, alpha: 0.35 }) // shadow
+      if (picture) {
+        let figure = figures.get(mover.pawnId)
+        if (!figure) {
+          figure = new Sprite(picture)
+          figures.set(mover.pawnId, figure)
+        }
+        figure.texture = picture
+        // The picture's feet stand on the shadow. Whole pixels keep the pixel art sharp.
+        figure.anchor.set(0.5, 1 - FEET_FROM_BOTTOM / picture.height)
+        figure.position.set(Math.round(x), Math.round(y + 4 - lift))
+        // Added again every time, north to south, so southern crewmates overlap the ones behind them.
+        const layer = shapes === insideShapes ? insideView : view
+        layer.addChild(figure)
+        here.add(mover.pawnId)
+        continue
+      }
       shapes.circle(x, y - lift, 4.5).fill(suit).stroke({ width: 1, color: OUTLINE })
       shapes.circle(x, y - 4.5 - lift, 3).fill(HELMET).stroke({ width: 1, color: OUTLINE })
       shapes.rect(x - 1.5, y - 5.5 - lift, 3, 1.5).fill(VISOR)
+    }
+    // Anyone no longer on the map (gone exploring, say) takes their picture with them.
+    for (const [pawnId, figure] of figures) {
+      if (here.has(pawnId)) continue
+      figure.destroy()
+      figures.delete(pawnId)
     }
   }
 
