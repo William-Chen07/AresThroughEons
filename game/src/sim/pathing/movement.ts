@@ -1,7 +1,7 @@
 import type { PathingEvent, UrgentNeed } from "./events"
 import { BLOCKED, canStepBetween, getZone, sameTile, slopeFactor, tileOf, type Tile } from "./grid"
 import { endIdle, updateIdle } from "./idle"
-import { handleUrgentNeed } from "./needs"
+import { handleUrgentNeed, type ShelterRule } from "./needs"
 import { trafficAt } from "./crowd"
 import { finishOrder, plan, setRoute } from "./orders"
 import { isJobDone, type Station } from "./stations"
@@ -22,6 +22,12 @@ export interface StepOptions {
    * (e.g. oxygen nearly out, starving, a solar flare → "shelter"). Default: never urgent.
    */
   urgentNeed?: (pawnId: string) => UrgentNeed | null
+  /**
+   * Where a pawn may shelter when its urgent need is "shelter", e.g. not a room someone else
+   * already has to themselves. A pawn standing somewhere it may not shelter moves on. Default: any
+   * indoor tile.
+   */
+  canShelterAt?: ShelterRule
 }
 
 /**
@@ -41,7 +47,7 @@ export function stepPathing(world: World, dtHours: number, options: StepOptions 
   const finishedStations = new Set<string>()
 
   for (const mover of Object.values(world.movers)) {
-    handleUrgentNeed(world, mover, urgentNeed(mover.pawnId), field, events)
+    handleUrgentNeed(world, mover, urgentNeed(mover.pawnId), field, events, options.canShelterAt)
     if (mover.order || mover.interrupt) endIdle(world, mover, events)
     else updateIdle(world, mover, dtHours, field, events)
 
