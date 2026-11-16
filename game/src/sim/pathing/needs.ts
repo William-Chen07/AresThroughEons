@@ -6,24 +6,33 @@ import { isJobDone } from "./stations"
 import type { Mover, World } from "./world"
 
 /**
- * Safe from a solar flare: inside (an airlock cycled to the inside counts), not about to cycle
- * out, and not planning to walk outside.
+ * Which indoor tiles a pawn may shelter on (e.g. not a room someone else already has to
+ * themselves). Default: any indoor tile.
  */
-function isSheltered(world: World, mover: Mover) {
+export type ShelterRule = (pawnId: string, tile: Tile) => boolean
+const anyShelter: ShelterRule = () => true
+
+/**
+ * Safe from a solar flare: inside (an airlock cycled to the inside counts), not about to cycle
+ * out, not planning to walk outside, and somewhere it may shelter (where it's heading, if moving).
+ */
+function isSheltered(world: World, mover: Mover, canShelterAt: ShelterRule = anyShelter) {
   return (
     mover.exposure === "inside" &&
     mover.cyclingTo !== "outside" &&
-    !mover.path.some((t) => getZone(world.grid, t.x, t.y) === "outside")
+    !mover.path.some((t) => getZone(world.grid, t.x, t.y) === "outside") &&
+    canShelterAt(mover.pawnId, mover.destination ?? tileOf(mover.pos))
   )
 }
 
-/** Route to the nearest indoor floor tile. */
-function findShelter(world: World, mover: Mover, field: number[]): Tile[] | null {
+/** Route to the nearest indoor floor tile the pawn may shelter on. */
+function findShelter(world: World, mover: Mover, field: number[], canShelterAt: ShelterRule): Tile[] | null {
   const { grid } = world
   const goals: Tile[] = []
   for (let y = 0; y < grid.height; y++) {
     for (let x = 0; x < grid.width; x++) {
-      if (grid.zone[y * grid.width + x] === "inside" && field[y * grid.width + x] !== BLOCKED) goals.push({ x, y })
+      if (grid.zone[y * grid.width + x] !== "inside" || field[y * grid.width + x] === BLOCKED) continue
+      if (canShelterAt(mover.pawnId, { x, y })) goals.push({ x, y })
     }
   }
   const { costAt, rules } = routing(world, field, mover)
@@ -43,9 +52,9 @@ function findNeedStation(world: World, mover: Mover, need: Exclude<UrgentNeed, "
 }
 
 /** Puts the pawn to work on the need. Returns the station id (null for shelter), or a reason it can't. */
-function startFixing(world: World, mover: Mover, need: UrgentNeed, field: number[]) {
+function startFixing(world: World, mover: Mover, need: UrgentNeed, field: number[], canShelterAt: ShelterRule) {
   if (need === "shelter") {
-    const path = findShelter(world, mover, field)
+    const path = findShelter(world, mover, field, canShelterAt)
     if (!path) return { ok: false as const, reason: "There's nowhere inside to shelter." }
     const target = path.length > 0 ? path[path.length - 1] : tileOf(mover.pos)
     const result = assignOrder(world, mover, { kind: "move", target })
@@ -72,6 +81,7 @@ export function handleUrgentNeed(
   need: UrgentNeed | null,
   field: number[],
   events: PathingEvent[],
+  canShelterAt: ShelterRule = anyShelter,
 ) {
   const current = mover.interrupt
 
@@ -95,14 +105,22 @@ export function handleUrgentNeed(
   }
 
   // Already on it: heading to or using the right station, or sheltering safely.
-  if (current?.need === need && (mover.order !== null || (need === "shelter" && isSheltered(world, mover)))) return
+  if (current?.need === need) {
+    if (need !== "shelter") {
+      if (mover.order !== null) return
+    } else if (isSheltered(world, mover, canShelterAt) || (mover.order !== null && mover.exposure !== "inside")) {
+      // Sheltering, or still on the way in. Once inside, shelter it may no longer use (someone else
+      // took that room) means looking again.
+      return
+    }
+  }
   // Indoors and staying indoors: a flare needs no change of plan.
-  if (need === "shelter" && !current && isSheltered(world, mover)) return
+  if (need === "shelter" && !current && isSheltered(world, mover, canShelterAt)) return
   // Reported once already; wait for the need to change before trying again.
   if (mover.unmetNeed === need) return
 
   const resume = current ? current.resume : mover.order
-  const result = startFixing(world, mover, need, field)
+  const result = startFixing(world, mover, need, field, canShelterAt)
   if (!result.ok) {
     mover.unmetNeed = need
     events.push({ type: "needUnmet", pawnId: mover.pawnId, need, reason: result.reason })

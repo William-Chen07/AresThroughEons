@@ -69,11 +69,11 @@ for (const withAirlock of [true, false]) {
 }
 
 test("modules joined to an airlock are pressurized and provide oxygen; others don't", () => {
-  // The habitat and lab join the airlock through the tube; the storage stands on its own.
-  const base: Base = { ...smallBase(), modules: [...smallBase().modules, mod("st", "storage", 14, 2)] }
+  // The habitat and lab join the airlock through the tube; the med bay stands on its own.
+  const base: Base = { ...smallBase(), modules: [...smallBase().modules, mod("st", "medbay", 14, 2)] }
   const cells = pressurizedCells(SIZE, base)
   for (const [col, row] of [[3, 3], [3, 6], [5, 3], [7, 3], [8, 3]]) assert.ok(cells.has(row * SIZE + col), `${col},${row}`)
-  assert.ok(!cells.has(2 * SIZE + 14), "storage")
+  assert.ok(!cells.has(2 * SIZE + 14), "medbay")
   assert.ok(!cells.has(10 * SIZE + 10), "open ground")
   const w = buildNavigation(flat(), base)
   const provides = (id: string) => w.stations.find((s) => s.id === moduleStationId(id))!.provides
@@ -85,8 +85,8 @@ test("modules joined to an airlock are pressurized and provide oxygen; others do
 })
 
 test("low on oxygen, a crewmate heads for a pressurized module", () => {
-  // Storage on its own at (14-15, 8-9) is closer, but only the airlock-joined modules are pressurized.
-  const base: Base = { ...smallBase(), modules: [...smallBase().modules, mod("st", "storage", 14, 8)] }
+  // A med bay on its own at (14-15, 8-9) is closer, but only the airlock-joined modules are pressurized.
+  const base: Base = { ...smallBase(), modules: [...smallBase().modules, mod("st", "medbay", 14, 8)] }
   const w = buildNavigation(flat(), base)
   addPawn(w, "a", { x: 16, y: 10 })
   const all: PathingEvent[] = []
@@ -170,9 +170,9 @@ test("with a tube on one doorway, crew still get in and out by the others", () =
 
 test("tubes are hallways: walking between joined modules stays inside", () => {
   // Habitat (cols 2-4, rows 2-4), a tube along row 3 from its east doorway (5,3) to (9,3), the
-  // storage's west doorway (storage at cols 10-11, rows 2-3).
+  // med bay's west doorway (med bay at cols 10-11, rows 2-3).
   const tubes = [5, 6, 7, 8, 9].map((col) => ({ col, row: 3 }))
-  const w = buildNavigation(flat(), { modules: [mod("hab", "habitat", 2, 2), mod("st", "storage", 10, 2)], tubes })
+  const w = buildNavigation(flat(), { modules: [mod("hab", "habitat", 2, 2), mod("st", "medbay", 10, 2)], tubes })
   addPawn(w, "a", { x: 3, y: 2 })
   assert.ok(issueOrder(w, "a", { kind: "work", stationId: moduleStationId("st") }).ok)
   assert.ok(w.movers.a.path.every((t) => at(w, t.x, t.y) === "inside"), "never steps outside")
@@ -242,7 +242,7 @@ test("building a module across a route outside makes the walker go round it", ()
   addPawn(w, "a", { x: 0, y: 6 })
   assert.ok(issueOrder(w, "a", { kind: "move", target: { x: 8, y: 6 } }).ok)
   stepPathing(w, 0.01)
-  const base: Base = { modules: [mod("st", "storage", 4, 5)], tubes: [] } // storage on cells (4-5, 5-6)
+  const base: Base = { modules: [mod("st", "medbay", 4, 5)], tubes: [] } // med bay on cells (4-5, 5-6)
   syncNavigation(w, flat(), base)
   const steps: { x: number; y: number }[] = []
   runUntil(w, (ev) => {
@@ -291,17 +291,17 @@ test("tubes can only meet a module at a doorway, in the middle of a side", () =>
   assert.equal(lay([{ col: 4, row: 5 }]).ok, false, "not against the south wall beside the doorway")
   assert.ok(lay([{ col: 5, row: 5 }]).ok, "a corner doesn't touch a wall")
 
-  // A module can't be put down with a tube against its wall off a doorway either. A storage at
+  // A module can't be put down with a tube against its wall off a doorway either. A med bay at
   // cols 9-10, rows 3-4 has its west doorway at row 4, so a tube at (8,4) fits and (8,3) doesn't.
   const tubeAt = (row: number) => occupancy(SIZE, { modules: [], tubes: [{ col: 8, row }] })
-  assert.ok(checkModule(SIZE, tubeAt(4), "storage", { col: 9, row: 3 }).ok, "tube at its west doorway")
-  const offDoorway = checkModule(SIZE, tubeAt(3), "storage", { col: 9, row: 3 })
+  assert.ok(checkModule(SIZE, tubeAt(4), "medbay", { col: 9, row: 3 }).ok, "tube at its west doorway")
+  const offDoorway = checkModule(SIZE, tubeAt(3), "medbay", { col: 9, row: 3 })
   assert.ok(!offDoorway.ok && /doorway/.test(offDoorway.reason), "tube against its wall off the doorway")
 })
 
 test("a tube in front of a doorway opens into that module", () => {
-  // Storage at cols 9-10, rows 2-3: west doorway (9,3) with (8,3) in front.
-  const base: Base = { modules: [mod("st", "storage", 9, 2)], tubes: [{ col: 8, row: 3 }, { col: 7, row: 3 }] }
+  // Med bay at cols 9-10, rows 2-3: west doorway (9,3) with (8,3) in front.
+  const base: Base = { modules: [mod("st", "medbay", 9, 2)], tubes: [{ col: 8, row: 3 }, { col: 7, row: 3 }] }
   const grid = occupancy(SIZE, base)
   const i = (col: number, row: number) => row * SIZE + col
   assert.deepEqual(tubeOpenings(SIZE, base, grid, i(8, 3)), [i(9, 3)])
@@ -309,8 +309,8 @@ test("a tube in front of a doorway opens into that module", () => {
 })
 
 test("a single block of tube between two modules joins them both", () => {
-  // Habitat at cols 2-4, storage at cols 6-7 (rows 2-3), one block of tube at (5,3) between them.
-  const base: Base = { modules: [mod("hab", "habitat", 2, 2), mod("st", "storage", 6, 2)], tubes: [{ col: 5, row: 3 }] }
+  // Habitat at cols 2-4, med bay at cols 6-7 (rows 2-3), one block of tube at (5,3) between them.
+  const base: Base = { modules: [mod("hab", "habitat", 2, 2), mod("st", "medbay", 6, 2)], tubes: [{ col: 5, row: 3 }] }
   const grid = occupancy(SIZE, base)
   assert.equal(connectedGroups(SIZE, base, grid).length, 1)
   const w = buildNavigation(flat(), base)
