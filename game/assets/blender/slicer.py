@@ -26,6 +26,8 @@ EDGE_DARKEN = 0.75
 # Shown where a face has no palette material, so the mistake is easy to spot.
 MISSING_COLOR = (1.0, 0.0, 1.0)
 # Sample points are nudged off the pixel centre so rays never run exactly along a mesh edge.
+# How far around a voxel to look for the surface that shows, where parts overlap (2 px).
+SEARCH_RADIUS = 0.125
 NUDGE_X = 0.000137
 NUDGE_Y = 0.000071
 
@@ -92,6 +94,24 @@ def _column_crossings(tree, x, y):
     return heights
 
 
+def _inside(tree, point):
+    """Whether a point is inside a closed mesh: a ray from it crosses the surface an odd number of times."""
+    up = Vector((0, 0, 1))
+    origin = point.copy()
+    count = 0
+    last_index = None
+    last_z = None
+    for _ in range(512):
+        location, _normal, index, _distance = tree.ray_cast(origin, up)
+        if location is None:
+            break
+        if not (index == last_index and last_z is not None and location.z - last_z < 1e-3):
+            count += 1
+        last_index, last_z = index, location.z
+        origin = Vector((point.x, point.y, location.z + 1e-4))
+    return count % 2 == 1
+
+
 def _save_png(path, width, height, pixels):
     image = bpy.data.images.new("slicer_output", width, height, alpha=True)
     try:
@@ -124,23 +144,49 @@ def slice_module(collection_name, cells_x, cells_y, layers, out_dir):
         for px in range(width):
             x = (px + 0.5) / PX_PER_CELL + NUDGE_X
             y = (py + 0.5) / PX_PER_CELL + NUDGE_Y
+            columns = []
             for object_name, tree, colors in trees:
                 crossings = _column_crossings(tree, x, y)
                 if not crossings:
                     continue
                 if len(crossings) % 2:
                     open_meshes.add(object_name)
-                for layer in range(layers):
-                    z = (layer + 0.5) / PX_PER_CELL
-                    if sum(1 for crossing in crossings if crossing < z) % 2 == 0:
+                columns.append((tree, colors, crossings))
+            for layer in range(layers):
+                point = Vector((x, y, (layer + 0.5) / PX_PER_CELL))
+                # Every part this voxel is inside, with the nearest spot on that part's surface.
+                found = []
+                for tree, colors, crossings in columns:
+                    if sum(1 for crossing in crossings if crossing < point.z) % 2 == 0:
                         continue
-                    _location, _normal, index, distance = tree.find_nearest(Vector((x, y, z)))
-                    if index is None:
-                        continue
-                    current = voxels[layer][py][px]
-                    # Where parts overlap, the part whose surface is closest wins.
-                    if current is None or distance < current[1]:
-                        voxels[layer][py][px] = (colors[index], distance)
+                    location, _normal, index, distance = tree.find_nearest(point)
+                    if index is not None:
+                        found.append((distance, tree, colors[index], location))
+                if not found:
+                    continue
+                found.sort(key=lambda entry: entry[0])
+                chosen = found[0]
+                if len(found) > 1:
+                    # Where parts overlap, take the colour of the nearest surface that can be seen
+                    # from outside: one that isn't buried inside another part. Every nearby face of
+                    # every part is tried, nearest first (a thin stripe's nearest face may be buried
+                    # while its outer face, a little further off, is the one that shows).
+                    nearby = []
+                    for _distance, tree, _color, _location in found:
+                        colors = next(c for t, c, _crossings in columns if t is tree)
+                        for location, _normal, index, distance in tree.find_nearest_range(point, SEARCH_RADIUS):
+                            nearby.append((distance, tree, colors[index], location))
+                    nearby.sort(key=lambda entry: entry[0])
+                    for entry in nearby:
+                        _distance, tree, _color, location = entry
+                        outward = location - point
+                        if outward.length < 1e-9:
+                            continue
+                        probe = location + outward.normalized() * 1e-3
+                        if not any(_inside(other, probe) for _name, other, _colors in trees if other is not tree):
+                            chosen = entry
+                            break
+                voxels[layer][py][px] = (chosen[2], chosen[0])
 
     strip_width = width * layers
     stack = [0.0] * (strip_width * height * 4)
