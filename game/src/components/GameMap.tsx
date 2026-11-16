@@ -76,8 +76,8 @@ import type { Weather } from "@/sim/weather"
  * Where they stand isn't saved yet, so they start beside the lander each time the map opens.
  * An astronaut whose health runs out is evacuated: gone from the map for good.
  * Astronauts sent out from the explore map (Explore in the Actions dropdown) are off this map until they are back.
- * Crew outside the modules joined to an Airlock (out on the surface, or in a module with no
- * Airlock) breathe the base's oxygen faster (see sim/navigation.ts and sim/lifeSupport.ts).
+ * Crew out on the surface, outside the modules and tubes, breathe the base's oxygen faster
+ * (see sim/navigation.ts and sim/lifeSupport.ts).
  * The panels copy the look of MainMenu.
  */
 
@@ -335,7 +335,7 @@ export function GameMap({
   const base = useMemo<Base>(() => ({ modules, tubes, landers }), [modules, tubes, landers])
   // What stands on each cell, worked out once per change to the base.
   const grid = useMemo(() => (terrain ? occupancy(terrain.size, base) : null), [terrain, base])
-  /** Cells of modules and tubes joined to an Airlock: no oxygen is used up there. */
+  /** Cells of modules and tubes: crew there breathe at the normal rate (see pressurizedCells). */
   const pressurized = useMemo(() => (terrain && grid ? pressurizedCells(terrain.size, base, grid) : null), [terrain, base, grid])
   const pressurizedRef = useRef(pressurized)
   useEffect(() => {
@@ -614,7 +614,7 @@ export function GameMap({
       const crew: CrewMember[] = Object.values(world?.movers ?? {}).map((mover) => ({
         id: mover.pawnId,
         outside: mover.exposure === "outside",
-        // In a module or tube joined to an Airlock (see pressurizedCells).
+        // In a module or tube (see pressurizedCells).
         pressurized: Boolean(
           world && cells?.has(Math.round(mover.pos.y) * world.grid.width + Math.round(mover.pos.x)),
         ),
