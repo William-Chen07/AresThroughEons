@@ -147,6 +147,11 @@ def slice_module(collection_name, cells_x, cells_y, layers, out_dir):
             columns = []
             for object_name, tree, colors in trees:
                 crossings = _column_crossings(tree, x, y)
+                # An odd count usually means the ray grazed an edge: try again a hair to the side.
+                for retry in range(1, 4):
+                    if len(crossings) % 2 == 0:
+                        break
+                    crossings = _column_crossings(tree, x + retry * 0.0011, y + retry * 0.0007)
                 if not crossings:
                     continue
                 if len(crossings) % 2:
