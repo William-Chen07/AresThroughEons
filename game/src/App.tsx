@@ -2,9 +2,32 @@ import { useState } from "react"
 import { GameMap } from "@/components/GameMap"
 import { MainMenu } from "@/components/MainMenu"
 import { devSiteOverride } from "@/map/marsSite"
+import { useSpaceCalendar } from "@/data/useSpaceCalendar"
+import { HOURS_PER_DAY, dayOf, describeSpaceEvent, eventsSoFar, latestNews, realDateAt, type Calendar } from "@/sim/calendar"
 import { useSaves } from "@/sim/saves"
 
 type Screen = "menu" | "game"
+
+/** A real date as the player reads it, e.g. "7 March 2012". */
+const readableDate = (day: string) =>
+  new Date(`${day}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" })
+
+/**
+ * What an era really was, for the reveal when it ends: its real dates, and the real events that
+ * mattered to Mars, each with the day it happened. Eruptions that headed elsewhere are only counted.
+ */
+function eraHistoryOf(calendar: Calendar, clock: number) {
+  const past = eventsSoFar(calendar, clock)
+  const quiet = past.filter((event) => event.kind === "eruption" && !event.towardMars)
+  return {
+    from: readableDate(calendar.start),
+    to: readableDate(realDateAt(calendar, clock)),
+    events: past
+      .filter((event) => !quiet.includes(event))
+      .map((event) => `Day ${dayOf(calendar, calendar.startHours + event.hour)}: ${describeSpaceEvent(event)}`),
+    quietEruptions: quiet.length,
+  }
+}
 
 function App() {
   const [screen, setScreen] = useState<Screen>("menu")
@@ -22,6 +45,8 @@ function App() {
   const resetMap = useSaves((s) => s.resetMap)
   const sendExploring = useSaves((s) => s.sendExploring)
   const nextEra = useSaves((s) => s.nextEra)
+  // Real NASA events for the calendar are fetched while the expedition is being played.
+  useSpaceCalendar(activeSlot, screen === "game")
 
   if (screen === "menu") {
     return <MainMenu onStart={() => setScreen("game")} />
@@ -56,6 +81,13 @@ function App() {
         }}
         era={save.era}
         landers={save.landers}
+        day={dayOf(save.calendar, save.hours)}
+        dayProgress={(Math.max(0, save.hours - save.calendar.startHours) % HOURS_PER_DAY) / HOURS_PER_DAY}
+        spaceNews={(() => {
+          const news = latestNews(save.calendar, save.hours)
+          return news ? describeSpaceEvent(news) : null
+        })()}
+        eraHistory={eraHistoryOf(save.calendar, save.hours)}
         onNextEra={() => {
           if (activeSlot === null) return
           nextEra(activeSlot)

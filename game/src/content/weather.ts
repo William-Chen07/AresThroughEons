@@ -20,6 +20,19 @@ export const WEATHER_EVENTS = [
       url: "https://www.jpl.nasa.gov/news/large-solar-storm-sparks-global-aurora-and-doubles-radiation-levels-on-the-martian-surface/",
     },
   },
+  {
+    // Started by the in-game calendar when a real solar eruption reaches Mars (see sim/calendar.ts).
+    id: "solar-storm",
+    name: "Solar Storm",
+    hours: 6,
+    healthLostPerHourOutside: 10,
+    warning: "A real solar eruption is hitting Mars. Get the crew inside!",
+    text: "A solar eruption (a coronal mass ejection) is a giant cloud of hot gas and magnetism thrown off by the Sun. NASA tracks every one and uses computer models to predict which planets it will hit. This storm is real: NASA's records show an eruption reaching Mars on this very day in history.",
+    source: {
+      label: "NASA's DONKI space weather database",
+      url: "https://kauai.ccmc.gsfc.nasa.gov/DONKI/",
+    },
+  },
 ] as const
 
 export type WeatherEvent = (typeof WEATHER_EVENTS)[number]

@@ -1,0 +1,902 @@
+{
+ "_about": "Real NASA DONKI rows for 2012-01-01 to 2012-02-28 (CME and SEP; the FLR feed answered 404), trimmed to the fields the game reads. From https://api.nasa.gov/DONKI/.",
+ "cme": [
+  {
+   "startTime": "2012-01-01T13:36Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 820.0,
+     "enlilList": [
+      {
+       "impactList": [
+        {
+         "location": "MESSENGER",
+         "arrivalTime": "2012-01-02T11:46Z"
+        },
+        {
+         "location": "STEREO A",
+         "arrivalTime": "2012-01-03T18:46Z"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-01-02T02:12Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 683.0,
+     "enlilList": [
+      {
+       "impactList": [
+        {
+         "location": "MESSENGER",
+         "arrivalTime": "2012-01-03T02:31Z"
+        },
+        {
+         "location": "STEREO A",
+         "arrivalTime": "2012-01-04T05:12Z"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-01-02T15:24Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": false,
+     "speed": 715.0,
+     "enlilList": [
+      {
+       "impactList": [
+        {
+         "location": "MESSENGER",
+         "arrivalTime": "2012-01-03T16:30Z"
+        },
+        {
+         "location": "STEREO A",
+         "arrivalTime": "2012-01-04T22:06Z"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "isMostAccurate": false,
+     "speed": 1152.0,
+     "enlilList": []
+    },
+    {
+     "isMostAccurate": true,
+     "speed": 1152.0,
+     "enlilList": [
+      {
+       "impactList": [
+        {
+         "location": "MESSENGER",
+         "arrivalTime": "2012-01-03T02:31Z"
+        },
+        {
+         "location": "STEREO A",
+         "arrivalTime": "2012-01-04T05:12Z"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-01-03T11:24Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 318.0,
+     "enlilList": [
+      {
+       "impactList": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-01-04T02:24Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 320.0,
+     "enlilList": [
+      {
+       "impactList": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-01-05T08:39Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 957.0,
+     "enlilList": [
+      {
+       "impactList": [
+        {
+         "location": "Mars",
+         "arrivalTime": "2012-01-09T08:42Z"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-01-05T12:39Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": false,
+     "speed": 949.0,
+     "enlilList": []
+    },
+    {
+     "isMostAccurate": false,
+     "speed": 949.0,
+     "enlilList": [
+      {
+       "impactList": []
+      }
+     ]
+    },
+    {
+     "isMostAccurate": true,
+     "speed": 949.0,
+     "enlilList": [
+      {
+       "impactList": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-01-06T21:25Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 463.0,
+     "enlilList": [
+      {
+       "impactList": [
+        {
+         "location": "STEREO B",
+         "arrivalTime": "2012-01-10T10:38Z"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-01-08T02:12Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 554.0,
+     "enlilList": [
+      {
+       "impactList": [
+        {
+         "location": "STEREO B",
+         "arrivalTime": "2012-01-11T12:00Z"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-01-12T04:00Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 315.0,
+     "enlilList": [
+      {
+       "impactList": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-01-12T08:24Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 710.0,
+     "enlilList": [
+      {
+       "impactList": [
+        {
+         "location": "Spitzer",
+         "arrivalTime": "2012-01-15T14:41Z"
+        },
+        {
+         "location": "STEREO B",
+         "arrivalTime": "2012-01-15T00:05Z"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-01-14T05:25Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 255.0,
+     "enlilList": [
+      {
+       "impactList": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-01-14T23:25Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 290.0,
+     "enlilList": [
+      {
+       "impactList": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-01-16T01:30Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 412.0,
+     "enlilList": [
+      {
+       "impactList": [
+        {
+         "location": "Spitzer",
+         "arrivalTime": "2012-01-18T18:57Z"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-01-16T03:42Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 990.0,
+     "enlilList": [
+      {
+       "impactList": [
+        {
+         "location": "Spitzer",
+         "arrivalTime": "2012-01-18T18:57Z"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-01-18T13:25Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 520.0,
+     "enlilList": [
+      {
+       "impactList": []
+      }
+     ]
+    },
+    {
+     "isMostAccurate": false,
+     "speed": 520.0,
+     "enlilList": [
+      {
+       "impactList": []
+      },
+      {
+       "impactList": [
+        {
+         "location": "Mars",
+         "arrivalTime": "2012-01-24T06:04Z"
+        },
+        {
+         "location": "Spitzer",
+         "arrivalTime": "2012-01-22T01:42Z"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-01-19T13:25Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 372.0,
+     "enlilList": [
+      {
+       "impactList": [
+        {
+         "location": "Mars",
+         "arrivalTime": "2012-01-24T06:56Z"
+        },
+        {
+         "location": "Spitzer",
+         "arrivalTime": "2012-01-21T23:31Z"
+        }
+       ]
+      },
+      {
+       "impactList": [
+        {
+         "location": "Mars",
+         "arrivalTime": "2012-01-24T06:04Z"
+        },
+        {
+         "location": "Spitzer",
+         "arrivalTime": "2012-01-22T01:42Z"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-01-19T15:10Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 1020.0,
+     "enlilList": [
+      {
+       "impactList": [
+        {
+         "location": "Mars",
+         "arrivalTime": "2012-01-24T06:56Z"
+        },
+        {
+         "location": "Spitzer",
+         "arrivalTime": "2012-01-21T23:31Z"
+        }
+       ]
+      },
+      {
+       "impactList": [
+        {
+         "location": "Mars",
+         "arrivalTime": "2012-01-24T06:04Z"
+        },
+        {
+         "location": "Spitzer",
+         "arrivalTime": "2012-01-22T01:42Z"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-01-21T17:54Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 450.0,
+     "enlilList": [
+      {
+       "impactList": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-01-22T08:54Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 438.0,
+     "enlilList": [
+      {
+       "impactList": []
+      },
+      {
+       "impactList": [
+        {
+         "location": "STEREO A",
+         "arrivalTime": "2012-01-25T18:00Z"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-01-22T10:48Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 694.0,
+     "enlilList": [
+      {
+       "impactList": [
+        {
+         "location": "STEREO A",
+         "arrivalTime": "2012-01-25T18:00Z"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-01-23T04:00Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 2211.0,
+     "enlilList": [
+      {
+       "impactList": [
+        {
+         "location": "Mars",
+         "arrivalTime": "2012-01-25T22:46Z"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "isMostAccurate": false,
+     "speed": 1796.0,
+     "enlilList": []
+    }
+   ]
+  },
+  {
+   "startTime": "2012-01-25T02:30Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 433.0,
+     "enlilList": [
+      {
+       "impactList": [
+        {
+         "location": "STEREO A",
+         "arrivalTime": "2012-01-28T17:02Z"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-01-26T05:30Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 1082.0,
+     "enlilList": [
+      {
+       "impactList": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-01-26T15:54Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 522.0,
+     "enlilList": [
+      {
+       "impactList": [
+        {
+         "location": "STEREO B",
+         "arrivalTime": "2012-01-29T20:38Z"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-01-26T19:09Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 572.0,
+     "enlilList": [
+      {
+       "impactList": [
+        {
+         "location": "STEREO B",
+         "arrivalTime": "2012-01-29T20:38Z"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-01-27T06:09Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 400.0,
+     "enlilList": [
+      {
+       "impactList": [
+        {
+         "location": "STEREO A",
+         "arrivalTime": "2012-01-30T23:13Z"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-01-27T16:39Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": false,
+     "speed": 2500.0,
+     "enlilList": []
+    },
+    {
+     "isMostAccurate": true,
+     "speed": 2200.0,
+     "enlilList": [
+      {
+       "impactList": [
+        {
+         "location": "STEREO A",
+         "arrivalTime": "2012-01-29T08:41Z"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-01-31T17:36Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 390.0,
+     "enlilList": [
+      {
+       "impactList": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-02-03T07:24Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 580.0,
+     "enlilList": [
+      {
+       "impactList": [
+        {
+         "location": "MESSENGER",
+         "arrivalTime": "2012-02-04T21:21Z"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-02-04T19:18Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 780.0,
+     "enlilList": [
+      {
+       "impactList": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-02-09T06:00Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 247.0,
+     "enlilList": [
+      {
+       "impactList": []
+      },
+      {
+       "impactList": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-02-09T21:17Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 546.0,
+     "enlilList": [
+      {
+       "impactList": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-02-10T12:25Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 301.0,
+     "enlilList": [
+      {
+       "impactList": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-02-10T14:24Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 238.0,
+     "enlilList": [
+      {
+       "impactList": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-02-10T20:12Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 588.0,
+     "enlilList": [
+      {
+       "impactList": []
+      }
+     ]
+    },
+    {
+     "isMostAccurate": false,
+     "speed": 518.0,
+     "enlilList": []
+    }
+   ]
+  },
+  {
+   "startTime": "2012-02-13T11:00Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 350.0,
+     "enlilList": [
+      {
+       "impactList": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-02-16T06:54Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 520.0,
+     "enlilList": [
+      {
+       "impactList": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-02-23T08:24Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 550.0,
+     "enlilList": [
+      {
+       "impactList": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-02-24T03:46Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 815.0,
+     "enlilList": [
+      {
+       "impactList": [
+        {
+         "location": "Mars",
+         "arrivalTime": "2012-02-28T07:50Z"
+        }
+       ]
+      },
+      {
+       "impactList": [
+        {
+         "location": "Mars",
+         "arrivalTime": "2012-02-28T07:50Z"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "isMostAccurate": false,
+     "speed": 821.0,
+     "enlilList": []
+    }
+   ]
+  },
+  {
+   "startTime": "2012-02-24T20:09Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 350.0,
+     "enlilList": [
+      {
+       "impactList": []
+      },
+      {
+       "impactList": [
+        {
+         "location": "Mars",
+         "arrivalTime": "2012-02-28T07:50Z"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-02-25T13:25Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 350.0,
+     "enlilList": [
+      {
+       "impactList": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-02-25T14:15Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 600.0,
+     "enlilList": [
+      {
+       "impactList": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "startTime": "2012-02-27T18:48Z",
+   "cmeAnalyses": [
+    {
+     "isMostAccurate": true,
+     "speed": 600.0,
+     "enlilList": [
+      {
+       "impactList": [
+        {
+         "location": "STEREO A",
+         "arrivalTime": "2012-03-01T17:32Z"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "sep": [
+  {
+   "eventTime": "2012-01-23T04:49Z"
+  },
+  {
+   "eventTime": "2012-01-23T05:00Z"
+  },
+  {
+   "eventTime": "2012-01-23T05:30Z"
+  },
+  {
+   "eventTime": "2012-01-23T08:15Z"
+  },
+  {
+   "eventTime": "2012-01-24T06:30Z"
+  },
+  {
+   "eventTime": "2012-01-27T19:00Z"
+  },
+  {
+   "eventTime": "2012-01-27T23:35Z"
+  }
+ ]
+}

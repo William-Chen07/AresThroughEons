@@ -20,7 +20,8 @@ import {
 } from "@/sim/explore"
 import { healthOf, liveThrough, needEvacuating, type CrewHealth, type CrewMember } from "@/sim/lifeSupport"
 import { withResearch } from "@/sim/research"
-import { advanceWeather, calmHours, startWeather, type Weather } from "@/sim/weather"
+import { advanceSky, calmHours, quietFillHours, startWeather, type Weather } from "@/sim/weather"
+import { addWindow, newCalendar, type Calendar, type SpaceEvent } from "@/sim/calendar"
 
 export const SAVE_SLOT_COUNT = 3
 export const SAVE_NAME_MAX = 16
@@ -70,8 +71,17 @@ export interface SaveSlot {
   evacuated: string[]
   /** The weather event going on right now, or null in calm weather (see sim/weather.ts). */
   weather: Weather
-  /** The time on the clock (`hours`) when the next weather event starts. */
+  /**
+   * The time on the clock (`hours`) when the next random weather event starts. While the calendar
+   * has real events, storms come from those, and this is when a random one fills in a long quiet
+   * stretch (see sim/weather.ts).
+   */
   nextWeatherAt: number
+  /**
+   * This era's calendar: the hidden real date it started on, and the real NASA events loaded for
+   * it so far (see sim/calendar.ts). Each era gets a new one, starting again at Day 1.
+   */
+  calendar: Calendar
   /** The groups of astronauts out exploring right now (see sim/explore.ts). */
   trips: Trip[]
   /** What the last few trips brought back, newest first. */
@@ -129,6 +139,14 @@ interface SavesActions {
    * exist or any of them is evacuated or already away.
    */
   sendExploring: (index: number, placeId: string, crewIds: readonly string[]) => void
+  /**
+   * Adds a newly loaded window of real NASA events to the calendar, up to `endHours` from Day 1.
+   * `start` is the calendar's start date the window was loaded for; if the era has moved on since,
+   * nothing changes.
+   */
+  addSpaceEvents: (index: number, start: string, events: SpaceEvent[], endHours: number, source: Calendar["source"]) => void
+  /** Records that loading the calendar's next window failed: storms come at random until one loads. */
+  markCalendarFailed: (index: number, start: string) => void
 }
 
 /** Used when the player leaves the name empty. */
@@ -165,7 +183,8 @@ export const savesStore = createStore<Saves & SavesActions>()(
           health: {},
           evacuated: [],
           weather: null,
-          nextWeatherAt: calmHours(Math.random()),
+          nextWeatherAt: quietFillHours(Math.random()),
+          calendar: newCalendar(Math.random(), now, 0),
           trips: [],
           tripLog: [],
           tripNews: null,
@@ -215,7 +234,8 @@ export const savesStore = createStore<Saves & SavesActions>()(
         const slot = get().slots[index]
         if (!slot) return
         const clock = slot.hours + hours
-        const sky = advanceWeather(slot.weather, slot.nextWeatherAt, clock, hours, Math.random())
+        // Storms come from real solar eruptions on the calendar, or at random (see sim/weather.ts).
+        const sky = advanceSky(slot.weather, slot.nextWeatherAt, slot.calendar, clock, hours, Math.random)
         const storm =
           slot.weather && sky.stormHours > 0
             ? { hours: sky.stormHours, healthLostPerHour: weatherEvent(slot.weather.id).healthLostPerHourOutside }
@@ -263,9 +283,8 @@ export const savesStore = createStore<Saves & SavesActions>()(
       setWeather: (index, id) => {
         const slot = get().slots[index]
         if (!slot) return
-        const next = id
-          ? { ...slot, weather: startWeather(id) }
-          : { ...slot, weather: null, nextWeatherAt: slot.hours + calmHours(Math.random()) }
+        const calm = slot.calendar.failed ? calmHours(Math.random()) : quietFillHours(Math.random())
+        const next = id ? { ...slot, weather: startWeather(id) } : { ...slot, weather: null, nextWeatherAt: slot.hours + calm }
         set({ slots: withSlot(get().slots, index, next) })
       },
       resetMap: (index) => {
@@ -284,7 +303,9 @@ export const savesStore = createStore<Saves & SavesActions>()(
           health: {},
           evacuated: [],
           weather: null,
-          nextWeatherAt: calmHours(Math.random()),
+          nextWeatherAt: quietFillHours(Math.random()),
+          // A fresh start lands in a new random year, at Day 1 again.
+          calendar: newCalendar(Math.random(), Date.now(), 0),
           trips: [],
           tripLog: [],
           tripNews: null,
@@ -309,7 +330,9 @@ export const savesStore = createStore<Saves & SavesActions>()(
           health: {},
           evacuated: [],
           weather: null,
-          nextWeatherAt: slot.hours + calmHours(Math.random()),
+          nextWeatherAt: slot.hours + quietFillHours(Math.random()),
+          // The new crew lands in a new random year, at Day 1 again.
+          calendar: newCalendar(Math.random(), Date.now(), slot.hours),
           trips: [],
           tripNews: null,
         }
@@ -317,6 +340,17 @@ export const savesStore = createStore<Saves & SavesActions>()(
         // The menu shows the furthest era any expedition has reached (see sim/progress.ts).
         const progress = progressStore.getState()
         progress.setProgress({ hasSave: true, era: Math.max(progress.era, era) })
+      },
+      addSpaceEvents: (index, start, events, endHours, source) => {
+        const slot = get().slots[index]
+        if (!slot || slot.calendar.start !== start) return
+        const calendar = addWindow(slot.calendar, events, endHours, source)
+        set({ slots: withSlot(get().slots, index, { ...slot, calendar }) })
+      },
+      markCalendarFailed: (index, start) => {
+        const slot = get().slots[index]
+        if (!slot || slot.calendar.start !== start || slot.calendar.failed) return
+        set({ slots: withSlot(get().slots, index, { ...slot, calendar: { ...slot.calendar, failed: true } }) })
       },
       markLanded: (index) => {
         const slot = get().slots[index]
@@ -340,7 +374,9 @@ export const savesStore = createStore<Saves & SavesActions>()(
       // exploring and calm weather, with the first event a while off. (An astronaut already at
       // zero health in an older save is evacuated the next time the clock moves.)
       // A save from before eras is in era 1, with its one lander in the middle and everything built in era 1.
-      version: 15,
+      // Version 16 added the `calendar`: an older save's current era gets one now, starting at
+      // Day 1 from the clock as it stands.
+      version: 16,
       migrate: (stored) => {
         const old = stored as Saves
         return {
@@ -371,6 +407,7 @@ export const savesStore = createStore<Saves & SavesActions>()(
                 tripNews: slot.tripNews ?? null,
                 weather: slot.weather ?? null,
                 nextWeatherAt: slot.nextWeatherAt ?? (slot.hours ?? 0) + calmHours(Math.random()),
+                calendar: slot.calendar ?? newCalendar(Math.random(), Date.now(), slot.hours ?? 0),
               },
           ),
         }
