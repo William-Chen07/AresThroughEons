@@ -1,7 +1,9 @@
 import { Menu } from "@base-ui/react/menu"
+import { Heart } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { BuildPanel, type BuildTool } from "@/components/BuildPanel"
 import { Bar } from "@/components/CrewPanel"
+import { ResourceIcon } from "@/components/ResourceIcon"
 import { ExploreMap } from "@/components/ExploreMap"
 import { ResearchPanel } from "@/components/ResearchPanel"
 import { ResourceBar } from "@/components/ResourceBar"
@@ -9,7 +11,7 @@ import { StormOverlay } from "@/components/StormOverlay"
 import { explorePlace } from "@/content/explore"
 import { exploreEvent } from "@/content/exploreEvents"
 import { moduleType, type ModuleTypeId } from "@/content/modules"
-import type { Resources } from "@/content/resources"
+import { RESOURCE_TYPES, type ResourceId, type Resources } from "@/content/resources"
 import { weatherEvent, type WeatherId } from "@/content/weather"
 import { createMapView, type ClickKeys, type MapView } from "@/map/mapView"
 import { formatSite, type MarsSite } from "@/map/marsSite"
@@ -141,6 +143,9 @@ function describeEvent(event: PathingEvent, nameOf: NameOf): string | null {
       return null
   }
 }
+
+/** A resource's colour from content/resources.ts, for the icons in the Crew list. */
+const resourceColor = (id: ResourceId) => RESOURCE_TYPES.find((type) => type.id === id)?.color ?? 0xffffff
 
 const kickerClass = "text-xs font-medium uppercase tracking-[0.4em] text-orange-300/80"
 const panelClass = "border border-white/15 bg-neutral-950/80 px-5 py-3 backdrop-blur-sm"
@@ -282,6 +287,8 @@ export function GameMap({
   const crewRef = useRef<{ terrain: VoxelTerrain; world: World } | null>(null)
   const [selectedCrew, setSelectedCrew] = useState<string[]>([])
   const [crewMessage, setCrewMessage] = useState<string | null>(null)
+  /** Whether the Crew list on the left is unfolded. */
+  const [crewOpen, setCrewOpen] = useState(true)
   /** True once the player has clicked a module to see inside the base: every module is see-through until the next click on one. */
   const [baseOpen, setBaseOpen] = useState(false)
 
@@ -696,15 +703,24 @@ export function GameMap({
       <div className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between p-4 sm:p-6">
         <div className="flex items-start justify-between gap-4">
           <div className="flex flex-col items-start gap-3">
-            <div className={panelClass}>
+            {/* The calendar: only the day number, never the real date (see sim/calendar.ts). */}
+            <section aria-label="Calendar" className={`${panelClass} w-72`}>
               <p className={kickerClass}>
                 {name} · Era {era}
               </p>
-              <h1 className="mt-1 text-lg font-semibold tracking-wider">{formatSite(site)}</h1>
-              <p className="mt-1 text-[11px] text-white/50">
-                Landing site on Mars. Each block is about {terrain ? Math.round(terrain.metersPerCell) : 163} m wide.
-              </p>
-            </div>
+              <p className="mt-1 text-2xl font-semibold uppercase tracking-[0.2em] tabular-nums">Day {day}</p>
+              {/* How far through today the clock is. */}
+              <div className="mt-2 h-1.5 w-full bg-white/10" aria-hidden>
+                <div className="h-full bg-orange-400/80" style={{ width: `${Math.round(dayProgress * 100)}%` }} />
+              </div>
+              {/* The latest real solar event on the calendar. */}
+              {spaceNews && (
+                <p className="mt-2 text-xs leading-snug text-orange-200" aria-live="polite">
+                  <span className="text-white/50">Space news: </span>
+                  {spaceNews}
+                </p>
+              )}
+            </section>
             {buildOpen && terrain && (
               <BuildPanel
                 tool={tool}
@@ -733,72 +749,75 @@ export function GameMap({
               />
             )}
             {landed && terrain && !tool && (
-              <div className="pointer-events-auto w-60 border border-white/15 bg-neutral-950/80 px-3 py-2 backdrop-blur-sm" aria-live="polite">
-                <p className="text-[11px] font-medium uppercase tracking-[0.35em] text-orange-300/80">Crew</p>
-                <ul className="mt-1.5 flex flex-col gap-1">
-                  {crew.map((member) => {
-                    const isEvacuated = evacuated.includes(member.id) || !!member.evacuated
-                    const isAway = away.includes(member.id)
-                    const gone = isEvacuated || isAway
-                    const selected = selectedCrew.includes(member.id) && !isAway
-                    return (
-                      <li key={member.id}>
-                        {/* One row per astronaut. Clicking it selects them, like clicking them on the map. */}
-                        <button
-                          type="button"
-                          aria-pressed={selected}
-                          disabled={gone}
-                          onClick={(e) => selectFromPanel(member.id, e.shiftKey)}
-                          className={`pointer-events-auto flex w-full flex-col gap-1 border px-2 py-1.5 text-left transition focus-visible:outline-2 focus-visible:outline-orange-400 ${
-                            selected
-                              ? "border-orange-400/70 bg-orange-500/25"
-                              : gone
-                                ? "border-white/5 bg-white/[0.02] text-white/35"
-                                : "border-white/10 bg-white/5 hover:border-orange-400/70 hover:bg-orange-500/15"
-                          }`}
-                        >
-                          <span className="flex items-center gap-2 text-xs font-semibold">
-                            <span className="size-2.5 shrink-0 rounded-full" style={{ background: member.color }} />
-                            <span className="truncate">{member.name}</span>
-                            {isEvacuated ? (
-                              <span className="ml-auto text-[10px] uppercase tracking-[0.15em] text-orange-300/80">Evacuated</span>
-                            ) : isAway ? (
-                              <span className="ml-auto text-[10px] uppercase tracking-[0.15em] text-white/50">Exploring</span>
-                            ) : (
-                              selected && <span className="ml-auto text-[10px] uppercase tracking-[0.15em] text-orange-200">Selected</span>
+              <div className="pointer-events-auto w-48 border border-white/15 bg-neutral-950/80 px-2 py-1.5 backdrop-blur-sm" aria-live="polite">
+                {/* The header folds the list away, so it doesn't always cover the map. */}
+                <button
+                  type="button"
+                  aria-expanded={crewOpen}
+                  aria-controls="crew-list"
+                  onClick={() => setCrewOpen((open) => !open)}
+                  className="-mx-1 flex w-[calc(100%+0.5rem)] items-center justify-between px-1 py-0.5 text-[10px] font-medium uppercase tracking-[0.35em] text-orange-300/80 transition hover:bg-orange-500/15 hover:text-orange-200 focus-visible:outline-2 focus-visible:outline-orange-400"
+                >
+                  Crew
+                  <svg aria-hidden viewBox="0 0 10 6" className={`size-2.5 fill-current transition ${crewOpen ? "" : "-rotate-90"}`}>
+                    <path d="M0 0h10L5 6z" />
+                  </svg>
+                </button>
+                {crewOpen && (
+                  <ul id="crew-list" className="mt-1 flex flex-col gap-1">
+                    {crew.map((member) => {
+                      const isEvacuated = evacuated.includes(member.id) || !!member.evacuated
+                      const isAway = away.includes(member.id)
+                      const gone = isEvacuated || isAway
+                      const selected = selectedCrew.includes(member.id) && !isAway
+                      return (
+                        <li key={member.id}>
+                          {/* One row per astronaut. Clicking it selects them, like clicking them on the map. */}
+                          <button
+                            type="button"
+                            aria-pressed={selected}
+                            disabled={gone}
+                            onClick={(e) => selectFromPanel(member.id, e.shiftKey)}
+                            className={`pointer-events-auto flex w-full flex-col gap-1 border px-1.5 py-1 text-left transition focus-visible:outline-2 focus-visible:outline-orange-400 ${
+                              selected
+                                ? "border-orange-400/70 bg-orange-500/25"
+                                : gone
+                                  ? "border-white/5 bg-white/[0.02] text-white/35"
+                                  : "border-white/10 bg-white/5 hover:border-orange-400/70 hover:bg-orange-500/15"
+                            }`}
+                          >
+                            <span className="flex items-center gap-1.5 text-[11px] font-semibold">
+                              <span className="size-2 shrink-0 rounded-full" style={{ background: member.color }} />
+                              <span className="truncate">{member.name}</span>
+                              {isEvacuated ? (
+                                <span className="ml-auto text-[9px] uppercase tracking-[0.15em] text-orange-300/80">Evacuated</span>
+                              ) : isAway ? (
+                                <span className="ml-auto text-[9px] uppercase tracking-[0.15em] text-white/50">Exploring</span>
+                              ) : (
+                                selected && <span className="ml-auto text-[9px] uppercase tracking-[0.15em] text-orange-200">Selected</span>
+                              )}
+                            </span>
+                            {!gone && (
+                              <span className="grid grid-cols-2 gap-x-2 gap-y-0.5">
+                                <Bar label="Health" value={member.health} icon={<Heart aria-hidden className="size-3 shrink-0 text-rose-400" strokeWidth={2.25} />} />
+                                <Bar label="Oxygen" value={member.needs.oxygen} icon={<ResourceIcon id="oxygen" color={resourceColor("oxygen")} className="size-3" />} />
+                                <Bar label="Food" value={member.needs.food} icon={<ResourceIcon id="food" color={resourceColor("food")} className="size-3" />} />
+                                <Bar label="Water" value={member.needs.water} icon={<ResourceIcon id="water" color={resourceColor("water")} className="size-3" />} />
+                              </span>
                             )}
-                          </span>
-                          {!gone && <Bar label="Health" value={member.health} />}
-                        </button>
-                      </li>
-                    )
-                  })}
-                </ul>
-                {crewMessage && <p className="mt-1.5 text-[11px] text-orange-200">{crewMessage}</p>}
+                          </button>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
+                {crewMessage && <p className="mt-1 text-[10px] leading-snug text-orange-200">{crewMessage}</p>}
               </div>
             )}
           </div>
           <div className="flex flex-col items-end gap-3">
             {/* The resources run along the top. */}
             <ResourceBar resources={resources} />
-            {/* The calendar: only the day number, never the real date (see sim/calendar.ts). */}
-            <section
-              aria-label="Calendar"
-              className="max-w-56 border border-white/15 bg-neutral-950/80 px-3 py-1.5 text-right backdrop-blur-sm"
-            >
-              <p className="text-xs font-semibold uppercase tracking-[0.25em] tabular-nums">Day {day}</p>
-              {/* How far through today the clock is. */}
-              <div className="mt-1 h-0.5 w-full bg-white/10" aria-hidden>
-                <div className="ml-auto h-full bg-orange-400/80" style={{ width: `${Math.round(dayProgress * 100)}%` }} />
-              </div>
-              {/* The latest real solar event on the calendar. */}
-              {spaceNews && (
-                <p className="mt-1.5 text-left text-[11px] leading-snug text-orange-200" aria-live="polite">
-                  <span className="text-white/50">Space news: </span>
-                  {spaceNews}
-                </p>
-              )}
-            </section>
             {/* Build, Research and Explore, folded into one dropdown. The ` key still toggles Build. */}
             {terrain && (
               <Menu.Root>
@@ -826,6 +845,13 @@ export function GameMap({
                             {item.label}
                           </Menu.Item>
                         ))}
+                      <Menu.Separator className="my-1 h-px bg-white/15" />
+                      <Menu.Item
+                        onClick={onExit}
+                        className="flex cursor-default items-center px-5 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-white/70 outline-hidden select-none hover:bg-orange-500/25 hover:text-orange-100 data-highlighted:bg-orange-500/25 data-highlighted:text-orange-100"
+                      >
+                        Exit to menu
+                      </Menu.Item>
                     </Menu.Popup>
                   </Menu.Positioner>
                 </Menu.Portal>

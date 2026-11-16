@@ -1,3 +1,4 @@
+import type { ReactNode } from "react"
 import {
   isTrainedFor,
   NASA_DATA,
@@ -26,9 +27,27 @@ const NEED_LABELS: Record<NeedId, string> = {
   morale: "Morale",
 }
 
-/** A 0–100 stat as a coloured bar: green, amber below 60, red below 30. Also used by the map's Crew list. */
-export function Bar({ label, value }: { label: string; value: number }) {
+/**
+ * A 0–100 stat as a coloured bar: green, amber below 60, red below 30. Also used, in its small
+ * form with an icon, by the map's Crew list.
+ */
+export function Bar({ label, value, icon }: { label: string; value: number; icon?: ReactNode }) {
   const color = value < 30 ? "bg-red-500" : value < 60 ? "bg-amber-400" : "bg-emerald-400"
+  // The small form: an icon in place of the words and no number, with both still there for a
+  // pointer (as a tooltip) and for screen readers.
+  if (icon) {
+    return (
+      <div className="flex items-center gap-1" title={`${label} ${Math.round(value)}`}>
+        {icon}
+        <span className="sr-only">
+          {label} {Math.round(value)}
+        </span>
+        <div className="h-1 flex-1 overflow-hidden rounded bg-white/10">
+          <div className={`h-full ${color}`} style={{ width: `${value}%` }} />
+        </div>
+      </div>
+    )
+  }
   return (
     <div className="flex items-center gap-2 text-[11px]">
       <span className="w-14 shrink-0 text-white/60">{label}</span>
