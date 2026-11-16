@@ -33,6 +33,15 @@ PALETTE = {
     "PLANT_GREEN": "#6DBE45",
     "REGOLITH_TAN": "#C47A4A",
     "LIGHT_YELLOW": "#FFD966",
+    # Skin tones for the indoor astronauts (REGOLITH_TAN is a fourth).
+    "SKIN_TAN": "#DBA574",
+    "SKIN_FAIR": "#F3D2B4",
+    "SKIN_DEEP": "#8D5A3B",
+    # The four crew colours, matching the game's (the fourth is black here, to show on a white suit).
+    "CREW_ORANGE": "#F97316",
+    "CREW_GREEN": "#22C55E",
+    "CREW_BLUE": "#3B82F6",
+    "CREW_BLACK": "#1E2127",
     # Pure white: the game recolours these parts with a PixiJS tint.
     "TINT_MASK": "#FFFFFF",
 }

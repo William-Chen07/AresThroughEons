@@ -56,6 +56,37 @@ def begin(era, name):
     bpy.context.scene.collection.children.link(_collection)
 
 
+def material(name, hex_color):
+    """
+    Makes sure the palette has a colour called MARS_PALETTE_<name>, adding it if this .blend was
+    made before the colour existed. New colours also belong in PALETTE in step0_setup.py.
+    """
+    full_name = "MARS_PALETTE_" + name
+    if full_name in bpy.data.materials:
+        return bpy.data.materials[full_name]
+    srgb = [int(hex_color[i : i + 2], 16) / 255 for i in (1, 3, 5)]
+    linear = [value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4 for value in srgb]
+    made = bpy.data.materials.new(full_name)
+    made["slice_color"] = hex_color
+    made.diffuse_color = (*linear, 1.0)
+    made.roughness = 1.0
+    made.use_fake_user = True
+    return made
+
+
+def discard(name):
+    """Removes a collection and everything in it from the open .blend, if it is there (for a piece that was renamed)."""
+    old = bpy.data.collections.get(name)
+    if old is None:
+        return
+    for obj in list(old.all_objects):
+        mesh = obj.data
+        bpy.data.objects.remove(obj)
+        if mesh.users == 0:
+            bpy.data.meshes.remove(mesh)
+    bpy.data.collections.remove(old)
+
+
 def _adopt(material, rotation):
     obj = bpy.context.active_object
     for owner in list(obj.users_collection):
