@@ -25,6 +25,7 @@ import { assignCrewRole } from "@/sim/step"
 import type { LogEntry, Pawn, RoleId } from "@/sim/types"
 import { NO_RESEARCH, addResearchWork, startResearch, type ResearchProgress } from "@/sim/research"
 import { advanceSky, calmHours, poweredShare, quietFillHours, startWeather, type Weather } from "@/sim/weather"
+import { hourOfDay, isNight } from "@/sim/dayNight"
 import { addWindow, newCalendar, testSpaceEvents, type Calendar, type SpaceEvent, type TestSpaceEvent } from "@/sim/calendar"
 import { depositIdOf, mine, type Deposit } from "@/sim/deposits"
 import { workSpeed } from "@/sim/pawn"
@@ -326,6 +327,7 @@ export const savesStore = createStore<Saves & SavesActions>()(
           atBase,
           away: slot.trips.flatMap((trip) => trip.crew),
           storm,
+          night: isNight(hourOfDay(slot.calendar, slot.hours)),
         })
         let crew = lived.crew
         const crewLog = [...slot.crewLog, ...lived.log]

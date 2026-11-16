@@ -3,7 +3,7 @@ import { TUNING } from "./constants"
 import { OCCUPATION_IDS } from "./occupations"
 import { canGoOnEva, clamp, gainXp, hasStatus, injure, isActive, traitMultiplier, workSpeed } from "./pawn"
 import type { UrgentNeed } from "./pathing"
-import { OXYGEN_PER_ASTRONAUT_HOUR, UNPRESSURIZED_OXYGEN_FACTOR, type CrewMember } from "./lifeSupport"
+import { OXYGEN_PER_ASTRONAUT_HOUR, SUIT_OXYGEN_FACTOR, type CrewMember } from "./lifeSupport"
 import { createRng } from "./rng"
 import { ROLES, treatNextPatient } from "./roles"
 import { createCrew, createPawn, createRecruit } from "./spawn"
@@ -96,6 +96,8 @@ export interface LiveCrewInput {
    * out: no faster).
    */
   storm: { hours: number; healthLostPerHourOutside: number; name: string; waterUseMultiplier?: number } | null
+  /** It is night at the base (see sim/dayNight.ts): the only time the crew sleep. Leave out for them to sleep whenever they're worn out. */
+  night?: boolean
   random?: () => number
 }
 
@@ -127,7 +129,7 @@ export function liveCrewThrough(input: LiveCrewInput): {
 
   // 1. What everyone is doing: asleep, or whatever the map says.
   for (const pawn of present) {
-    decideActivity(pawn)
+    decideActivity(pawn, input.night)
     if (pawn.activity === "sleeping") continue
     const spot = where.get(pawn.id)
     if (!spot) {
@@ -207,7 +209,9 @@ export function liveCrewThrough(input: LiveCrewInput): {
       hour: clock,
       supplies,
       supplyPerDay: SUPPLY_PER_ASTRONAUT_DAY,
-      oxygenFactor: spot && spot.pressurized === false ? UNPRESSURIZED_OXYGEN_FACTOR : 1,
+      oxygenFactor: SUIT_OXYGEN_FACTOR,
+      // Each astronaut has their own tank: it runs down outside and is filled up in any module or tube.
+      suitAir: spot && spot.pressurized === false ? "drain" : "refill",
       // Inside or out: only for the part of the time the storm was on.
       waterFactor: inStorm && storm ? 1 + ((storm.waterUseMultiplier ?? 1) - 1) * stormShare : 1,
       outside,
