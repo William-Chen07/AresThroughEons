@@ -20,12 +20,10 @@ const mod = (id: string, type: PlacedModule["type"], col: number, row: number): 
 
 /**
  * Habitat (cols 2-4, rows 2-4), a Research Lab wall to wall below it (cols 2-4, rows 5-6),
- * a tube east of the habitat (5,3)-(6,3) and an Airlock at (7,3)-(8,3). The lander is in the middle.
+ * and a tube east of the habitat (5,3)-(6,3). The lander is in the middle.
  */
-function smallBase(withAirlock = true): Base {
-  const modules = [mod("hab", "habitat", 2, 2), mod("lab", "research", 2, 5)]
-  if (withAirlock) modules.push(mod("air", "airlock", 7, 3))
-  return { modules, tubes: [{ col: 5, row: 3 }, { col: 6, row: 3 }] }
+function smallBase(): Base {
+  return { modules: [mod("hab", "habitat", 2, 2), mod("lab", "research", 2, 5)], tubes: [{ col: 5, row: 3 }, { col: 6, row: 3 }] }
 }
 const at = (w: World, col: number, row: number) => getZone(w.grid, col, row)
 
@@ -47,45 +45,37 @@ test("the base becomes a walkable map: modules and tubes inside, open ground, la
   assert.equal(at(w, 3, 3), "inside", "habitat")
   assert.equal(at(w, 3, 6), "inside", "lab")
   assert.equal(at(w, 5, 3), "inside", "tube")
-  assert.equal(at(w, 7, 3), "inside", "airlock module")
   assert.equal(at(w, 15, 15), "outside", "open ground")
   assert.equal(getCost(w.grid, 12, 12), BLOCKED, "the lander")
-  assert.deepEqual(w.stations.map((s) => s.id).sort(), ["module:air", "module:hab", "module:lab"])
+  assert.deepEqual(w.stations.map((s) => s.id).sort(), ["module:hab", "module:lab"])
   assert.ok(w.stations.every((s) => s.walkIn))
 })
 
-for (const withAirlock of [true, false]) {
-  test(`crew walk out of the habitat and back in, ${withAirlock ? "with" : "without"} an airlock`, () => {
-    const w = buildNavigation(flat(), smallBase(withAirlock))
-    addPawn(w, "a", { x: 3, y: 3 })
-    assert.ok(issueOrder(w, "a", { kind: "move", target: { x: 16, y: 3 } }).ok)
-    const events = runUntil(w, arrivedEvent)
-    assert.ok(events.some((e) => e.type === "exposureChanged" && e.exposure === "outside"))
-    assert.equal(w.movers.a.exposure, "outside")
-    assert.ok(issueOrder(w, "a", { kind: "move", target: { x: 3, y: 3 } }).ok)
-    runUntil(w, arrivedEvent)
-    assert.equal(w.movers.a.exposure, "inside")
-  })
-}
+test("crew walk out of the habitat through a doorway and back in", () => {
+  const w = buildNavigation(flat(), smallBase())
+  addPawn(w, "a", { x: 3, y: 3 })
+  assert.ok(issueOrder(w, "a", { kind: "move", target: { x: 16, y: 3 } }).ok)
+  const events = runUntil(w, arrivedEvent)
+  assert.ok(events.some((e) => e.type === "exposureChanged" && e.exposure === "outside"))
+  assert.equal(w.movers.a.exposure, "outside")
+  assert.ok(issueOrder(w, "a", { kind: "move", target: { x: 3, y: 3 } }).ok)
+  runUntil(w, arrivedEvent)
+  assert.equal(w.movers.a.exposure, "inside")
+})
 
-test("modules joined to an airlock are pressurized and provide oxygen; others don't", () => {
-  // The habitat and lab join the airlock through the tube; the med bay stands on its own.
+test("every module and tube is sealed and provides oxygen; open ground doesn't", () => {
+  // The med bay stands on its own, joined to nothing: it's sealed too.
   const base: Base = { ...smallBase(), modules: [...smallBase().modules, mod("st", "medbay", 14, 2)] }
   const cells = pressurizedCells(SIZE, base)
-  for (const [col, row] of [[3, 3], [3, 6], [5, 3], [7, 3], [8, 3]]) assert.ok(cells.has(row * SIZE + col), `${col},${row}`)
-  assert.ok(!cells.has(2 * SIZE + 14), "medbay")
+  for (const [col, row] of [[3, 3], [3, 6], [5, 3], [6, 3], [14, 2]]) assert.ok(cells.has(row * SIZE + col), `${col},${row}`)
   assert.ok(!cells.has(10 * SIZE + 10), "open ground")
   const w = buildNavigation(flat(), base)
   const provides = (id: string) => w.stations.find((s) => s.id === moduleStationId(id))!.provides
-  assert.deepEqual(provides("hab"), ["oxygen"])
-  assert.deepEqual(provides("lab"), ["oxygen"])
-  assert.deepEqual(provides("st"), [])
-  syncNavigation(w, flat(), { ...base, modules: base.modules.filter((m) => m.id !== "air") })
-  assert.deepEqual(provides("hab"), [], "no airlock any more")
+  for (const id of ["hab", "lab", "st"]) assert.deepEqual(provides(id), ["oxygen"], id)
 })
 
-test("low on oxygen, a crewmate heads for a pressurized module", () => {
-  // A med bay on its own at (14-15, 8-9) is closer, but only the airlock-joined modules are pressurized.
+test("low on oxygen, a crewmate heads for the nearest module", () => {
+  // A med bay on its own at (14-15, 8-9) is the closest module.
   const base: Base = { ...smallBase(), modules: [...smallBase().modules, mod("st", "medbay", 14, 8)] }
   const w = buildNavigation(flat(), base)
   addPawn(w, "a", { x: 16, y: 10 })
@@ -95,17 +85,17 @@ test("low on oxygen, a crewmate heads for a pressurized module", () => {
   }
   const interrupt = all.find((e) => e.type === "needInterrupt")
   assert.ok(interrupt && interrupt.type === "needInterrupt" && interrupt.need === "oxygen")
-  assert.ok(["module:hab", "module:lab", "module:air"].includes(interrupt.stationId!), String(interrupt.stationId))
+  assert.equal(interrupt.stationId, "module:st")
   assert.equal(w.movers.a.exposure, "inside")
 })
 
-test("with no airlock, low oxygen has nowhere to go and says so", () => {
-  const w = buildNavigation(flat(), smallBase(false))
+test("with no modules, low oxygen has nowhere to go and says so", () => {
+  const w = buildNavigation(flat(), { modules: [], tubes: [] })
   addPawn(w, "a", { x: 16, y: 10 })
   const ev = stepPathing(w, 0.01, { urgentNeed: () => "oxygen" })
   assert.ok(ev.some((e) => e.type === "needUnmet" && e.need === "oxygen"))
-  // Building an airlock gives them somewhere to go.
-  syncNavigation(w, flat(), smallBase(true))
+  // Building a module gives them somewhere to go.
+  syncNavigation(w, flat(), smallBase())
   const next = stepPathing(w, 0.01, { urgentNeed: () => "oxygen" })
   assert.ok(next.some((e) => e.type === "needInterrupt" && e.need === "oxygen"))
 })
@@ -179,8 +169,8 @@ test("tubes are hallways: walking between joined modules stays inside", () => {
   assert.ok(w.movers.a.path.some((t) => t.x === 7 && t.y === 3), "walks along the tube")
 })
 
-test("modules joined wall to wall are walked between inside, no airlock needed", () => {
-  const w = buildNavigation(flat(), smallBase(false))
+test("modules joined wall to wall are walked between inside", () => {
+  const w = buildNavigation(flat(), smallBase())
   addPawn(w, "a", { x: 3, y: 2 })
   assert.ok(issueOrder(w, "a", { kind: "move", target: { x: 3, y: 6 } }).ok)
   assert.ok(w.movers.a.path.every((t) => at(w, t.x, t.y) === "inside"))

@@ -105,11 +105,11 @@ function App() {
           onExit={() => setScreen("menu")}
         />
 
-        {/* The crew system's details for this save (sim/crewLife.ts). Sits above the map credits button. */}
+        {/* The crew system's details for this save (sim/crewLife.ts). Sits above the map credits button, and above the Build bar while it is open. */}
         <button
           type="button"
           onClick={() => setShowCrew((v) => !v)}
-          className="fixed bottom-20 right-4 z-40 sm:bottom-24 sm:right-6 border border-white/15 bg-black/70 px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-white backdrop-blur-sm transition hover:border-orange-400/70 hover:bg-orange-950/85 hover:text-orange-100 focus-visible:outline-2 focus-visible:outline-orange-400"
+          className="fixed bottom-[calc(var(--build-bar,0px)+5rem)] right-4 z-40 sm:bottom-[calc(var(--build-bar,0px)+6rem)] sm:right-6 border border-white/15 bg-black/70 px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-white backdrop-blur-sm transition hover:border-orange-400/70 hover:bg-orange-950/85 hover:text-orange-100 focus-visible:outline-2 focus-visible:outline-orange-400"
         >
           {showCrew ? "Close crew" : "Crew"}
         </button>

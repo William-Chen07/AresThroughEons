@@ -25,11 +25,10 @@ import {
  * (see moduleDoorways in sim/base.ts): out onto open ground, or into a tube laid in front of one.
  * Tubes have no doors of their own: they're the hallways between modules, and modules standing
  * wall to wall are walked between too. Routes between joined modules stay inside
- * (see PATHING_TUNING.doorCrossingCost). Airlocks aren't needed to get in: an Airlock keeps the
- * modules joined to it pressurized (see pressurizedCells), so crew there don't use up oxygen.
+ * (see PATHING_TUNING.doorCrossingCost). Every module and tube is sealed (see pressurizedCells).
  *
  * Every module is also a walk-in station, so clicking one sends the selected crew inside to work.
- * Pressurized modules provide "oxygen", so a crewmate running low heads for one.
+ * Every module provides "oxygen", so a crewmate running low heads for the nearest one.
  * Call syncNavigation whenever the base changes; crew keep their places and orders, and anyone
  * whose route was cut finds another or stops.
  */
@@ -47,36 +46,13 @@ export const MODULE_PROVIDES: Partial<Record<ModuleTypeId, Exclude<UrgentNeed, "
 export const moduleStationId = (moduleId: string) => `module:${moduleId}`
 
 /**
- * Cells (index row * size + col) of every module and tube joined to an Airlock, through tubes or
- * modules standing wall to wall (see cellsJoined in sim/base.ts), the Airlock itself included.
+ * Cells (index row * size + col) of every module and tube. They're all sealed and full of air,
+ * so crew there breathe the base's oxygen at the normal rate, and a crewmate short of oxygen
+ * heads for one.
  */
 export function pressurizedCells(size: number, base: Base, built = occupancy(size, base)): Set<number> {
   const pressurized = new Set<number>()
-  const queue: number[] = []
-  for (const module of base.modules) {
-    if (module.type !== "airlock") continue
-    const rect = moduleRect(module)
-    for (let row = Math.max(0, rect.row); row < Math.min(size, rect.row + rect.height); row++) {
-      for (let col = Math.max(0, rect.col); col < Math.min(size, rect.col + rect.width); col++) {
-        const i = row * size + col
-        if (!pressurized.has(i)) {
-          pressurized.add(i)
-          queue.push(i)
-        }
-      }
-    }
-  }
-  while (queue.length > 0) {
-    const i = queue.pop()!
-    const col = i % size
-    const row = Math.floor(i / size)
-    const next = [col > 0 ? i - 1 : -1, col < size - 1 ? i + 1 : -1, row > 0 ? i - size : -1, row < size - 1 ? i + size : -1]
-    for (const n of next) {
-      if (n < 0 || pressurized.has(n) || !cellsJoined(size, base, built, i, n)) continue
-      pressurized.add(n)
-      queue.push(n)
-    }
-  }
+  for (let i = 0; i < size * size; i++) if (built[i] === MODULE || built[i] === TUBE) pressurized.add(i)
   return pressurized
 }
 

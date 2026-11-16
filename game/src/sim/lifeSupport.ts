@@ -12,9 +12,8 @@
  */
 export const OXYGEN_PER_ASTRONAUT_HOUR = 0.1
 /**
- * How many times faster an astronaut uses oxygen when not in a pressurized module (one joined to
- * an Airlock, see sim/navigation.ts): out on the surface on suit air, or in a module with no
- * Airlock. A game number to tune.
+ * How many times faster an astronaut uses oxygen when not in a module or tube (see
+ * pressurizedCells in sim/navigation.ts): out on the surface on suit air. A game number to tune.
  */
 export const UNPRESSURIZED_OXYGEN_FACTOR = 2
 
@@ -23,7 +22,7 @@ export interface CrewMember {
   id: string
   /** Out on the surface (on EVA). */
   outside: boolean
-  /** In a module or tube joined to an Airlock. Leave out to count as pressurized. */
+  /** In a module or tube. Leave out to count as pressurized. */
   pressurized?: boolean
   /** Working in a module: that module's station id. Leave out if not working. */
   workingAt?: string | null
