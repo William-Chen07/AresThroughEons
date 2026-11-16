@@ -5,14 +5,13 @@ import {
   OCCUPATIONS,
   ROLE_IDS,
   ROLES,
-  STATUSES,
-  TRAITS,
   TUNING,
   type LogEntry,
   type NeedId,
   type Pawn,
   type RoleId,
 } from "@/sim"
+import { StatusChip, TraitChip } from "@/components/CrewChips"
 
 /**
  * Crew panel: one card per crewmate in the expedition's save, with needs, health, radiation,
@@ -117,20 +116,13 @@ function PawnCard({ pawn, onRole }: { pawn: Pawn; onRole: (role: RoleId) => void
         {pawn.careerDoseMsv.toFixed(1)} / {NASA_DATA.careerDoseLimitMsv} mSv
       </p>
 
-      <div className="flex flex-wrap gap-1">
+      {/* `relative`: a trait's or status's card (CrewChips.tsx) hangs under this row, as wide as it. */}
+      <div className="relative flex flex-wrap gap-1">
         {pawn.traits.map((t) => (
-          <span key={t} title={TRAITS[t].description} className="border border-sky-400/30 px-1.5 text-[10px] text-sky-200">
-            {TRAITS[t].name}
-          </span>
+          <TraitChip key={t} id={t} />
         ))}
         {pawn.statuses.map((s) => (
-          <span
-            key={s.id}
-            title={`${STATUSES[s.id].description} ${STATUSES[s.id].fix}`}
-            className={`border px-1.5 text-[10px] ${STATUSES[s.id].severity === "serious" ? "border-red-400/50 text-red-200" : "border-amber-400/40 text-amber-200"}`}
-          >
-            {STATUSES[s.id].label}
-          </span>
+          <StatusChip key={s.id} id={s.id} />
         ))}
       </div>
     </article>

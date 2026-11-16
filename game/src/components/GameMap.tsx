@@ -3,6 +3,7 @@ import { Lock } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { BuildPanel, type BuildTool } from "@/components/BuildPanel"
 import { Bar } from "@/components/CrewPanel"
+import { TraitChip } from "@/components/CrewChips"
 import { ResourceIcon } from "@/components/ResourceIcon"
 import { ExploreMap } from "@/components/ExploreMap"
 import { ResearchPanel } from "@/components/ResearchPanel"
@@ -1037,6 +1038,15 @@ export function GameMap({
                               </span>
                             )}
                           </button>
+                          {/* Their traits, each opening a card that says what it does (CrewChips.tsx). Outside the
+                              row's button, so pointing at or tapping a trait doesn't select the astronaut. */}
+                          {!gone && member.traits.length > 0 && (
+                            <div className="relative mt-0.5 flex flex-wrap gap-1">
+                              {member.traits.map((trait) => (
+                                <TraitChip key={trait} id={trait} cardClass="left-0 w-64" />
+                              ))}
+                            </div>
+                          )}
                         </li>
                       )
                     })}
