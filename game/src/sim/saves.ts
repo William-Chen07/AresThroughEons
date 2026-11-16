@@ -27,6 +27,7 @@ import type { LogEntry, Pawn, RoleId } from "@/sim/types"
 import { NO_RESEARCH, addResearchWork, startResearch, type ResearchProgress } from "@/sim/research"
 import { advanceSky, calmHours, poweredShare, quietFillHours, startWeather, type Weather } from "@/sim/weather"
 import { hourOfDay, isNight } from "@/sim/dayNight"
+import { solarPower } from "@/sim/power"
 import { addWindow, newCalendar, testSpaceEvents, type Calendar, type SpaceEvent, type TestSpaceEvent } from "@/sim/calendar"
 import { depositIdOf, mine, type Deposit } from "@/sim/deposits"
 import { workSpeed } from "@/sim/pawn"
@@ -367,6 +368,9 @@ export const savesStore = createStore<Saves & SavesActions>()(
         // A storm that knocks the power out stops the Research Labs while it lasts (content/weather.ts).
         const powered = poweredShare(hours, sky.stormHours, event?.powerOut ?? false)
         const research = addResearchWork(slot.researchProgress, slot.researched, labHours * powered)
+        // Solar Panels make power while it's light (sim/power.ts).
+        const made = solarPower(slot.modules, slot.era, hourOfDay(slot.calendar, slot.hours), hours, powered)
+        if (made > 0) resources = { ...resources, power: resources.power + made }
         const next: SaveSlot = {
           ...slot,
           hours: clock,

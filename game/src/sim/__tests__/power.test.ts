@@ -3,6 +3,9 @@ import { startingResources } from "@/content/resources"
 import { WEATHER_EVENTS } from "@/content/weather"
 import { liveCrewThrough, newCrew } from "@/sim/crewLife"
 import type { CrewMember } from "@/sim/lifeSupport"
+import type { PlacedModule } from "@/sim/base"
+import { DAYLIGHT_HOURS } from "@/sim/dayNight"
+import { SOLAR_POWER_PER_HOUR, daylightHours, solarPower } from "@/sim/power"
 import { poweredShare } from "@/sim/weather"
 
 describe("storms knock the power out", () => {
@@ -54,5 +57,31 @@ describe("storms make the crew thirsty faster", () => {
 
   it("a multiplier of 1 changes nothing", () => {
     expect(thirstGained(1)).toBeCloseTo(thirstGained(undefined))
+  })
+})
+
+describe("solar panels make power", () => {
+  const panel = (id: string, era?: number): PlacedModule => ({ id, type: "solar", col: 0, row: 0, era })
+  const habitat: PlacedModule = { id: "h", type: "habitat", col: 5, row: 5 }
+
+  it("counts only the daylight part of a stretch of time", () => {
+    expect(daylightHours(0, 4)).toBe(4)
+    expect(daylightHours(DAYLIGHT_HOURS - 1, 3)).toBe(1)
+    expect(daylightHours(DAYLIGHT_HOURS, 4)).toBe(0)
+    // From an hour before the day ends into the next morning.
+    expect(daylightHours(23, 3)).toBe(2)
+    expect(daylightHours(0, 48)).toBe(DAYLIGHT_HOURS * 2)
+  })
+
+  it("each panel makes power by day and none at night", () => {
+    expect(solarPower([panel("a"), panel("b"), habitat], 1, 0, 2)).toBeCloseTo(2 * SOLAR_POWER_PER_HOUR * 2)
+    expect(solarPower([panel("a")], 1, DAYLIGHT_HOURS + 1, 2)).toBe(0)
+    expect(solarPower([habitat], 1, 0, 2)).toBe(0)
+  })
+
+  it("panels from an earlier era, and panels in a power-out storm, make nothing", () => {
+    expect(solarPower([panel("old", 1), panel("new", 2)], 2, 0, 2)).toBeCloseTo(SOLAR_POWER_PER_HOUR * 2)
+    expect(solarPower([panel("a")], 1, 0, 2, 0)).toBe(0)
+    expect(solarPower([panel("a")], 1, 0, 2, 0.5)).toBeCloseTo(SOLAR_POWER_PER_HOUR)
   })
 })
