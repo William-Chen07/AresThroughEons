@@ -8,6 +8,9 @@ own collection from scratch, slices it into game/public/sprites/eraN/, and saves
 
 Scale: 1 Blender unit = 1 grid cell = 16 px. A module's footprint starts at the origin
 (x from 0 to cells_x, y from 0 to cells_y, z from 0 up). South is -Y.
+
+House rule: every module has FOUR doors, one in the middle of each side, where the game's
+doorways are (use doors()). The only exception is the Power Plant, which has none.
 """
 
 import math
@@ -88,6 +91,38 @@ def sphere(material, center, radius, squash=1.0):
     obj = _adopt(material, None)
     obj.scale = (1, 1, squash)
     return obj
+
+
+def door(side, cells_x, cells_y, reach=0.3, z_low=0.1):
+    """
+    A door on one side ("north", "east", "south" or "west"), where the game puts that side's
+    doorway: the middle cell, or the eastern/southern of the two middle cells on an even side.
+    `reach` is how far in from the footprint's edge the door runs, so it meets the hull.
+    """
+    across_x = cells_x // 2 + 0.5
+    across_y = cells_y - (cells_y // 2 + 0.5)
+
+    def part(material, half_width, out, z_from, z_to):
+        # `out` is how far from the footprint's edge the part starts.
+        if side == "south":
+            low, high = (across_x - half_width, out, z_from), (across_x + half_width, reach, z_to)
+        elif side == "north":
+            low, high = (across_x - half_width, cells_y - reach, z_from), (across_x + half_width, cells_y - out, z_to)
+        elif side == "west":
+            low, high = (out, across_y - half_width, z_from), (reach, across_y + half_width, z_to)
+        else:
+            low, high = (cells_x - reach, across_y - half_width, z_from), (cells_x - out, across_y + half_width, z_to)
+        box(material, low, high)
+
+    part("METAL_GREY", 0.34, 0.06, z_low, z_low + 0.82)
+    part("DARK_TRIM", 0.25, 0.02, z_low, z_low + 0.72)
+    part("LIGHT_YELLOW", 0.06, 0.03, z_low + 0.74, z_low + 0.8)
+
+
+def doors(cells_x, cells_y, reach=0.3, z_low=0.1):
+    """The four doors every module has (all but the Power Plant)."""
+    for side in ("north", "east", "south", "west"):
+        door(side, cells_x, cells_y, reach, z_low)
 
 
 def finish(era, cells_x, cells_y, layers):

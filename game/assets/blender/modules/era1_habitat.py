@@ -26,13 +26,11 @@ kit.cylinder("HULL_WHITE", MIDDLE, 1.26, 1.22, 1.45, top_radius=0.72)
 kit.cylinder("DARK_TRIM", MIDDLE, 0.6, 1.4, 1.5)
 kit.sphere("GLASS_TEAL", (1.5, 1.5, 1.47), 0.48, squash=0.5)
 
-# The door, in the middle of the south side where the game puts the doorway.
-kit.box("METAL_GREY", (1.16, 0.06, 0.1), (1.84, 0.3, 0.92))
-kit.box("DARK_TRIM", (1.25, 0.02, 0.1), (1.75, 0.3, 0.82))
-kit.box("LIGHT_YELLOW", (1.44, 0.03, 0.84), (1.56, 0.3, 0.9))
+# Four doors, one in the middle of each side, where the game puts the doorways.
+kit.doors(3, 3)
 
-# A porthole on each side of the door, turned to sit flat against the round wall.
-for angle in (-135, -45):
+# A porthole between each pair of doors, turned to sit flat against the round wall.
+for angle in (-135, -45, 45, 135):
     x = 1.5 + 1.31 * math.cos(math.radians(angle))
     y = 1.5 + 1.31 * math.sin(math.radians(angle))
     kit.box("GLASS_TEAL", (x - 0.2, y - 0.07, 0.56), (x + 0.2, y + 0.07, 0.84), rotation=(0, 0, angle + 90))
