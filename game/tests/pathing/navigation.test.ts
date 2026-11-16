@@ -51,7 +51,7 @@ test("the base becomes a walkable map: modules and tubes inside, open ground, la
   assert.ok(w.stations.every((s) => s.walkIn))
 })
 
-test("crew walk out of the habitat through a doorway and back in", () => {
+test("crew walk out of the habitat and back in through its doorways", () => {
   const w = buildNavigation(flat(), smallBase())
   addPawn(w, "a", { x: 3, y: 3 })
   assert.ok(issueOrder(w, "a", { kind: "move", target: { x: 16, y: 3 } }).ok)
@@ -63,20 +63,23 @@ test("crew walk out of the habitat through a doorway and back in", () => {
   assert.equal(w.movers.a.exposure, "inside")
 })
 
-test("every module and tube is sealed and provides oxygen; open ground doesn't", () => {
-  // The med bay stands on its own, joined to nothing: it's sealed too.
-  const base: Base = { ...smallBase(), modules: [...smallBase().modules, mod("st", "medbay", 14, 2)] }
+test("every module and tube is pressurized and provides oxygen; open ground isn't", () => {
+  // The med bay stands on its own, joined to nothing: it's pressurized all the same.
+  const base: Base = { ...smallBase(), modules: [...smallBase().modules, mod("mb", "medbay", 14, 2)] }
   const cells = pressurizedCells(SIZE, base)
-  for (const [col, row] of [[3, 3], [3, 6], [5, 3], [6, 3], [14, 2]]) assert.ok(cells.has(row * SIZE + col), `${col},${row}`)
+  for (const [col, row] of [[3, 3], [3, 6], [5, 3], [6, 3], [14, 2], [15, 3]]) assert.ok(cells.has(row * SIZE + col), `${col},${row}`)
   assert.ok(!cells.has(10 * SIZE + 10), "open ground")
+  assert.ok(!cells.has(12 * SIZE + 12), "the lander")
   const w = buildNavigation(flat(), base)
   const provides = (id: string) => w.stations.find((s) => s.id === moduleStationId(id))!.provides
-  for (const id of ["hab", "lab", "st"]) assert.deepEqual(provides(id), ["oxygen"], id)
+  assert.deepEqual(provides("hab"), ["oxygen"])
+  assert.deepEqual(provides("lab"), ["oxygen"])
+  assert.deepEqual(provides("mb"), ["oxygen"])
 })
 
 test("low on oxygen, a crewmate heads for the nearest module", () => {
-  // A med bay on its own at (14-15, 8-9) is the closest module.
-  const base: Base = { ...smallBase(), modules: [...smallBase().modules, mod("st", "medbay", 14, 8)] }
+  // The med bay at (14-15, 8-9) is right beside them; the habitat and lab are far off.
+  const base: Base = { ...smallBase(), modules: [...smallBase().modules, mod("mb", "medbay", 14, 8)] }
   const w = buildNavigation(flat(), base)
   addPawn(w, "a", { x: 16, y: 10 })
   const all: PathingEvent[] = []
@@ -85,16 +88,16 @@ test("low on oxygen, a crewmate heads for the nearest module", () => {
   }
   const interrupt = all.find((e) => e.type === "needInterrupt")
   assert.ok(interrupt && interrupt.type === "needInterrupt" && interrupt.need === "oxygen")
-  assert.equal(interrupt.stationId, "module:st")
+  assert.equal(interrupt.stationId, "module:mb")
   assert.equal(w.movers.a.exposure, "inside")
 })
 
-test("with no modules, low oxygen has nowhere to go and says so", () => {
+test("with nothing built, low oxygen has nowhere to go and says so", () => {
   const w = buildNavigation(flat(), { modules: [], tubes: [] })
   addPawn(w, "a", { x: 16, y: 10 })
   const ev = stepPathing(w, 0.01, { urgentNeed: () => "oxygen" })
   assert.ok(ev.some((e) => e.type === "needUnmet" && e.need === "oxygen"))
-  // Building a module gives them somewhere to go.
+  // Building any module gives them somewhere to go.
   syncNavigation(w, flat(), smallBase())
   const next = stepPathing(w, 0.01, { urgentNeed: () => "oxygen" })
   assert.ok(next.some((e) => e.type === "needInterrupt" && e.need === "oxygen"))

@@ -87,7 +87,8 @@ export function liveCrewThrough(input: LiveCrewInput): {
       pawn.task = "Out exploring"
     } else if (spot.workingAt) {
       pawn.activity = "working"
-      pawn.task = `${ROLES[pawn.role].name} in a module`
+      // Deposits are mined out on the surface (see sim/deposits.ts); everything else is a module.
+      pawn.task = spot.workingAt.startsWith("deposit:") ? "Mining a deposit" : `${ROLES[pawn.role].name} in a module`
     } else if (spot.outside) {
       pawn.activity = "eva"
       pawn.task = "Outside on the surface"

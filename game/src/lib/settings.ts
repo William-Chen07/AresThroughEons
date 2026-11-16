@@ -7,6 +7,8 @@ export interface Settings {
   muted: boolean
   musicVolume: number
   sfxVolume: number
+  /** The player put the map credits away with their x (they stay on the main menu's Credits). */
+  mapCreditsDismissed: boolean
 }
 
 interface SettingsActions {
@@ -19,11 +21,12 @@ export const settingsStore = createStore<Settings & SettingsActions>()(
       muted: false,
       musicVolume: 0.5,
       sfxVolume: 0.7,
+      mapCreditsDismissed: false,
       setSettings: (patch) => set(patch),
     }),
     {
       name: "ares-settings",
-      partialize: ({ muted, musicVolume, sfxVolume }) => ({ muted, musicVolume, sfxVolume }),
+      partialize: ({ muted, musicVolume, sfxVolume, mapCreditsDismissed }) => ({ muted, musicVolume, sfxVolume, mapCreditsDismissed }),
     },
   ),
 )

@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { Backpack } from "@/components/Backpack"
 import { CrewPanel } from "@/components/CrewPanel"
 import { GameMap } from "@/components/GameMap"
 import { MainMenu } from "@/components/MainMenu"
@@ -6,6 +7,7 @@ import { devSiteOverride } from "@/map/marsSite"
 import { useSpaceCalendar } from "@/data/useSpaceCalendar"
 import { HOURS_PER_DAY, dayOf, describeSpaceEvent, eventsSoFar, latestNews, realDateAt, type Calendar } from "@/sim/calendar"
 import { useSaves } from "@/sim/saves"
+import { useSettings } from "@/lib/settings"
 
 type Screen = "menu" | "game"
 
@@ -47,7 +49,10 @@ function App() {
   const resetMap = useSaves((s) => s.resetMap)
   const sendExploring = useSaves((s) => s.sendExploring)
   const nextEra = useSaves((s) => s.nextEra)
+  const setDeposits = useSaves((s) => s.setDeposits)
   const setCrewRole = useSaves((s) => s.setCrewRole)
+  // Once the map credits button is put away, the Backpack and Crew buttons drop down into its corner.
+  const creditsDismissed = useSettings((s) => s.mapCreditsDismissed)
   // Real NASA events for the calendar are fetched while the expedition is being played.
   useSpaceCalendar(activeSlot, screen === "game")
 
@@ -101,18 +106,28 @@ function App() {
             setMapResets((count) => count + 1)
           }}
           onTimePassed={(hours, crew, labHours, spots) => activeSlot !== null && passTime(activeSlot, hours, crew, labHours, spots)}
+          deposits={save.deposits}
+          onDepositsGenerated={(deposits) => activeSlot !== null && setDeposits(activeSlot, deposits)}
           onStartResearch={(projectId) => activeSlot !== null && startResearch(activeSlot, projectId)}
           onExit={() => setScreen("menu")}
         />
 
-        {/* The crew system's details for this save (sim/crewLife.ts). Sits above the map credits button, and above the Build bar while it is open. */}
-        <button
-          type="button"
-          onClick={() => setShowCrew((v) => !v)}
-          className="fixed bottom-[calc(var(--build-bar,0px)+5rem)] right-4 z-40 sm:bottom-[calc(var(--build-bar,0px)+6rem)] sm:right-6 border border-white/15 bg-black/70 px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-white backdrop-blur-sm transition hover:border-orange-400/70 hover:bg-orange-950/85 hover:text-orange-100 focus-visible:outline-2 focus-visible:outline-orange-400"
+        {/* Bottom right, above the map credits button: the backpack (the ice and regolith dug up), then the
+            button for the crew system's details for this save (sim/crewLife.ts). Fixed above the crew
+            screen, so the Crew button can also close it. While the Build bar is open it all sits above it
+            (--build-bar is the bar's height, see BuildPanel). */}
+        <div
+          className={`pointer-events-none fixed right-4 z-40 flex flex-col items-end gap-2 sm:right-6 ${creditsDismissed ? "bottom-[calc(var(--build-bar,0px)+1rem)] sm:bottom-[calc(var(--build-bar,0px)+1.5rem)]" : "bottom-[calc(var(--build-bar,0px)+5rem)] sm:bottom-[calc(var(--build-bar,0px)+6rem)]"}`}
         >
-          {showCrew ? "Close crew" : "Crew"}
-        </button>
+          {!showCrew && <Backpack resources={save.resources} />}
+          <button
+            type="button"
+            onClick={() => setShowCrew((v) => !v)}
+            className="pointer-events-auto border border-white/15 bg-black/70 px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-white backdrop-blur-sm transition hover:border-orange-400/70 hover:bg-orange-950/85 hover:text-orange-100 focus-visible:outline-2 focus-visible:outline-orange-400"
+          >
+            {showCrew ? "Close crew" : "Crew"}
+          </button>
+        </div>
         {showCrew && (
           <div className="fixed inset-0 z-30 overflow-y-auto bg-[#020104]/95 pb-16 text-white">
             <CrewPanel

@@ -25,10 +25,11 @@ import {
  * (see moduleDoorways in sim/base.ts): out onto open ground, or into a tube laid in front of one.
  * Tubes have no doors of their own: they're the hallways between modules, and modules standing
  * wall to wall are walked between too. Routes between joined modules stay inside
- * (see PATHING_TUNING.doorCrossingCost). Every module and tube is sealed (see pressurizedCells).
+ * (see PATHING_TUNING.doorCrossingCost). Every module and tube is pressurized (see
+ * pressurizedCells), so crew inside breathe at the normal rate and only use oxygen faster outside.
  *
  * Every module is also a walk-in station, so clicking one sends the selected crew inside to work.
- * Every module provides "oxygen", so a crewmate running low heads for the nearest one.
+ * Pressurized modules provide "oxygen", so a crewmate running low heads for one.
  * Call syncNavigation whenever the base changes; crew keep their places and orders, and anyone
  * whose route was cut finds another or stops.
  */
@@ -46,9 +47,8 @@ export const MODULE_PROVIDES: Partial<Record<ModuleTypeId, Exclude<UrgentNeed, "
 export const moduleStationId = (moduleId: string) => `module:${moduleId}`
 
 /**
- * Cells (index row * size + col) of every module and tube. They're all sealed and full of air,
- * so crew there breathe the base's oxygen at the normal rate, and a crewmate short of oxygen
- * heads for one.
+ * Cells (index row * size + col) that are pressurized: every module and tube. Crew in them breathe
+ * at the normal rate; out on the surface, on suit air, they use oxygen faster (see sim/lifeSupport.ts).
  */
 export function pressurizedCells(size: number, base: Base, built = occupancy(size, base)): Set<number> {
   const pressurized = new Set<number>()

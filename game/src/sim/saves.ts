@@ -25,6 +25,8 @@ import type { LogEntry, Pawn, RoleId } from "@/sim/types"
 import { NO_RESEARCH, addResearchWork, startResearch, type ResearchProgress } from "@/sim/research"
 import { advanceSky, calmHours, quietFillHours, startWeather, type Weather } from "@/sim/weather"
 import { addWindow, newCalendar, type Calendar, type SpaceEvent } from "@/sim/calendar"
+import { depositIdOf, mine, type Deposit } from "@/sim/deposits"
+import { workSpeed } from "@/sim/pawn"
 
 export const SAVE_SLOT_COUNT = 3
 
@@ -109,6 +111,12 @@ export interface SaveSlot {
    * it so far (see sim/calendar.ts). Each era gets a new one, starting again at Day 1.
    */
   calendar: Calendar
+  /**
+   * The mineral deposits on this map and how much is left in each (see sim/deposits.ts), or
+   * null until the map has been loaded once and they've been generated from its terrain.
+   * They stay through every era; a mined-out deposit is gone.
+   */
+  deposits: Deposit[] | null
   /** The groups of astronauts out exploring right now (see sim/explore.ts). */
   trips: Trip[]
   /** What the last few trips brought back, newest first. */
@@ -181,6 +189,8 @@ interface SavesActions {
   addSpaceEvents: (index: number, start: string, events: SpaceEvent[], endHours: number, source: Calendar["source"]) => void
   /** Records that loading the calendar's next window failed: storms come at random until one loads. */
   markCalendarFailed: (index: number, start: string) => void
+  /** Stores the deposits generated for the map. Does nothing if the save already has them. */
+  setDeposits: (index: number, deposits: Deposit[]) => void
 }
 
 /** Used when the player leaves the name empty. */
@@ -222,6 +232,7 @@ export const savesStore = createStore<Saves & SavesActions>()(
           weather: null,
           nextWeatherAt: quietFillHours(Math.random()),
           calendar: newCalendar(Math.random(), now, 0),
+          deposits: null,
           trips: [],
           tripLog: [],
           tripNews: null,
@@ -299,6 +310,20 @@ export const savesStore = createStore<Saves & SavesActions>()(
           crewLog.push(...result.log)
         }
         let resources = lived.resources
+        // Anyone working at a deposit mines it (see sim/deposits.ts), at their own work speed. The
+        // crew rules can have them asleep on the spot (see sim/crewLife.ts): then nothing is dug.
+        const miners = atBase.flatMap((member) => {
+          const depositId = member.workingAt ? depositIdOf(member.workingAt) : null
+          const pawn = crew.find((p) => p.id === member.id)
+          return depositId && pawn?.activity === "working" ? [{ depositId, speed: workSpeed(pawn) }] : []
+        })
+        let deposits = slot.deposits
+        if (deposits && miners.length > 0) {
+          const dug = mine(deposits, miners, hours)
+          deposits = dug.deposits
+          resources = { ...resources }
+          for (const [mineral, amount] of Object.entries(dug.mined)) resources[mineral as keyof Resources] += amount
+        }
         const reports: TripReport[] = []
         for (const trip of trips.back) {
           const place = explorePlace(trip.placeId)
@@ -320,6 +345,7 @@ export const savesStore = createStore<Saves & SavesActions>()(
           crew,
           crewLog: crewLog.slice(-CREW_LOG_LENGTH),
           resources,
+          deposits,
           evacuated,
           trips: trips.out,
           tripLog: [...reports, ...slot.tripLog].slice(0, TRIP_LOG_LENGTH),
@@ -375,6 +401,8 @@ export const savesStore = createStore<Saves & SavesActions>()(
           nextWeatherAt: quietFillHours(Math.random()),
           // A fresh start lands in a new random year, at Day 1 again.
           calendar: newCalendar(Math.random(), Date.now(), 0),
+          // Generated again from the map when it opens (the same site gives the same deposits).
+          deposits: null,
           trips: [],
           tripLog: [],
           tripNews: null,
@@ -427,6 +455,11 @@ export const savesStore = createStore<Saves & SavesActions>()(
         if (!slot || slot.calendar.start !== start || slot.calendar.failed) return
         set({ slots: withSlot(get().slots, index, { ...slot, calendar: { ...slot.calendar, failed: true } }) })
       },
+      setDeposits: (index, deposits) => {
+        const slot = get().slots[index]
+        if (!slot || slot.deposits) return
+        set({ slots: withSlot(get().slots, index, { ...slot, deposits }) })
+      },
       markLanded: (index) => {
         const slot = get().slots[index]
         if (slot && !slot.landed) set({ slots: withSlot(get().slots, index, { ...slot, landed: true }) })
@@ -456,8 +489,10 @@ export const savesStore = createStore<Saves & SavesActions>()(
       // Version 18 removed the Storage module: any already built is taken off the map.
       // Version 19 added `researchProgress` (research takes time now; an older save has nothing
       // being researched) and `crewSpots` (an older save's crew steps out beside the lander once more).
-      // Version 20 removed the Airlock module: any already built is taken off the map.
-      version: 20,
+      // Version 20 removed the Airlock module: any already built is taken off the map. (Every module
+      // and tube now counts as pressurized, see sim/navigation.ts.)
+      // Version 21 added `deposits`: an older save gets them the next time its map opens.
+      version: 21,
       migrate: (stored) => {
         const old = stored as Saves
         return {
@@ -471,7 +506,7 @@ export const savesStore = createStore<Saves & SavesActions>()(
                 era: slot.era ?? 1,
                 landers: slot.landers?.length ? slot.landers : [firstLander(MAP_SIZE)],
                 modules: (slot.modules ?? [])
-                  // Storage (version 18) and the Airlock (version 20) are no longer kinds of module.
+                  // Storage (version 18) and Airlock (version 20) are no longer kinds of module.
                   .filter((module) => !["storage", "airlock"].includes(module.type as string))
                   .map((module) => ({ ...module, era: module.era ?? 1 })),
                 tubes: slot.tubes ?? [],
@@ -497,6 +532,7 @@ export const savesStore = createStore<Saves & SavesActions>()(
                 weather: slot.weather ?? null,
                 nextWeatherAt: slot.nextWeatherAt ?? (slot.hours ?? 0) + calmHours(Math.random()),
                 calendar: slot.calendar ?? newCalendar(Math.random(), Date.now(), slot.hours ?? 0),
+                deposits: slot.deposits ?? null,
               },
           ),
         }

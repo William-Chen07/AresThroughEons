@@ -2,6 +2,7 @@ import { Application, CanvasSource, Graphics, Sprite, Texture } from "pixi.js"
 import { Viewport } from "pixi-viewport"
 import { createBaseView, type Ghost } from "@/map/baseView"
 import { createCrewView } from "@/map/crewView"
+import { createDepositView } from "@/map/depositView"
 import { playLanding } from "@/lib/sound"
 import { createLander, landerModelFor } from "@/map/lander"
 import {
@@ -14,6 +15,7 @@ import {
   type VoxelTerrain,
 } from "@/map/voxelTerrain"
 import type { Base, LanderSpot } from "@/sim/base"
+import type { Deposit } from "@/sim/deposits"
 import type { World } from "@/sim/pathing"
 
 /*
@@ -41,6 +43,8 @@ export interface MapView {
   setOpenModules: (ids: string[]) => void
   /** Fades just the pieces of tube with these cells in them, so crew walking along them show. */
   setOpenTubes: (cells: Cell[]) => void
+  /** Redraws the mineral deposits (see map/depositView.ts). */
+  setDeposits: (deposits: readonly Deposit[]) => void
   /** Calls `update` every frame with the real time since the last one, in ms. Returns a function that stops it. */
   onFrame: (update: (deltaMs: number) => void) => () => void
   destroy: () => void
@@ -134,10 +138,12 @@ export async function createMapView(
   })
   const base = createBaseView(terrain, era)
   const crew = createCrewView(terrain)
-  // Drawing order: terrain, crew inside the base, the base, the old landers, this era's lander,
-  // crew outside, then the placement ghost and hover highlight on top.
+  const deposits = createDepositView(terrain)
+  // Drawing order: terrain, mineral deposits, crew inside the base, the base, the old landers,
+  // this era's lander, crew outside, then the placement ghost and hover highlight on top.
   viewport.addChild(
     ground,
+    deposits.view,
     crew.insideView,
     base.view,
     ...oldLanders.map((old) => old.view),
@@ -194,12 +200,14 @@ export async function createMapView(
     onHover(cell)
   }
   /**
-   * The cell at a map point. Pointing at a crewmate means their cell. A module is drawn taller
-   * than its footprint, so pointing at its roof or wall means the module. Neither applies while
-   * placing something: then it's the ground there.
+   * The cell at a map point. Pointing at a crewmate means their cell, and pointing at a mineral
+   * deposit's crystals means its cell. A module is drawn taller than its footprint, so pointing at
+   * its roof or wall means the module. None of these applies while placing something: then it's
+   * the ground there.
    */
   const cellAt = (x: number, y: number) =>
-    (placement ? null : (crew.crewCellAt(x, y) ?? base.moduleCellAt(x, y))) ?? pickCell(terrain, x, y)
+    (placement ? null : (crew.crewCellAt(x, y) ?? deposits.depositCellAt(x, y) ?? base.moduleCellAt(x, y))) ??
+    pickCell(terrain, x, y)
   viewport.eventMode = "static"
   /**
    * Whether the pointer is over the map itself. Pixi hears pointer moves anywhere on the page, so
@@ -241,6 +249,7 @@ export async function createMapView(
     setSeeThrough: (on) => base.setSeeThrough(on),
     setOpenModules: (ids) => base.setOpenModules(ids),
     setOpenTubes: (cells) => base.setOpenTubes(cells),
+    setDeposits: (next) => deposits.draw(next),
     onFrame: (update) => {
       const tick = () => update(app.ticker.deltaMS)
       app.ticker.add(tick)
