@@ -53,7 +53,7 @@ export const EXPLORE_EVENTS: ExploreEvent[] = [
     name: "Dust devil",
     text: "A dust devil, a spinning tower of dusty wind, blew right over the rover and swept its solar panels clean.",
     weight: 2,
-    effect: { bonus: { resource: "power", min: 5, max: 12 } },
+    effect: { bonus: { resource: "power", min: 30, max: 60 } },
   },
   {
     id: "meteorite",
