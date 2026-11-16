@@ -6,9 +6,9 @@ import type { UrgentNeed } from "./pathing"
 import { OXYGEN_PER_ASTRONAUT_HOUR, UNPRESSURIZED_OXYGEN_FACTOR, type CrewMember } from "./lifeSupport"
 import { createRng } from "./rng"
 import { ROLES, treatNextPatient } from "./roles"
-import { createCrew } from "./spawn"
+import { createCrew, createPawn, createRecruit } from "./spawn"
 import { decideActivity, updateBody, updateFriction, type BodyEnv, type Consumable, type Log } from "./step"
-import type { LogEntry, Pawn, RoleId } from "./types"
+import type { LogEntry, OccupationId, Pawn, RoleId } from "./types"
 
 /*
  * The crew system running inside the real game. The base map (sim/pathing) owns where everyone
@@ -34,6 +34,49 @@ export const CREW_LOG_LENGTH = 30
 /** A brand-new crew for an era: one of each occupation, with ids unique to the era. */
 export function newCrew(era: number, random: () => number = Math.random): Pawn[] {
   return createCrew(createRng(Math.floor(random() * 2 ** 31)), OCCUPATION_IDS, `era${era}-`)
+}
+
+/**
+ * The crew that lands when era `era` begins: everyone from the era before comes back, healed on
+ * Earth, and one new astronaut joins them, so the crew grows by one each era.
+ *
+ * A returning astronaut keeps who they are and what they learned: name, occupation, role, traits,
+ * skills, standing orders and their career radiation. Everything about the last mission is
+ * left behind: health and needs are full, statuses are gone, the mission's radiation starts
+ * at zero and nobody is evacuated any more.
+ *
+ * The recruit is trained in whichever occupation the crew has fewest of (a random one of
+ * those if several tie), with a name nobody on the crew has. Their id is `era{era}-0`, which no
+ * one from an earlier era can have. Pure.
+ */
+export function returningCrew(previous: readonly Pawn[], era: number, random: () => number = Math.random): {
+  crew: Pawn[]
+  recruit: Pawn
+} {
+  const rng = createRng(Math.floor(random() * 2 ** 31))
+  const veterans = previous.map((pawn): Pawn => {
+    const fresh = createPawn(rng, pawn.occupation, pawn.name, pawn.id)
+    return {
+      ...fresh,
+      role: pawn.role,
+      color: pawn.color,
+      traits: [...pawn.traits],
+      skills: structuredClone(pawn.skills),
+      careerDoseMsv: pawn.careerDoseMsv,
+      orders: { ...pawn.orders },
+      task: "Back on Mars",
+    }
+  })
+  const count = (occupation: OccupationId) => veterans.filter((p) => p.occupation === occupation).length
+  const fewest = Math.min(...OCCUPATION_IDS.map(count))
+  const occupation = rng.pick(OCCUPATION_IDS.filter((o) => count(o) === fewest))
+  const recruit = createRecruit(
+    rng,
+    occupation,
+    `era${era}-0`,
+    veterans.map((p) => p.name),
+  )
+  return { crew: [...veterans, recruit], recruit }
 }
 
 export interface LiveCrewInput {

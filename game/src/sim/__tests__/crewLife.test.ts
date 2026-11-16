@@ -7,6 +7,7 @@ import {
   hurtOnTrip,
   liveCrewThrough,
   newCrew,
+  returningCrew,
   urgentNeedOf,
   type LiveCrewInput,
 } from "@/sim/crewLife"
@@ -47,6 +48,54 @@ describe("crew in the real game (crewLife)", () => {
     expect(a.map((p) => p.occupation).sort()).toEqual(["engineer", "medic", "researcher", "scout"])
     expect(a.every((p) => p.id.startsWith("era1-"))).toBe(true)
     expect(b.every((p) => p.id.startsWith("era2-"))).toBe(true)
+  })
+
+  it("a new era brings the same crew back, healed, plus one new astronaut", () => {
+    const old = newCrew(1, () => 0.42)
+    const [hurt] = old
+    hurt.health = 10
+    hurt.needs.food = 0
+    hurt.missionDoseMsv = 40
+    hurt.careerDoseMsv = 55
+    hurt.skills.building = { level: 4, xp: 12 }
+    hurt.statuses = [{ id: "starving", sinceHour: 3, treatmentProgress: 0 }]
+    hurt.evacuated = { hour: 30, reason: "starving" }
+
+    const { crew, recruit } = returningCrew(old, 2, () => 0.42)
+    expect(crew).toHaveLength(old.length + 1)
+    expect(crew.slice(0, old.length).map((p) => [p.id, p.name, p.occupation, p.traits])).toEqual(
+      old.map((p) => [p.id, p.name, p.occupation, p.traits]),
+    )
+    const back = byId(crew, hurt.id)
+    expect(back.evacuated).toBeNull()
+    expect(back.health).toBe(100)
+    expect(back.needs.food).toBe(100)
+    expect(back.statuses).toEqual([])
+    expect(back.missionDoseMsv).toBe(0)
+    expect(back.careerDoseMsv).toBe(55)
+    expect(back.skills.building).toEqual({ level: 4, xp: 12 })
+    // The old crew isn't changed.
+    expect(hurt.health).toBe(10)
+
+    expect(recruit.id).toBe("era2-0")
+    expect(crew[crew.length - 1]).toBe(recruit)
+    expect(old.map((p) => p.name)).not.toContain(recruit.name)
+    expect(recruit.evacuated).toBeNull()
+  })
+
+  it("the crew grows by one each era, the recruit in an occupation the crew has fewest of", () => {
+    let crew = newCrew(1)
+    for (let era = 2; era <= 6; era++) {
+      const before = crew
+      const result = returningCrew(before, era)
+      crew = result.crew
+      expect(crew).toHaveLength(4 + era - 1)
+      const counts = (occupation: string) => before.filter((p) => p.occupation === occupation).length
+      const fewest = Math.min(...["engineer", "medic", "researcher", "scout"].map(counts))
+      expect(counts(result.recruit.occupation)).toBe(fewest)
+      expect(new Set(crew.map((p) => p.id)).size).toBe(crew.length)
+      expect(new Set(crew.map((p) => p.name)).size).toBe(crew.length)
+    }
   })
 
   it("draws oxygen, water and food from the resource bar at the game rate", () => {
