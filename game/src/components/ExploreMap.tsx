@@ -20,7 +20,9 @@ export interface ExploreCrew {
   id: string
   name: string
   color: string
-  status: "ready" | "away" | "evacuated"
+  /** "unfit": can't go right now (injured, at the radiation limit, asleep...); `note` says why. */
+  status: "ready" | "away" | "evacuated" | "unfit"
+  note?: string
 }
 
 const heading = "text-[11px] font-semibold uppercase tracking-[0.25em] text-white/50"
@@ -221,7 +223,13 @@ export function ExploreMap({
                           <span className="size-2.5 shrink-0 rounded-full" style={{ background: member.color }} />
                           {member.name}
                           <span className="ml-auto text-[10px] uppercase tracking-[0.15em] text-white/50">
-                            {member.status === "away" ? "Exploring" : member.status === "evacuated" ? "Evacuated" : ""}
+                            {member.status === "away"
+                              ? "Exploring"
+                              : member.status === "evacuated"
+                                ? "Evacuated"
+                                : member.status === "unfit"
+                                  ? member.note
+                                  : ""}
                           </span>
                         </button>
                       </li>

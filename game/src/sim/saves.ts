@@ -18,7 +18,10 @@ import {
   type TripNews,
   type TripReport,
 } from "@/sim/explore"
-import { healthOf, liveThrough, needEvacuating, type CrewHealth, type CrewMember } from "@/sim/lifeSupport"
+import type { CrewMember } from "@/sim/lifeSupport"
+import { CREW_LOG_LENGTH, cannotExplore, cheerUp, hurtOnTrip, liveCrewThrough, newCrew } from "@/sim/crewLife"
+import { assignCrewRole } from "@/sim/step"
+import type { LogEntry, Pawn, RoleId } from "@/sim/types"
 import { withResearch } from "@/sim/research"
 import { advanceWeather, calmHours, startWeather, type Weather } from "@/sim/weather"
 
@@ -64,8 +67,13 @@ export interface SaveSlot {
    * lander. It only runs while the base map is open. A Mars day (sol) is about 24.66 of them.
    */
   hours: number
-  /** Each astronaut's health, by astronaut id (see sim/lifeSupport.ts). */
-  health: CrewHealth
+  /**
+   * This era's crew: who they are (occupation, traits), what they're assigned to (role), and
+   * everything about them (needs, health, statuses, radiation, skills). See sim/crewLife.ts.
+   */
+  crew: Pawn[]
+  /** What has happened to the crew lately, oldest first (at most CREW_LOG_LENGTH lines). */
+  crewLog: LogEntry[]
   /** Ids of the astronauts who were evacuated to Earth when their health ran out. They don't come back. */
   evacuated: string[]
   /** The weather event going on right now, or null in calm weather (see sim/weather.ts). */
@@ -107,6 +115,8 @@ interface SavesActions {
    * outside in a storm (see sim/lifeSupport.ts and sim/weather.ts).
    */
   passTime: (index: number, hours: number, crew: readonly CrewMember[]) => void
+  /** Gives a crewmate a new role (their current task). Their occupation never changes. */
+  setCrewRole: (index: number, pawnId: string, role: RoleId) => void
   /** Starts a weather event right now, or with null ends the one going on. For the Build panel. */
   setWeather: (index: number, id: WeatherId | null) => void
   /**
@@ -162,7 +172,8 @@ export const savesStore = createStore<Saves & SavesActions>()(
           researched: [],
           resources: startingResources(),
           hours: 0,
-          health: {},
+          crew: newCrew(1),
+          crewLog: [],
           evacuated: [],
           weather: null,
           nextWeatherAt: calmHours(Math.random()),
@@ -211,30 +222,44 @@ export const savesStore = createStore<Saves & SavesActions>()(
         }
         set({ slots: withSlot(get().slots, index, { ...slot, resources }) })
       },
-      passTime: (index, hours, crew) => {
+      passTime: (index, hours, atBase) => {
         const slot = get().slots[index]
         if (!slot) return
         const clock = slot.hours + hours
         const sky = advanceWeather(slot.weather, slot.nextWeatherAt, clock, hours, Math.random())
+        const event = slot.weather ? weatherEvent(slot.weather.id) : null
         const storm =
-          slot.weather && sky.stormHours > 0
-            ? { hours: sky.stormHours, healthLostPerHour: weatherEvent(slot.weather.id).healthLostPerHourOutside }
+          event && sky.stormHours > 0
+            ? { hours: sky.stormHours, healthLostPerHourOutside: event.healthLostPerHourOutside, name: event.name }
             : null
-        const after = liveThrough(slot.resources, slot.health, crew, hours, storm)
-        const evacuated = [...slot.evacuated, ...needEvacuating(after.health, crew)]
+        // The crew live through the time (sim/crewLife.ts): needs, radiation, health, evacuation.
+        const lived = liveCrewThrough({
+          crew: slot.crew,
+          resources: slot.resources,
+          hours,
+          clock: slot.hours,
+          atBase,
+          away: slot.trips.flatMap((trip) => trip.crew),
+          storm,
+        })
+        let crew = lived.crew
+        const crewLog = [...slot.crewLog, ...lived.log]
+        const evacuated = [...slot.evacuated, ...lived.evacuated.filter((id) => !slot.evacuated.includes(id))]
         // Trips move on: things happen on the way, and a group that got home hands over what it found.
         const trips = advanceTrips(slot.trips, hours, Math.random)
-        const health = { ...after.health }
         for (const { crew: hurt, amount } of trips.healthLost) {
-          // Never below 1: nobody is evacuated from out in the field.
-          for (const id of hurt) health[id] = Math.max(1, healthOf(health, id) - amount)
+          const result = hurtOnTrip(crew, hurt, amount, clock)
+          crew = result.crew
+          crewLog.push(...result.log)
         }
-        let resources = after.resources
+        let resources = lived.resources
         const reports: TripReport[] = []
         for (const trip of trips.back) {
           const place = explorePlace(trip.placeId)
           const finds = place ? rollFinds(place, trip.crew.length, Math.random, trip.events) : {}
-          resources = addFinds(resources, finds)
+          // Morale found on a trip cheers up the crew, which is what the morale bar shows.
+          if (finds.morale) crew = cheerUp(crew, finds.morale)
+          resources = addFinds(resources, { ...finds, morale: 0 })
           reports.unshift({ id: trip.id, placeId: trip.placeId, crew: trip.crew, finds, events: trip.events })
         }
         const next: SaveSlot = {
@@ -242,7 +267,8 @@ export const savesStore = createStore<Saves & SavesActions>()(
           hours: clock,
           weather: sky.weather,
           nextWeatherAt: sky.nextAt,
-          health,
+          crew,
+          crewLog: crewLog.slice(-CREW_LOG_LENGTH),
           resources,
           evacuated,
           trips: trips.out,
@@ -251,12 +277,22 @@ export const savesStore = createStore<Saves & SavesActions>()(
         }
         set({ slots: withSlot(get().slots, index, next) })
       },
+      setCrewRole: (index, pawnId, role) => {
+        const slot = get().slots[index]
+        if (!slot) return
+        const result = assignCrewRole(slot.crew, pawnId, role, slot.hours)
+        if (!result) return
+        const crewLog = [...slot.crewLog, result.entry].slice(-CREW_LOG_LENGTH)
+        set({ slots: withSlot(get().slots, index, { ...slot, crew: result.crew, crewLog }) })
+      },
       sendExploring: (index, placeId, crewIds) => {
         const slot = get().slots[index]
         const place = explorePlace(placeId)
         if (!slot || !place || crewIds.length === 0) return
         const away = slot.trips.flatMap((trip) => trip.crew)
         if (crewIds.some((id) => slot.evacuated.includes(id) || away.includes(id))) return
+        // Injured, at the radiation limit, short of oxygen or asleep: not going anywhere.
+        if (crewIds.some((id) => cannotExplore(slot.crew.find((p) => p.id === id)))) return
         const trip = startTrip(crypto.randomUUID(), place, [...crewIds], Math.random)
         set({ slots: withSlot(get().slots, index, { ...slot, trips: [...slot.trips, trip] }) })
       },
@@ -281,7 +317,8 @@ export const savesStore = createStore<Saves & SavesActions>()(
           landers: [firstLander(MAP_SIZE)],
           resources: startingResources(),
           hours: 0,
-          health: {},
+          crew: newCrew(1),
+          crewLog: [],
           evacuated: [],
           weather: null,
           nextWeatherAt: calmHours(Math.random()),
@@ -306,7 +343,8 @@ export const savesStore = createStore<Saves & SavesActions>()(
           landers,
           landed: false,
           resources,
-          health: {},
+          crew: newCrew(era),
+          crewLog: [],
           evacuated: [],
           weather: null,
           nextWeatherAt: slot.hours + calmHours(Math.random()),
@@ -340,7 +378,9 @@ export const savesStore = createStore<Saves & SavesActions>()(
       // exploring and calm weather, with the first event a while off. (An astronaut already at
       // zero health in an older save is evacuated the next time the clock moves.)
       // A save from before eras is in era 1, with its one lander in the middle and everything built in era 1.
-      version: 15,
+      // Version 16 replaced the placeholder astronauts and their `health` with the crew system
+      // (`crew`, `crewLog`): an older save gets a fresh crew, so nobody is evacuated or out exploring.
+      version: 16,
       migrate: (stored) => {
         const old = stored as Saves
         return {
@@ -358,10 +398,12 @@ export const savesStore = createStore<Saves & SavesActions>()(
                 researched: slot.researched ?? [],
                 resources: upgradeResources(slot.resources),
                 hours: slot.hours ?? 0,
-                health: slot.health ?? {},
-                evacuated: slot.evacuated ?? [],
-                // A trip from before events existed carries on with none.
-                trips: (slot.trips ?? []).map((trip) => ({
+                crew: slot.crew ?? newCrew(slot.era ?? 1),
+                crewLog: slot.crewLog ?? [],
+                evacuated: slot.crew ? (slot.evacuated ?? []) : [],
+                // A trip from before events existed carries on with none. Trips from before the crew
+                // system were made by the placeholder astronauts, who are gone.
+                trips: (slot.crew ? (slot.trips ?? []) : []).map((trip) => ({
                   ...trip,
                   eventPoints: trip.eventPoints ?? [],
                   events: trip.events ?? [],

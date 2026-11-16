@@ -25,7 +25,7 @@ export function rollTraits(rng: Rng, count = 2): TraitId[] {
   return picked
 }
 
-export function createPawn(rng: Rng, occupation: OccupationId, name: string, index: number): Pawn {
+export function createPawn(rng: Rng, occupation: OccupationId, name: string, id: string): Pawn {
   const trainedRole = OCCUPATIONS[occupation].role
   const skills = Object.fromEntries(
     ROLE_IDS.map((r) => [
@@ -34,7 +34,7 @@ export function createPawn(rng: Rng, occupation: OccupationId, name: string, ind
     ]),
   ) as Record<RoleId, Skill>
   return {
-    id: `pawn-${index}`,
+    id,
     name,
     occupation,
     role: trainedRole, // everyone starts on the job they trained for
@@ -54,11 +54,12 @@ export function createPawn(rng: Rng, occupation: OccupationId, name: string, ind
 }
 
 /** Occupations are fixed at spawn: one pawn per occupation by default. */
-export function createCrew(rng: Rng, occupations: OccupationId[] = OCCUPATION_IDS): Pawn[] {
+/** `idPrefix` keeps ids unique when crews from different eras share a save. */
+export function createCrew(rng: Rng, occupations: OccupationId[] = OCCUPATION_IDS, idPrefix = "pawn-"): Pawn[] {
   const names = [...NAMES]
   return occupations.map((occupation, i) => {
     const name = names.splice(Math.floor(rng.next() * names.length), 1)[0]
-    return createPawn(rng, occupation, name, i)
+    return createPawn(rng, occupation, name, `${idPrefix}${i}`)
   })
 }
 
@@ -74,8 +75,8 @@ export function createColony(crewSize: number, daysOfSupplies = 10): Colony {
     constructionQueue: [],
     researchQueue: [],
     completed: { buildings: [], research: [] },
-    habitatShielding: 0.5, // game placeholder until shielding modules exist
-    evaDoseBudgetMsv: 5, // game tuning: grounded after ~8 sols outside at the real surface rate
+    habitatShielding: TUNING.habitatShielding,
+    evaDoseBudgetMsv: TUNING.evaDoseBudgetMsv,
     weather: { dustStorm: false, solarParticleEvent: false },
   }
 }

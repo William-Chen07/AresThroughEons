@@ -62,6 +62,10 @@ export const TUNING = {
   healthRegenPerHour: 0.5,
 
   // --- Radiation (game scaling around the real dose rate)
+  /** Fraction (0-1) of radiation the habitat blocks for crew inside. Placeholder until shielding modules exist. */
+  habitatShielding: 0.5,
+  /** Mission dose (mSv) at which a crewmate is grounded: ~8 sols outside at the real surface rate. */
+  evaDoseBudgetMsv: 5,
   /** EVA suit: extra oxygen used while working outside. */
   evaOxygenMultiplier: 1.5,
   /** Solar particle event: how much higher the dose rate gets. Real timing should come from DONKI later. */

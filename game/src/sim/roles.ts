@@ -131,43 +131,51 @@ export const ROLES: Record<RoleId, RoleDef> = {
     id: "healing",
     name: "Healing",
     description: "Treats the crew's injuries and stress.",
-    work: (ctx) => {
-      const { pawn, mission, hours, speed, log } = ctx
-
-      // Pick the most urgent treatable problem in the crew (the medic counts too).
-      const patients = mission.crew
-        .filter(isActive)
-        .flatMap((p) =>
-          p.statuses
-            .filter((s) => STATUSES[s.id].treatable)
-            .map((status) => ({ patient: p, status, def: STATUSES[status.id] })),
-        )
-        .sort(
-          (a, b) =>
-            (b.def.treatmentPriority ?? 0) - (a.def.treatmentPriority ?? 0) ||
-            a.patient.health - b.patient.health,
-        )
-
-      const next = patients[0]
-      if (!next) return idle("Waiting: everyone is healthy")
-
-      const { patient, status, def } = next
-      const selfPenalty = patient === pawn ? 0.5 : 1 // treating yourself is harder
-      status.treatmentProgress += speed * selfPenalty * hours
-
-      if (status.treatmentProgress >= (def.treatmentHours ?? 1)) {
-        removeStatus(patient, status.id)
-        if (status.id === "stressed") {
-          patient.needs.morale = clamp(patient.needs.morale + TUNING.counselingMoraleBoost, 0, 100)
-        }
-        const who = patient === pawn ? "themself" : patient.name
-        log("good", `${pawn.name} treated ${who} (${def.label}).`)
-      }
-
-      const who = patient === pawn ? "self" : patient.name
-      return { activity: "working", task: `Treating ${who}: ${def.label}` }
-    },
+    work: (ctx) => treatNextPatient(ctx.pawn, ctx.mission.crew, ctx.speed, ctx.hours, ctx.log),
   },
+}
+
+/**
+ * The healer puts `hours` of work into the most urgent treatable problem among `crew`
+ * (the healer counts too). Shared by the sandbox mission and the real game (sim/crewLife.ts).
+ */
+export function treatNextPatient(
+  healer: Pawn,
+  crew: Pawn[],
+  speed: number,
+  hours: number,
+  log: (kind: LogEntry["kind"], text: string) => void,
+): WorkResult {
+  const patients = crew
+    .filter(isActive)
+    .flatMap((p) =>
+      p.statuses
+        .filter((s) => STATUSES[s.id].treatable)
+        .map((status) => ({ patient: p, status, def: STATUSES[status.id] })),
+    )
+    .sort(
+      (a, b) =>
+        (b.def.treatmentPriority ?? 0) - (a.def.treatmentPriority ?? 0) || a.patient.health - b.patient.health,
+    )
+
+  const next = patients[0]
+  if (!next) return idle("Waiting: everyone is healthy")
+
+  const { patient, status, def } = next
+  const selfPenalty = patient === healer ? 0.5 : 1 // treating yourself is harder
+  status.treatmentProgress += speed * selfPenalty * hours
+
+  if (status.treatmentProgress >= (def.treatmentHours ?? 1)) {
+    removeStatus(patient, status.id)
+    if (status.id === "stressed") {
+      patient.needs.morale = clamp(patient.needs.morale + TUNING.counselingMoraleBoost, 0, 100)
+    }
+    const who = patient === healer ? "themself" : patient.name
+    log("good", `${healer.name} treated ${who} (${def.label}).`)
+  }
+
+  const who = patient === healer ? "self" : patient.name
+  return { activity: "working", task: `Treating ${who}: ${def.label}` }
 }
 
 export const ROLE_IDS = Object.keys(ROLES) as RoleId[]

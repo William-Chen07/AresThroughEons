@@ -24,6 +24,7 @@ function App() {
   const resetMap = useSaves((s) => s.resetMap)
   const sendExploring = useSaves((s) => s.sendExploring)
   const nextEra = useSaves((s) => s.nextEra)
+  const setCrewRole = useSaves((s) => s.setCrewRole)
 
   if (screen === "menu") {
     return <MainMenu onStart={() => setScreen("game")} />
@@ -44,7 +45,8 @@ function App() {
           onBaseChange={(base) => activeSlot !== null && setBase(activeSlot, base)}
           researched={save.researched}
           resources={save.resources}
-          health={save.health}
+          crew={save.crew}
+          crewLog={save.crewLog}
           evacuated={save.evacuated}
           trips={save.trips}
           tripLog={save.tripLog}
@@ -69,17 +71,22 @@ function App() {
           onExit={() => setScreen("menu")}
         />
 
-        {/* Crew simulation panel (sim/step.ts), shown over the map until it's wired into the scene. */}
+        {/* The crew system's details for this save (sim/crewLife.ts). Sits above the map credits button. */}
         <button
           type="button"
           onClick={() => setShowCrew((v) => !v)}
-          className="fixed bottom-4 right-4 z-40 border border-white/15 bg-black/70 px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-white backdrop-blur-sm hover:border-orange-400/70"
+          className="fixed bottom-20 right-4 z-40 sm:bottom-24 sm:right-6 border border-white/15 bg-black/70 px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-white backdrop-blur-sm hover:border-orange-400/70"
         >
           {showCrew ? "Close crew" : "Crew"}
         </button>
         {showCrew && (
           <div className="fixed inset-0 z-30 overflow-y-auto bg-[#020104]/95 pb-16 text-white">
-            <CrewPanel />
+            <CrewPanel
+              crew={save.crew}
+              crewLog={save.crewLog}
+              clock={save.hours}
+              onRole={(pawnId, role) => activeSlot !== null && setCrewRole(activeSlot, pawnId, role)}
+            />
           </div>
         )}
       </>
