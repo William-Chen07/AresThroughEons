@@ -93,11 +93,12 @@ def sphere(material, center, radius, squash=1.0):
     return obj
 
 
-def door(side, cells_x, cells_y, reach=0.3, z_low=0.1):
+def door(side, cells_x, cells_y, reach=0.3, z_low=0.1, height=0.82):
     """
     A door on one side ("north", "east", "south" or "west"), where the game puts that side's
     doorway: the middle cell, or the eastern/southern of the two middle cells on an even side.
     `reach` is how far in from the footprint's edge the door runs, so it meets the hull.
+    `height` is how tall the frame is: lower it for a gate on something with no walls.
     """
     across_x = cells_x // 2 + 0.5
     across_y = cells_y - (cells_y // 2 + 0.5)
@@ -114,15 +115,15 @@ def door(side, cells_x, cells_y, reach=0.3, z_low=0.1):
             low, high = (cells_x - reach, across_y - half_width, z_from), (cells_x - out, across_y + half_width, z_to)
         box(material, low, high)
 
-    part("METAL_GREY", 0.34, 0.06, z_low, z_low + 0.82)
-    part("DARK_TRIM", 0.25, 0.02, z_low, z_low + 0.72)
-    part("LIGHT_YELLOW", 0.06, 0.03, z_low + 0.74, z_low + 0.8)
+    part("METAL_GREY", 0.34, 0.06, z_low, z_low + height)
+    part("DARK_TRIM", 0.25, 0.02, z_low, z_low + height - 0.1)
+    part("LIGHT_YELLOW", 0.06, 0.03, z_low + height - 0.08, z_low + height - 0.02)
 
 
-def doors(cells_x, cells_y, reach=0.3, z_low=0.1):
+def doors(cells_x, cells_y, reach=0.3, z_low=0.1, height=0.82):
     """The four doors every module has (all but the Power Plant)."""
     for side in ("north", "east", "south", "west"):
-        door(side, cells_x, cells_y, reach, z_low)
+        door(side, cells_x, cells_y, reach, z_low, height)
 
 
 def finish(era, cells_x, cells_y, layers):
