@@ -9,12 +9,14 @@ import { StormOverlay } from "@/components/StormOverlay"
 import { explorePlace } from "@/content/explore"
 import { exploreEvent } from "@/content/exploreEvents"
 import { moduleType, type ModuleTypeId } from "@/content/modules"
-import type { Resources } from "@/content/resources"
+import { RESOURCE_TYPES, type Resources } from "@/content/resources"
+import { loadRichness } from "@/data/mineralMaps"
 import { weatherEvent, type WeatherId } from "@/content/weather"
 import { createMapView, type ClickKeys, type MapView } from "@/map/mapView"
 import { formatSite, type MarsSite } from "@/map/marsSite"
 import { loadTerrain, type Cell, type VoxelTerrain } from "@/map/voxelTerrain"
 import {
+  FREE,
   TUBE,
   checkModule,
   checkTubes,
@@ -35,8 +37,18 @@ import { workSpeed } from "@/sim/pawn"
 import type { LogEntry, Pawn } from "@/sim/types"
 import { buildNavigation, pressurizedCells, syncNavigation } from "@/sim/navigation"
 import {
+  CLUMP,
+  depositAt,
+  depositIdOf,
+  depositStationId,
+  generateDeposits,
+  seedFrom,
+  type Deposit,
+} from "@/sim/deposits"
+import {
   addPawn,
   clearSelection,
+  createStation,
   getZone,
   handleClick,
   isWalkable,
@@ -98,12 +110,37 @@ function placeName(world: World, stationId: string) {
   return station ? moduleType(station.kind as ModuleTypeId).name : "there"
 }
 
+/** A mineral's name, e.g. "Gold". */
+const mineralName = (mineral: string) => RESOURCE_TYPES.find((type) => type.id === mineral)?.name ?? mineral
+
+/** Where a work order sends crew, as words: "to mine the Gold deposit" or "to work in the Habitat". */
+function workPlace(world: World, stationId: string) {
+  if (depositIdOf(stationId)) {
+    const station = world.stations.find((s) => s.id === stationId)
+    return `to mine the ${station ? mineralName(station.kind) : "mineral"} deposit`
+  }
+  return `to work in the ${placeName(world, stationId)}`
+}
+
+/** Every cell of a rectangle. */
+const cellsOf = (rect: Rect): Cell[] =>
+  Array.from({ length: rect.width * rect.height }, (_, i) => ({
+    col: rect.col + (i % rect.width),
+    row: rect.row + Math.floor(i / rect.width),
+  }))
+
+/** The footprint a module of this type would have, centred on `cell`. */
+function moduleRectAt(type: ModuleTypeId, cell: Cell): Rect {
+  const { width, height } = moduleType(type)
+  return { ...placementOrigin(type, cell), width, height }
+}
+
 /** A plain-words line about what a click on the map did with the crew. */
 function describeClick(world: World, result: ClickResult, nameOf: NameOf): string {
   const listNames = (ids: string[]) => ids.map(nameOf).join(", ")
   switch (result.kind) {
     case "selected":
-      return `${listNames(result.pawnIds)} selected. Click where to send them, or a module to work in.`
+      return `${listNames(result.pawnIds)} selected. Click where to send them, a module to work in, or a mineral deposit to mine.`
     case "deselected":
       return "Nobody selected."
     case "nothing":
@@ -111,7 +148,7 @@ function describeClick(world: World, result: ClickResult, nameOf: NameOf): strin
     case "failed":
       return result.reason
     case "ordered": {
-      const where = result.order.kind === "work" ? `to work in the ${placeName(world, result.order.stationId)}` : "there"
+      const where = result.order.kind === "work" ? workPlace(world, result.order.stationId) : "there"
       const parts: string[] = []
       if (result.started.length) parts.push(`${listNames(result.started)}: on the way ${where}.`)
       if (result.queued.length) parts.push(`${listNames(result.queued)}: added to the queue.`)
@@ -184,6 +221,8 @@ export function GameMap({
   eraHistory,
   onNextEra,
   onTimePassed,
+  deposits,
+  onDepositsGenerated,
   onExit,
 }: {
   name: string
@@ -246,6 +285,10 @@ export function GameMap({
    * went by and the astronauts who lived through them (and whether each is outside right now).
    */
   onTimePassed: (hours: number, crew: CrewMember[]) => void
+  /** The map's mineral deposits, or null until they've been generated (see sim/deposits.ts). */
+  deposits: Deposit[] | null
+  /** Called once with the deposits generated for this map, to keep in the save. */
+  onDepositsGenerated: (deposits: Deposit[]) => void
   onExit: () => void
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
@@ -320,6 +363,12 @@ export function GameMap({
     [terrain, base, grid],
   )
 
+  /** Whether any of these cells has a mineral deposit on it. Nothing can be built on one. */
+  const onDeposit = useCallback(
+    (cells: Cell[]) => cells.some((cell) => deposits !== null && depositAt(deposits, cell) !== undefined),
+    [deposits],
+  )
+
   const handleCellClick = (cell: Cell, keys: ClickKeys) => {
     if (!terrain || !grid) return
     // With no dev tool picked, clicks are for the crew: pick an astronaut, then where to send them.
@@ -360,6 +409,7 @@ export function GameMap({
       const run = tubeStart ? tubeRun(tubeStart, cell) : [cell]
       const check = checkTubes(size, grid, run, modules)
       if (!check.ok) return setMessage(check.reason)
+      if (onDeposit(run)) return setMessage("There's a mineral deposit in the way. Mine it out first, or go round it.")
       if (!tubeStart) {
         setTubeStart(cell)
         return setMessage("Now click where this run of tube should end.")
@@ -374,6 +424,9 @@ export function GameMap({
 
     const check = checkModule(size, grid, tool.type, placementOrigin(tool.type, cell), crypto.randomUUID(), terrain.levels)
     if (!check.ok) return setMessage(check.reason)
+    if (onDeposit(cellsOf(moduleRectAt(tool.type, cell)))) {
+      return setMessage("There's a mineral deposit there. Mine it out first, or build somewhere else.")
+    }
     onBaseChange({ modules: [...modules, check.module], tubes })
     setMessage(`Placed a ${moduleType(tool.type).name}. It isn't joined to anything until you lay a tube to it.`)
   }
@@ -426,6 +479,63 @@ export function GameMap({
     if (crew && crew.terrain === terrain) syncNavigation(crew.world, terrain, base)
     else crewRef.current = { terrain, world: buildNavigation(terrain, base) }
   }, [terrain, base])
+
+  // The first time a map opens, its mineral deposits are generated from its terrain and from
+  // NASA's global mineral maps (see sim/deposits.ts and data/mineralMaps.ts). The same site always
+  // gets the same deposits. If NASA's maps don't answer, the site counts as normally rich.
+  const onDepositsGeneratedRef = useRef(onDepositsGenerated)
+  useEffect(() => {
+    onDepositsGeneratedRef.current = onDepositsGenerated
+  })
+  const generatingRef = useRef(false)
+  useEffect(() => {
+    if (!terrain || !grid || deposits !== null || generatingRef.current) return
+    generatingRef.current = true
+    const built = grid
+    loadRichness(site).then(({ richness }) => {
+      const center = { col: Math.floor(terrain.size / 2), row: Math.floor(terrain.size / 2) }
+      // Never under the lander or anything already built.
+      const found = generateDeposits(terrain, center, seedFrom(`${site.lat},${site.lon}`), richness, (i) => built[i] !== FREE)
+      onDepositsGeneratedRef.current(found)
+    })
+  }, [terrain, grid, deposits, site])
+
+  // Each deposit is a place on the crew's map to work at (mine), standing beside it. A deposit
+  // that's mined out is taken off, which stops anyone mining it.
+  const minedOutRef = useRef<Set<string> | null>(null)
+  useEffect(() => {
+    const crew = crewRef.current
+    if (!terrain || !crew || crew.terrain !== terrain || !deposits) return
+    const { world } = crew
+    const left = new Map(deposits.filter((d) => d.amount > 0).map((d) => [depositStationId(d.id), d]))
+    const gone = world.stations.filter((station) => depositIdOf(station.id) && !left.has(station.id))
+    world.stations = world.stations.filter((station) => !gone.includes(station))
+    for (const [id, deposit] of left) {
+      if (world.stations.some((station) => station.id === id)) continue
+      // The whole clump is the station; crew stand anywhere around its edge to mine it.
+      const half = Math.floor(CLUMP / 2)
+      world.stations.push(
+        createStation(world.grid, {
+          id,
+          kind: deposit.mineral,
+          x: deposit.col - half,
+          y: deposit.row - half,
+          width: CLUMP,
+          height: CLUMP,
+        }),
+      )
+    }
+    // Only deposits that run out while the map is open are news (not ones gone before it opened).
+    if (minedOutRef.current) {
+      const last = gone.find((station) => minedOutRef.current?.has(station.id))
+      if (last) setCrewMessage(`The ${mineralName(last.kind)} deposit is mined out.`)
+    }
+    minedOutRef.current = new Set(left.keys())
+  }, [terrain, base, deposits])
+
+  useEffect(() => {
+    view?.setDeposits(deposits ?? [])
+  }, [view, deposits])
 
   /** Ids of the astronauts out exploring: they are off this map until they are back. */
   const away = useMemo(() => trips.flatMap((trip) => trip.crew), [trips])
@@ -611,20 +721,22 @@ export function GameMap({
       view.setPlacement({
         preview: (cell) => {
           const origin = placementOrigin(type, cell)
-          return { rect: { ...origin, width, height }, tubes: [], ok: checkModule(size, grid, type, origin, "new", terrain.levels).ok }
+          const rect = { ...origin, width, height }
+          const ok = checkModule(size, grid, type, origin, "new", terrain.levels).ok && !onDeposit(cellsOf(rect))
+          return { rect, tubes: [], ok }
         },
       })
     } else if (tool?.kind === "tube") {
       view.setPlacement({
         preview: (cell) => {
           const run = tubeStart ? tubeRun(tubeStart, cell) : [cell]
-          return { rect: null, tubes: run, ok: checkTubes(size, grid, run, modules).ok }
+          return { rect: null, tubes: run, ok: checkTubes(size, grid, run, modules).ok && !onDeposit(run) }
         },
       })
     } else {
       view.setPlacement(null)
     }
-  }, [view, terrain, grid, tool, tubeStart, modules])
+  }, [view, terrain, grid, tool, tubeStart, modules, onDeposit])
 
   const pickTool = (next: BuildTool) => {
     setTool(next)
@@ -679,7 +791,7 @@ export function GameMap({
     setSelectedCrew([...crew.selectedPawnIds])
     setCrewMessage(
       crew.selectedPawnIds.length > 0
-        ? `${listNames(crew.selectedPawnIds)} selected. Click where to send them, or a module to work in.`
+        ? `${listNames(crew.selectedPawnIds)} selected. Click where to send them, a module to work in, or a mineral deposit to mine.`
         : "Nobody selected.",
     )
   }
@@ -840,6 +952,14 @@ export function GameMap({
               <>
                 <span className="text-xs font-semibold uppercase tracking-[0.25em] text-white/50">Elevation </span>
                 {formatElevation(terrain.metres[hoveredIndex])}
+                {(() => {
+                  const deposit = hovered && deposits ? depositAt(deposits, hovered) : undefined
+                  return deposit ? (
+                    <span className="ml-3 text-orange-200">
+                      {mineralName(deposit.mineral)} deposit · {Math.ceil(deposit.amount)} left
+                    </span>
+                  ) : null
+                })()}
               </>
             )}
           </p>
@@ -849,8 +969,8 @@ export function GameMap({
               <p id="map-credits" className={`${panelClass} py-2 text-[11px] text-white/50`}>
                 Drawn as pixel art from real Mars data, via NASA Mars Trek. Detail: Mars Odyssey THEMIS infrared mosaic,
                 NASA/JPL-Caltech/Arizona State University/USGS. Colour: Viking MDIM 2.1, NASA Ames/USGS. Elevation: MGS
-                MOLA, NASA GSFC/USGS. Colours are simplified and block heights exaggerated. Full credits are on the main
-                menu.
+                MOLA, NASA GSFC/USGS. Mineral richness: MGS TES mineral maps (Bandfield 2002), NASA/JPL/ASU. Colours are
+                simplified and block heights exaggerated. Full credits are on the main menu.
               </p>
             )}
             <button

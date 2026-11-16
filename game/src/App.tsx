@@ -47,6 +47,7 @@ function App() {
   const resetMap = useSaves((s) => s.resetMap)
   const sendExploring = useSaves((s) => s.sendExploring)
   const nextEra = useSaves((s) => s.nextEra)
+  const setDeposits = useSaves((s) => s.setDeposits)
   const setCrewRole = useSaves((s) => s.setCrewRole)
   // Real NASA events for the calendar are fetched while the expedition is being played.
   useSpaceCalendar(activeSlot, screen === "game")
@@ -99,6 +100,8 @@ function App() {
             setMapResets((count) => count + 1)
           }}
           onTimePassed={(hours, crew) => activeSlot !== null && passTime(activeSlot, hours, crew)}
+          deposits={save.deposits}
+          onDepositsGenerated={(deposits) => activeSlot !== null && setDeposits(activeSlot, deposits)}
           onResearch={(projectId) => activeSlot !== null && research(activeSlot, projectId)}
           onExit={() => setScreen("menu")}
         />
