@@ -1,5 +1,6 @@
 import { useEffect, type ReactNode } from "react"
 import { MARS_FACTS } from "@/content/marsFacts"
+import { RESEARCH_PROJECTS } from "@/content/research"
 import { useSettings } from "@/lib/settings"
 
 const linkClass = "text-orange-300 underline underline-offset-2"
@@ -367,6 +368,18 @@ export function CreditsDialog(props: DialogProps) {
             <span className="text-white/90">{fact.title}:</span>{" "}
             <a href={fact.source.url} target="_blank" rel="noreferrer" className={linkClass}>
               {fact.source.label}
+            </a>
+          </li>
+        ))}
+      </ul>
+      <h3 className={sectionHeading}>Research facts</h3>
+      {/* Built from the research tree, so every project's fact is always credited. */}
+      <ul className="mt-3 space-y-2 text-sm text-white/70">
+        {RESEARCH_PROJECTS.map((project) => (
+          <li key={project.id}>
+            <span className="text-white/90">{project.name}:</span>{" "}
+            <a href={project.source.url} target="_blank" rel="noreferrer" className={linkClass}>
+              {project.source.label}
             </a>
           </li>
         ))}

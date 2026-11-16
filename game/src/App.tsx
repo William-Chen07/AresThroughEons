@@ -41,7 +41,7 @@ function App() {
   const activeSlot = useSaves((s) => s.activeSlot)
   const markLanded = useSaves((s) => s.markLanded)
   const setBase = useSaves((s) => s.setBase)
-  const research = useSaves((s) => s.research)
+  const startResearch = useSaves((s) => s.startResearch)
   const passTime = useSaves((s) => s.passTime)
   const setWeather = useSaves((s) => s.setWeather)
   const resetMap = useSaves((s) => s.resetMap)
@@ -69,10 +69,12 @@ function App() {
           tubes={save.tubes}
           onBaseChange={(base) => activeSlot !== null && setBase(activeSlot, base)}
           researched={save.researched}
+          researchProgress={save.researchProgress}
           resources={save.resources}
           crew={save.crew}
           crewLog={save.crewLog}
           evacuated={save.evacuated}
+          crewSpots={save.crewSpots}
           trips={save.trips}
           tripLog={save.tripLog}
           tripNews={save.tripNews}
@@ -98,8 +100,8 @@ function App() {
             nextEra(activeSlot)
             setMapResets((count) => count + 1)
           }}
-          onTimePassed={(hours, crew) => activeSlot !== null && passTime(activeSlot, hours, crew)}
-          onResearch={(projectId) => activeSlot !== null && research(activeSlot, projectId)}
+          onTimePassed={(hours, crew, labHours, spots) => activeSlot !== null && passTime(activeSlot, hours, crew, labHours, spots)}
+          onStartResearch={(projectId) => activeSlot !== null && startResearch(activeSlot, projectId)}
           onExit={() => setScreen("menu")}
         />
 
