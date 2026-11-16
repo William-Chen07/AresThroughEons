@@ -112,7 +112,7 @@ function App() {
           onExit={() => setScreen("menu")}
         />
 
-        {/* Bottom right, above the map credits button: the backpack (the ice and regolith dug up), then the
+        {/* Bottom right, above the map credits button: the backpack (the regolith and minerals dug up), then the
             button for the crew system's details for this save (sim/crewLife.ts). Fixed above the crew
             screen, so the Crew button can also close it. While the Build bar is open it all sits above it
             (--build-bar is the bar's height, see BuildPanel). */}

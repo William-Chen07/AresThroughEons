@@ -12,7 +12,8 @@ import type { ResourceId } from "@/content/resources"
  * `x` and `y` say where the place is on the explore map, from 0 to 100 across
  * and down. The base is in the middle, at 50, 50, and the further away a place
  * is, the longer the trip. `finds` lists what ONE astronaut brings back: a
- * random amount from `min` to `max` of each resource.
+ * random amount from `min` to `max` of each resource. Ice the crew dig up is
+ * listed as water: it's melted into the base's water, not kept as ice.
  */
 export interface ExplorePlace {
   id: string
@@ -33,8 +34,8 @@ export const EXPLORE_PLACES: ExplorePlace[] = [
     name: "Ice Cliff",
     x: 24,
     y: 20,
-    text: "A steep cliff where a thick layer of ice shows under the red soil.",
-    finds: [{ resource: "ice", min: 15, max: 35 }],
+    text: "A steep cliff where a thick layer of ice shows under the red soil. The crew dig it out and melt it into water.",
+    finds: [{ resource: "water", min: 15, max: 35 }],
   },
   {
     id: "lava-tube",
@@ -52,9 +53,9 @@ export const EXPLORE_PLACES: ExplorePlace[] = [
     name: "Dry Riverbed",
     x: 36,
     y: 71,
-    text: "A winding channel that water cut into the ground a very long time ago.",
+    text: "A winding channel that water cut into the ground a very long time ago. A little ice is still buried here, and melts into water.",
     finds: [
-      { resource: "ice", min: 5, max: 15 },
+      { resource: "water", min: 5, max: 15 },
       { resource: "regolith", min: 5, max: 15 },
     ],
   },

@@ -492,7 +492,8 @@ export const savesStore = createStore<Saves & SavesActions>()(
       // Version 20 removed the Airlock module: any already built is taken off the map. (Every module
       // and tube now counts as pressurized, see sim/navigation.ts.)
       // Version 21 added `deposits`: an older save gets them the next time its map opens.
-      version: 21,
+      // Version 22 removed ice as a resource: a save's ice is melted into its water (see upgradeResources).
+      version: 22,
       migrate: (stored) => {
         const old = stored as Saves
         return {

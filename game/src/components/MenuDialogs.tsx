@@ -303,7 +303,7 @@ const DATA_CREDITS: Credit[] = [
     ],
   },
   {
-    use: "Base resources (ice and regolith)",
+    use: "Base resources (water from ice, and regolith)",
     what:
       "The two raw materials dug out of Mars in the game follow NASA’s overview of in-situ resource " +
       "utilization (ISRU): water deposits in the soil of Mars, and that soil itself (regolith) used " +

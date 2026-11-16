@@ -68,6 +68,32 @@ export function landersOf(base: Base, size: number): LanderSpot[] {
   return base.landers && base.landers.length > 0 ? base.landers : [firstLander(size)]
 }
 
+/** The era the expedition is in: the era of the newest lander. */
+export function currentEra(base: Base, size: number): number {
+  const landers = landersOf(base, size)
+  return landers[landers.length - 1].era
+}
+
+/** True for a module built in an earlier era than `era`: it's left worn down and can't be used. */
+export const isDecayed = (module: PlacedModule, era: number) => (module.era ?? 1) < era
+
+/**
+ * Cells (index row * size + col) of the decayed modules: ones built in an earlier era than the
+ * expedition is in now (drawn worn down, see map/baseView.ts). Nobody can go inside them.
+ */
+export function decayedCells(size: number, base: Base): Set<number> {
+  const era = currentEra(base, size)
+  const cells = new Set<number>()
+  for (const module of base.modules) {
+    if (!isDecayed(module, era)) continue
+    const rect = moduleRect(module)
+    for (let row = Math.max(0, rect.row); row < Math.min(size, rect.row + rect.height); row++) {
+      for (let col = Math.max(0, rect.col); col < Math.min(size, rect.col + rect.width); col++) cells.add(row * size + col)
+    }
+  }
+  return cells
+}
+
 /** The cells a lander stands on: 3 × 3, centred on its spot. */
 export function landerRect(spot: Cell): Rect {
   const half = Math.floor(LANDER_CELLS / 2)
