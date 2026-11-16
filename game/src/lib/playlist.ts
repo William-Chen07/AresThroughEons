@@ -16,6 +16,17 @@ export interface Track {
   kind: TrackKind
   /** The audio file, for nebula and music entries. */
   url?: string
+  /** The file's average loudness (RMS, in dB below full scale), measured once, for level matching. */
+  loudnessDb?: number
+}
+
+/** Every file is turned down to this average loudness, so no track jumps out over the others. */
+export const TARGET_LOUDNESS_DB = -24
+
+/** How much to turn a track down (0 to 1) so it plays at `TARGET_LOUDNESS_DB`. Never turns one up. */
+export function levelFor(track: Track) {
+  if (track.loudnessDb === undefined) return 1
+  return Math.min(1, 10 ** ((TARGET_LOUDNESS_DB - track.loudnessDb) / 20))
 }
 
 export const SILENCE: Track = { id: "silence", kind: "silence" }

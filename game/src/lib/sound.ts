@@ -1,5 +1,5 @@
 import { settingsStore } from "@/lib/settings"
-import { SILENCE, pickNext, silenceSeconds, type Track } from "@/lib/playlist"
+import { SILENCE, levelFor, pickNext, silenceSeconds, type Track } from "@/lib/playlist"
 // Imported straight from the repo's root Audio/ folder: the build copies just these
 // files into the bundle, and vite.config.ts lets the dev server read that folder.
 // "Discovery STS-131: Sound of Launch" from NASA's historical sounds
@@ -24,19 +24,26 @@ import edmMusicUrl from "../../../Audio/jonasblakewood-edm-edm-music-350632.mp3"
  * `unlockAudio()` and `startMusic()` run from a click or key press (see App.tsx).
  */
 
-/** Everything the background music picks from; see lib/playlist.ts for how. */
+/**
+ * Everything the background music picks from; see lib/playlist.ts for how. `loudnessDb` is each
+ * file's measured average loudness, used to play them all at the same soft level. Measure a new
+ * file the same way (RMS of the decoded audio, all channels) when adding it.
+ */
 const TRACKS: Track[] = [
-  { id: "butterfly", kind: "nebula", url: butterflyUrl },
-  { id: "bubble", kind: "nebula", url: bubbleUrl },
-  { id: "pismis", kind: "nebula", url: pismisUrl },
-  { id: "rs-puppis", kind: "nebula", url: rsPuppisUrl },
-  { id: "ngc-2392", kind: "nebula", url: ngc2392Url },
-  { id: "ngc-1569", kind: "nebula", url: ngc1569Url },
-  { id: "space", kind: "music", url: spaceMusicUrl },
-  { id: "edm", kind: "music", url: edmMusicUrl },
+  { id: "butterfly", kind: "nebula", url: butterflyUrl, loudnessDb: -15.7 },
+  { id: "bubble", kind: "nebula", url: bubbleUrl, loudnessDb: -21 },
+  { id: "pismis", kind: "nebula", url: pismisUrl, loudnessDb: -23.8 },
+  { id: "rs-puppis", kind: "nebula", url: rsPuppisUrl, loudnessDb: -18.5 },
+  { id: "ngc-2392", kind: "nebula", url: ngc2392Url, loudnessDb: -16.4 },
+  { id: "ngc-1569", kind: "nebula", url: ngc1569Url, loudnessDb: -13.2 },
+  { id: "space", kind: "music", url: spaceMusicUrl, loudnessDb: -16.4 },
+  { id: "edm", kind: "music", url: edmMusicUrl, loudnessDb: -10.9 },
   SILENCE,
 ]
-const MUSIC_LEVEL = 0.6 // music sits under the UI sounds even at full volume
+// Background music stays soft: with the default music volume it sits well under the landing
+// engine and the button sounds, and it dips further while a lander comes down (see playLanding).
+const MUSIC_LEVEL = 0.35
+const DUCK_LEVEL = 0.2 // how far the music dips under the landing sound
 const FADE_IN_SECONDS = 2
 const FADE_OUT_SECONDS = 2
 
@@ -62,12 +69,27 @@ let lastHeard: Track | null = null // the last file played, remembered through q
 let silenceTimer: ReturnType<typeof setTimeout> | undefined
 let fadingOut = false
 let failures = 0 // files in a row that would not play, so a broken build can't spin forever
+let ducks = 0 // sounds playing right now that the music should dip under
 let context: AudioContext | null = null
 let slices: Partial<Record<SfxName, AudioBuffer>> = {}
 
 function musicTarget() {
   const { muted, musicVolume } = settingsStore.getState()
-  return muted ? 0 : musicVolume * MUSIC_LEVEL
+  if (muted || !current) return 0
+  return musicVolume * MUSIC_LEVEL * levelFor(current) * (ducks > 0 ? DUCK_LEVEL : 1)
+}
+
+/** Dips the background music while an important sound plays; call the returned function when it ends. */
+function duckMusic() {
+  ducks++
+  if (music && !music.paused && !fadingOut) fadeMusicTo(musicTarget(), 0.4)
+  let done = false
+  return () => {
+    if (done) return
+    done = true
+    ducks--
+    if (music && !music.paused && !fadingOut) fadeMusicTo(musicTarget(), 1.5)
+  }
 }
 
 function fadeMusicTo(target: number, seconds: number, then?: () => void) {
@@ -228,7 +250,9 @@ export function playSfx(name: SfxName) {
 }
 
 // The lander's engine, played whole each time a lander comes down (see map/mapView.ts).
-const LANDING_GAIN = 0.8
+// The recording is quiet (its loudest moment is about 12 dB under full scale), so it is boosted
+// to stand out over the music; even at full SFX volume it peaks around -4 dB, so it never clips.
+const LANDING_GAIN = 2.5
 let landingBuffer: Promise<AudioBuffer> | null = null
 
 function loadLanding(ctx: AudioContext) {
@@ -259,6 +283,9 @@ export function playLanding(): () => void {
       const gain = ctx.createGain()
       gain.gain.value = LANDING_GAIN * sfxVolume
       source.connect(gain).connect(ctx.destination)
+      // The music dips for as long as the engine is heard, so the landing always comes through.
+      const unduck = duckMusic()
+      source.onended = unduck
       source.start()
     })
   }
