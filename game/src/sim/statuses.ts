@@ -123,7 +123,7 @@ export const STATUSES: Record<StatusId, StatusDef> = {
   injured: {
     id: "injured",
     label: "Injured",
-    description: "Got hurt outside. Working slowly and can't go on EVA.",
+    description: "Got hurt, and lost some health. Working slowly and can't go on EVA.",
     fix: "A medic can patch them up. Otherwise it heals slowly on its own.",
     severity: "serious",
     treatable: true,
