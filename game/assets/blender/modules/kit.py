@@ -85,15 +85,18 @@ def cylinder(material, center, radius, z_low, z_high, top_radius=None, sides=32,
     return _adopt(material, rotation)
 
 
-def sphere(material, center, radius, squash=1.0):
-    """A ball at `center` (x, y, z). `squash` below 1 flattens it into a dome shape."""
+def sphere(material, center, radius, squash=1.0, stretch=None):
+    """
+    A ball at `center` (x, y, z). `squash` below 1 flattens it into a dome shape; `stretch`
+    (x, y, z) scales each direction on its own instead.
+    """
     bpy.ops.mesh.primitive_uv_sphere_add(segments=16, ring_count=8, radius=radius, location=center)
     obj = _adopt(material, None)
-    obj.scale = (1, 1, squash)
+    obj.scale = stretch if stretch is not None else (1, 1, squash)
     return obj
 
 
-def door(side, cells_x, cells_y, reach=0.3, z_low=0.1, height=0.82):
+def door(side, cells_x, cells_y, reach=0.3, z_low=0.1, height=0.82, frame="METAL_GREY"):
     """
     A door on one side ("north", "east", "south" or "west"), where the game puts that side's
     doorway: the middle cell, or the eastern/southern of the two middle cells on an even side.
@@ -115,19 +118,22 @@ def door(side, cells_x, cells_y, reach=0.3, z_low=0.1, height=0.82):
             low, high = (cells_x - reach, across_y - half_width, z_from), (cells_x - out, across_y + half_width, z_to)
         box(material, low, high)
 
-    part("METAL_GREY", 0.34, 0.06, z_low, z_low + height)
+    part(frame, 0.34, 0.06, z_low, z_low + height)
     part("DARK_TRIM", 0.25, 0.02, z_low, z_low + height - 0.1)
     part("LIGHT_YELLOW", 0.06, 0.03, z_low + height - 0.08, z_low + height - 0.02)
 
 
-def doors(cells_x, cells_y, reach=0.3, z_low=0.1, height=0.82):
-    """The four doors every module has (all but the Power Plant)."""
+def doors(cells_x, cells_y, reach=0.3, z_low=0.1, height=0.82, frame="METAL_GREY"):
+    """The four doors every building has (not the Power Plant, Solar Array or other open frames)."""
     for side in ("north", "east", "south", "west"):
-        door(side, cells_x, cells_y, reach, z_low, height)
+        door(side, cells_x, cells_y, reach, z_low, height, frame)
 
 
-def finish(era, cells_x, cells_y, layers):
-    """Slices the module, writes its icon and review pictures, saves the .blend. Returns the files."""
+def finish(era, cells_x, cells_y, layers, icon=True):
+    """
+    Slices the module, writes its icon and review pictures, saves the .blend. Returns the files.
+    `icon=False` is for pieces that never appear in the build menu: no icon or 3D preview.
+    """
     name = _collection.name
     triangles = 0
     depsgraph = bpy.context.evaluated_depsgraph_get()
@@ -141,7 +147,7 @@ def finish(era, cells_x, cells_y, layers):
     written = _slicer["slice_module"](name, cells_x, cells_y, layers, sprite_dir)
 
     # Only the icon ships with the game; the big preview is just for looking at.
-    for path in _slicer["preview_module"](name, PREVIEW_DIR):
+    for path in _slicer["preview_module"](name, PREVIEW_DIR) if icon else []:
         if path.endswith("_icon.png"):
             icon = os.path.join(sprite_dir, os.path.basename(path))
             shutil.move(path, icon)
