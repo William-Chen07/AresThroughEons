@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { SILENCE, SILENCE_SECONDS, pickNext, silenceSeconds, type Track } from "@/lib/playlist"
+import { SILENCE, SILENCE_SECONDS, TARGET_LOUDNESS_DB, levelFor, pickNext, silenceSeconds, type Track } from "@/lib/playlist"
 
 const TRACKS: Track[] = [
   { id: "butterfly", kind: "nebula", url: "a.mp3" },
@@ -71,5 +71,13 @@ describe("background music playlist", () => {
 
   it("repeats the only file rather than failing", () => {
     expect(pickNext([TRACKS[0]], [TRACKS[0]]).id).toBe("butterfly")
+  })
+
+  it("turns loud files down to the same level and never turns quiet ones up", () => {
+    const loud: Track = { id: "loud", kind: "music", url: "x.mp3", loudnessDb: TARGET_LOUDNESS_DB + 12 }
+    const quiet: Track = { id: "quiet", kind: "nebula", url: "y.mp3", loudnessDb: TARGET_LOUDNESS_DB - 6 }
+    expect(levelFor(loud)).toBeCloseTo(0.251, 3)
+    expect(levelFor(quiet)).toBe(1)
+    expect(levelFor(SILENCE)).toBe(1)
   })
 })
