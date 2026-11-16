@@ -8,7 +8,6 @@ import { useSpaceCalendar } from "@/data/useSpaceCalendar"
 import { HOURS_PER_DAY, dayOf, describeSpaceEvent, eventsSoFar, latestNews, realDateAt, realEvents, type Calendar } from "@/sim/calendar"
 import { stormWarning } from "@/sim/weather"
 import { useSaves } from "@/sim/saves"
-import { useSettings } from "@/lib/settings"
 import { leavingAttr, usePresence } from "@/lib/motion"
 import { startMusic, unlockAudio } from "@/lib/sound"
 
@@ -62,8 +61,6 @@ function App() {
   const nextEra = useSaves((s) => s.nextEra)
   const setDeposits = useSaves((s) => s.setDeposits)
   const setCrewRole = useSaves((s) => s.setCrewRole)
-  // Once the map credits button is put away, the Backpack and Crew buttons drop down into its corner.
-  const creditsDismissed = useSettings((s) => s.mapCreditsDismissed)
   // Real NASA events for the calendar are fetched while the expedition is being played.
   useSpaceCalendar(activeSlot, screen === "game")
   // The background music plays on every screen. Browsers block audio until the player clicks or
@@ -148,7 +145,7 @@ function App() {
             (--build-bar is the bar's height, see BuildPanel). */}
         {!researchOpen && (
         <div
-          className={`pointer-events-none fixed right-4 z-40 flex flex-col items-end gap-2 sm:right-6 ${creditsDismissed ? "bottom-[calc(var(--build-bar,0px)+1rem)] sm:bottom-[calc(var(--build-bar,0px)+1.5rem)]" : "bottom-[calc(var(--build-bar,0px)+5rem)] sm:bottom-[calc(var(--build-bar,0px)+6rem)]"}`}
+          className="pointer-events-none fixed right-4 bottom-[calc(var(--build-bar,0px)+5rem)] z-40 flex flex-col items-end gap-2 sm:right-6 sm:bottom-[calc(var(--build-bar,0px)+6rem)]"
         >
           {!showCrew && <Backpack resources={save.resources} />}
           <button
