@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { ResourceIcon } from "@/components/ResourceIcon";
 import {
-  RESOURCE_TYPES,
+  BASE_RESOURCES,
   type ResourceId,
   type Resources,
 } from "@/content/resources";
 
 /*
- * The base's resources in one row along the top right of the base map. It
+ * The base's supplies in one row along the top right of the base map (the
+ * raw materials dug out of Mars are in the backpack instead). It
  * only shows the amounts kept in the save; nothing
  * makes or uses resources yet. Resting the pointer on a resource (or moving to
  * it with the Tab key) opens a short card: what it is and why it matters on a
@@ -26,7 +27,7 @@ export function ResourceBar({ resources }: { resources: Resources }) {
       aria-label="Resources"
       className="pointer-events-auto flex flex-wrap items-center justify-end gap-x-3 gap-y-1 border border-white/15 bg-neutral-950/80 px-3 py-2 backdrop-blur-sm"
     >
-      {RESOURCE_TYPES.map((type, i) => (
+      {BASE_RESOURCES.map((type, i) => (
         <li
           key={type.id}
           tabIndex={0}
@@ -50,7 +51,7 @@ export function ResourceBar({ resources }: { resources: Resources }) {
           <div
             id={`resource-${type.id}-about`}
             role="tooltip"
-            className={`pointer-events-none absolute top-full z-20 mt-4 w-72 border border-white/15 bg-neutral-950/95 p-4 text-left ${openId === type.id ? "" : "hidden"} ${i < RESOURCE_TYPES.length / 2 ? "left-0" : "right-0"}`}
+            className={`pointer-events-none absolute top-full z-20 mt-4 w-72 border border-white/15 bg-neutral-950/95 p-4 text-left ${openId === type.id ? "" : "hidden"} ${i < BASE_RESOURCES.length / 2 ? "left-0" : "right-0"}`}
           >
             <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.25em] text-orange-300/90">
               <ResourceIcon id={type.id} color={type.color} />
