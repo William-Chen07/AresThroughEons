@@ -34,13 +34,11 @@ for step in range(8):
 kit.cylinder("DARK_TRIM", MIDDLE, 0.74, PIXEL, 0.2, sides=24)
 kit.cylinder("METAL_GREY", MIDDLE, 0.5, 0.2, 0.3, sides=24)
 
-# The four radiator fins, two pixels thick, as tall as the core, with a dark edge along the top.
+# The four radiator fins, two pixels thick and as tall as the core.
 FIN_LOW, FIN_HIGH = 0.26, 1.38
 for low, high in ((0.12, 0.76), (1.24, 1.88)):
     kit.box("METAL_GREY", (low, 15 * PIXEL, FIN_LOW), (high, 17 * PIXEL, FIN_HIGH))
     kit.box("METAL_GREY", (15 * PIXEL, low, FIN_LOW), (17 * PIXEL, high, FIN_HIGH))
-    kit.box("DARK_TRIM", (low, 15 * PIXEL, FIN_HIGH), (high, 17 * PIXEL, FIN_HIGH + PIXEL))
-    kit.box("DARK_TRIM", (15 * PIXEL, low, FIN_HIGH), (17 * PIXEL, high, FIN_HIGH + PIXEL))
 
 # The reactor core: a pale column with an orange band, a dark cap and a yellow warning light on top.
 kit.cylinder("HULL_SHADE", MIDDLE, 0.3, 0.26, 1.44, sides=24)

@@ -17,7 +17,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import kit  # noqa: E402
 
-LAYERS = 14
+# The figure itself is 12 layers tall; the strip is cut at 20 to match the sprite table.
+LAYERS = 20
 
 
 def parts(visor="DARK_TRIM", chest=True):
