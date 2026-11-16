@@ -111,7 +111,7 @@ def main():
     bpy.data.meshes.remove(mesh)
     bpy.data.collections.remove(collection)
     if "--keep-test-output" not in sys.argv:
-        shutil.rmtree(os.path.join(HERE, "out"), ignore_errors=True)
+        shutil.rmtree(out_dir, ignore_errors=True)
 
     bpy.ops.wm.save_mainfile()
 
