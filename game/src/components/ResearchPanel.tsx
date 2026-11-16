@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { X } from "lucide-react"
 import { RESEARCH_ERAS, RESEARCH_PROJECTS, eraColor, researchProject, type ResearchProject } from "@/content/research"
 import { formatRealTime } from "@/sim/clock"
+import { useGameSpeed } from "@/lib/gameSpeed"
 import { hoursLeft, lockedByEra, researchState, type ResearchProgress, type ResearchState } from "@/sim/research"
 
 /*
@@ -111,6 +112,8 @@ export function ResearchPanel({
   /** The project the Research button would start, once one has been clicked. */
   const [selectedId, setSelectedId] = useState<string | null>(progress.active)
   const selected = selectedId ? researchProject(selectedId) : undefined
+  /** Countdowns show real time, which is shorter while the game is sped up. */
+  const speed = useGameSpeed()
   const projects = RESEARCH_PROJECTS
   /** The size of the scrolling area, so the tree can spread out to fill it. */
   const areaRef = useRef<HTMLDivElement>(null)
@@ -138,8 +141,8 @@ export function ResearchPanel({
     const remaining = hoursLeft(progress, selected)
     const time =
       remaining < selected.hours
-        ? `${formatRealTime(remaining)} left of ${formatRealTime(selected.hours)}`
-        : `takes ${formatRealTime(selected.hours)}`
+        ? `${formatRealTime(remaining, speed)} left of ${formatRealTime(selected.hours, speed)}`
+        : `takes ${formatRealTime(selected.hours, speed)}`
     if (labCount === 0) note = `${selected.name}: ${time}. Build a Research Lab first: research only happens in one.`
     else if (isActive && staffedLabs > 0) {
       note = `Researching ${selected.name}: ${time}. ${staffedLabs} ${staffedLabs === 1 ? "lab is" : "labs are"} working on it.`
@@ -221,8 +224,8 @@ export function ResearchPanel({
                       : lockedByEra(project, era)
                         ? `Unlocks in Era ${project.era}`
                         : active
-                          ? `Researching · ${formatRealTime(project.hours - done)} left`
-                          : formatRealTime(project.hours)}
+                          ? `Researching · ${formatRealTime(project.hours - done, speed)} left`
+                          : formatRealTime(project.hours, speed)}
                   </span>
                   {/* How far along: the one being researched, or one that was started and left for another. */}
                   {state !== "done" && done > 0 && (

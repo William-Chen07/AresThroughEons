@@ -68,6 +68,7 @@ import {
 import { claimedLabCount, isLab, keepHidersResearching, labOf, pickLabWorker, sendResearcher, shelterRule, staffedLabs } from "@/sim/labs"
 import type { CrewSpot } from "@/sim/saves"
 import { GAME_HOURS_PER_SECOND, formatRealTime } from "@/sim/clock"
+import { GAME_SPEEDS, gameSpeedStore, useGameSpeed } from "@/lib/gameSpeed"
 import { hoursLeft, type ResearchProgress } from "@/sim/research"
 import { playSfx } from "@/lib/sound"
 import type { Weather } from "@/sim/weather"
@@ -356,6 +357,8 @@ export function GameMap({
   const gameOver = crew.length > 0 && crew.every((member) => member.evacuated || evacuated.includes(member.id))
   /** The crew as of the last render, for the frame loop and callbacks (which outlive a render). */
   const rosterRef = useRef(crew)
+  /** How fast the clock runs (1×, 2× or 3×); the frame loop reads it from gameSpeedStore. */
+  const gameSpeed = useGameSpeed()
   // Both read the ref when called, so they never go stale and never need to change.
   const nameOf: NameOf = useCallback((id) => rosterRef.current.find((p) => p.id === id)?.name ?? id, [])
   const listNames = useCallback((ids: string[]) => ids.map(nameOf).join(", "), [nameOf])
@@ -829,15 +832,17 @@ export function GameMap({
         view.drawCrew(crew, suitColors(rosterRef.current))
         return
       }
-      // A long gap (the tab was hidden) shouldn't make everyone teleport.
-      const dtHours = (Math.min(deltaMs, 100) / 1000) * GAME_HOURS_PER_SECOND
+      // A long gap (the tab was hidden) shouldn't make everyone teleport. At 2× or 3× the clock
+      // runs that many times faster, so everything (walking, needs, research, weather) speeds up.
+      const speed = gameSpeedStore.getState().speed
+      const dtHours = (Math.min(deltaMs, 100) / 1000) * GAME_HOURS_PER_SECOND * speed
       // The crew rules decide what's urgent (sim/crewLife.ts): in a storm everyone needs shelter,
       // and so does anyone injured, short of oxygen or at the radiation limit. A Research Lab still
       // holds one astronaut, so nobody shelters in a lab someone else is using.
       const storm = stormRef.current
       const pawnOf = (id: string) => rosterRef.current.find((p) => p.id === id)
       const canFix = (need: string) => crew.stations.some((station) => station.provides.includes(need as never))
-      const events = stepPathing(crew, dtHours, {
+      const pathingOptions: Parameters<typeof stepPathing>[2] = {
         urgentNeed: (id) => urgentNeedOf(pawnOf(id), storm, canFix),
         workRate: (id) => {
           const pawn = pawnOf(id)
@@ -847,7 +852,11 @@ export function GameMap({
         walkSpeed: (id) =>
           pawnOf(id)?.activity === "sleeping" && !crew.movers[id]?.interrupt ? 0 : scaleFor(crew.grid).walkTilesPerHour,
         canShelterAt: storm ? shelterRule(crew) : undefined,
-      })
+      }
+      // Sped up, the crew walk in steps no bigger than at 1×, so they still turn corners and stop
+      // at doors exactly where they would have.
+      const events: ReturnType<typeof stepPathing> = []
+      for (let i = 0; i < speed; i++) events.push(...stepPathing(crew, dtHours / speed, pathingOptions))
       if (storm) keepHidersResearching(crew)
       // Each lab with its astronaut inside puts that astronaut's work into the research: a trained
       // Researcher does more than anyone else (see researchRate). In a storm, an astronaut hiding in
@@ -936,6 +945,12 @@ export function GameMap({
           setResearchOpen(false)
           setExploreOpen(false)
         }
+        return
+      }
+      // 1, 2 and 3 set how fast time runs.
+      const picked = GAME_SPEEDS.find((speed) => e.key === String(speed))
+      if (picked && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
+        gameSpeedStore.getState().setSpeed(picked)
         return
       }
       if (e.code === "Backquote") {
@@ -1054,7 +1069,28 @@ export function GameMap({
               <p className={kickerClass}>
                 {name} · Era {era}
               </p>
-              <p className="mt-1 text-2xl font-semibold uppercase tracking-[0.2em] tabular-nums">Day {day}</p>
+              <div className="mt-1 flex items-center justify-between gap-3">
+                <p className="text-2xl font-semibold uppercase tracking-[0.2em] tabular-nums">Day {day}</p>
+                {/* How fast time runs. The 1, 2 and 3 keys pick these too. */}
+                <div role="group" aria-label="Game speed" className="pointer-events-auto flex">
+                  {GAME_SPEEDS.map((speed) => (
+                    <button
+                      key={speed}
+                      type="button"
+                      aria-pressed={gameSpeed === speed}
+                      title={`${speed}× speed (key ${speed})`}
+                      onClick={() => gameSpeedStore.getState().setSpeed(speed)}
+                      className={`-ml-px border px-2 py-1 text-xs font-semibold tabular-nums transition first:ml-0 focus-visible:relative focus-visible:outline-2 focus-visible:outline-orange-400 ${
+                        gameSpeed === speed
+                          ? "relative border-orange-400/70 bg-orange-500/25 text-orange-100"
+                          : "border-white/15 bg-white/5 text-white/60 hover:border-orange-400/70 hover:bg-orange-500/15 hover:text-orange-100"
+                      }`}
+                    >
+                      {speed}×
+                    </button>
+                  ))}
+                </div>
+              </div>
               {/* How far through today the clock is. */}
               <div className="mt-2 h-1.5 w-full bg-white/10" aria-hidden>
                 <div className="h-full bg-orange-400/80" style={{ width: `${Math.round(dayProgress * 100)}%` }} />
@@ -1199,7 +1235,7 @@ export function GameMap({
                   Research
                   <span className="tracking-[0.15em] text-white/50">
                     {labCrew.staffed > 0
-                      ? `${formatRealTime(researchLeft)} left`
+                      ? `${formatRealTime(researchLeft, gameSpeed)} left`
                       : labCrew.claimed > 0
                         ? "On the way"
                         : "Stopped"}
@@ -1351,7 +1387,7 @@ export function GameMap({
               {weatherEvent(stormWarning.id).name} coming
               <span className="ml-3 tracking-[0.15em] text-white/60">
                 in {Math.ceil(stormWarning.hoursLeft)} h
-                <span className="ml-1.5 normal-case tracking-normal">(about {formatRealTime(stormWarning.hoursLeft)})</span>
+                <span className="ml-1.5 normal-case tracking-normal">(about {formatRealTime(stormWarning.hoursLeft, gameSpeed)})</span>
               </span>
             </p>
             <p className="mt-1 text-sm text-white/90">{weatherEvent(stormWarning.id).soon}</p>
@@ -1463,8 +1499,8 @@ export function GameMap({
               Era {era} over
             </h2>
             <p className="mt-4 text-sm text-white/70">
-              Every astronaut on {name} was evacuated to Earth. Nobody is left to run the base. A new crew can
-              land beside it and carry on.
+              Every astronaut on {name} was evacuated to Earth. Nobody is left to run the base. Once they are
+              well, they can fly back with a new crewmate, land beside it and carry on.
             </p>
             {/* The calendar's secret: the real days this era was played on, and what NASA saw then. */}
             <div className="mt-5 border-t border-white/10 pt-4 text-left">
