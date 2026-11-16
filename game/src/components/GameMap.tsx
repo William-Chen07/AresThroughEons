@@ -10,7 +10,7 @@ import { useSettings } from "@/lib/settings"
 import { StormOverlay } from "@/components/StormOverlay"
 import { explorePlace } from "@/content/explore"
 import { exploreEvent } from "@/content/exploreEvents"
-import { moduleType, type ModuleTypeId } from "@/content/modules"
+import { moduleType, type ModuleTypeId, moduleUnlockedBy } from "@/content/modules"
 import { eraColor, researchProject } from "@/content/research"
 import { RESOURCE_TYPES, type ResourceId, type Resources } from "@/content/resources"
 import { loadRichness } from "@/data/mineralMaps"
@@ -69,7 +69,7 @@ import {
   type Tile,
   type World,
 } from "@/sim/pathing"
-import { claimedLabCount, isLab, keepHidersResearching, labOf, pickLabWorker, sendResearcher, shelterRule, staffedLabs } from "@/sim/labs"
+import { claimedLabCount, isLab, keepHidersResearching, labOf, labSpeed, pickLabWorker, sendResearcher, shelterRule, staffedLabs } from "@/sim/labs"
 import type { CrewSpot } from "@/sim/saves"
 import { GAME_HOURS_PER_SECOND, formatRealTime } from "@/sim/clock"
 import { hoursLeft, type ResearchProgress } from "@/sim/research"
@@ -176,7 +176,9 @@ function describeEvent(event: PathingEvent, nameOf: NameOf, kindOf: (stationId: 
     case "needUnmet":
       return `${nameOf(event.pawnId)}: ${event.reason}`
     case "workStarted":
-      return kindOf(event.stationId) === "research" ? `${nameOf(event.pawnId)} is doing research in the Research Lab.` : null
+      return kindOf(event.stationId) === "research" || kindOf(event.stationId) === "research-pro"
+        ? `${nameOf(event.pawnId)} is doing research in the Research Lab.`
+        : null
     case "needInterrupt":
       if (event.need === "rest") return `${nameOf(event.pawnId)} is sleepy and going to bed in the Habitat.`
       return event.need === "shelter" ? `${nameOf(event.pawnId)} is heading inside to shelter.` : null
@@ -808,7 +810,7 @@ export function GameMap({
       // a lab nobody was sent to counts as working in it.
       const inLabs = staffedLabs(crew, storm)
       const staffed = inLabs.length
-      const labWork = inLabs.reduce((sum, lab) => sum + researchRate(pawnOf(lab.pawnId)), 0)
+      const labWork = inLabs.reduce((sum, lab) => sum + researchRate(pawnOf(lab.pawnId)) * labSpeed(crew, lab.stationId), 0)
       const researcherIds = inLabs.map((lab) => lab.pawnId).sort().join(",")
       if (researcherIds !== shownResearchers) {
         shownResearchers = researcherIds
@@ -934,7 +936,7 @@ export function GameMap({
     )
   }
 
-  const labCount = modules.filter((module) => module.type === "research").length
+  const labCount = modules.filter((module) => module.type === "research" || module.type === "research-pro").length
 
   /**
    * The Research button in the research tree: the project becomes the one being researched. If no
@@ -963,7 +965,9 @@ export function GameMap({
     researchedRef.current = researched
     const finished = researched.find((id) => !before.includes(id))
     const project = finished ? researchProject(finished) : undefined
-    if (project) queueMicrotask(() => setCrewMessage(`Research finished: ${project.name}.`))
+    const unlocks = finished ? moduleUnlockedBy(finished) : undefined
+    const built = unlocks ? ` The ${unlocks.name} can now be built: find it in the Build bar.` : ""
+    if (project) queueMicrotask(() => setCrewMessage(`Research finished: ${project.name}.${built}`))
   }, [researched])
 
   const activeProject = researchProgress.active ? researchProject(researchProgress.active) : undefined

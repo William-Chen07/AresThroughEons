@@ -1,6 +1,7 @@
 import type { ModuleTypeId } from "@/content/modules"
 import type { VoxelTerrain } from "@/map/voxelTerrain"
-import { LANDER, MODULE, TUBE, cellsJoined, currentEra, decayedCells, isDecayed, moduleDoorways, moduleRect, occupancy, type Base } from "@/sim/base"
+import { LANDER, MODULE, TUBE, cellsJoined, currentEra, isDecayed, moduleDoorways, moduleRect, occupancy, shutCells, type Base } from "@/sim/base"
+import { canEnter } from "@/content/modules"
 import {
   BLOCKED,
   createStation,
@@ -23,12 +24,15 @@ import {
  *   a decayed module             →  blocked: one built in an earlier era, left worn down (see
  *                                   decayedCells in sim/base.ts). It has no doorways, no air and
  *                                   no station, so nobody goes inside, works or shelters there.
+ *   a machine (Solar Panel etc.)  →  blocked too: nobody goes inside one (see CLOSED_MODULES in
+ *                                   content/modules.ts). It has no doorways and no air, but it is
+ *                                   a station worked from beside it, not from inside.
  *
  * Crew go in and out of a module only through its four doorways, one in the middle of each side
  * (see moduleDoorways in sim/base.ts): out onto open ground, or into a tube laid in front of one.
  * Tubes have no doors of their own: they're the hallways between modules, and modules standing
  * wall to wall are walked between too. Routes between joined modules stay inside
- * (see PATHING_TUNING.doorCrossingCost). Every module and tube is pressurized (see
+ * (see PATHING_TUNING.doorCrossingCost). Every module the crew can go into, and every tube, is pressurized (see
  * pressurizedCells), so crew inside breathe at the normal rate and only use oxygen faster outside.
  *
  * Every module is also a walk-in station, so clicking one sends the selected crew inside to work.
@@ -58,7 +62,8 @@ export const moduleStationId = (moduleId: string) => `module:${moduleId}`
  * oxygen faster (see sim/lifeSupport.ts).
  */
 export function pressurizedCells(size: number, base: Base, built = occupancy(size, base)): Set<number> {
-  const decayed = decayedCells(size, base)
+  // Decayed modules and machines nobody goes inside have no air in them.
+  const decayed = shutCells(size, base)
   const pressurized = new Set<number>()
   for (let i = 0; i < size * size; i++) if ((built[i] === MODULE || built[i] === TUBE) && !decayed.has(i)) pressurized.add(i)
   return pressurized
@@ -80,7 +85,8 @@ export function syncNavigation(world: World, terrain: NavigationTerrain, base: B
   grid.airlocksRequired = false
 
   const built = occupancy(size, base)
-  const decayed = decayedCells(size, base)
+  // Decayed modules, and machines such as Solar Panels, are walked around: no doorways, no inside.
+  const decayed = shutCells(size, base)
   for (let i = 0; i < size * size; i++) {
     const what = built[i]
     const shut = decayed.has(i)
@@ -129,6 +135,8 @@ export function syncNavigation(world: World, terrain: NavigationTerrain, base: B
     const rect = moduleRect(module)
     const provides = [...(MODULE_PROVIDES[module.type] ?? [])]
     if (pressurized.has(rect.row * size + rect.col) && !provides.includes("oxygen")) provides.push("oxygen")
+    // A machine is worked from beside it (see CLOSED_MODULES); every other module is walked into.
+    const walkIn = canEnter(module.type)
     const kept = existing.get(id)
     if (kept) {
       kept.provides = provides
@@ -141,7 +149,7 @@ export function syncNavigation(world: World, terrain: NavigationTerrain, base: B
       y: rect.row,
       width: rect.width,
       height: rect.height,
-      walkIn: true,
+      walkIn,
       provides,
     })
   })

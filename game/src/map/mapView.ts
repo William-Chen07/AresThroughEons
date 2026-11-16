@@ -4,7 +4,7 @@ import { createBaseView, type Ghost } from "@/map/baseView"
 import { createCrewView } from "@/map/crewView"
 import { createDepositView } from "@/map/depositView"
 import { playLanding } from "@/lib/sound"
-import { createLander, landerModelFor } from "@/map/lander"
+import { createLander } from "@/map/lander"
 import {
   CELL_PX,
   cellTopLeft,
@@ -130,9 +130,9 @@ export async function createMapView(
   highlight.visible = false
 
   const current = landers[landers.length - 1]
-  const lander = createLander(terrain, current, landerModelFor(current.era))
+  const lander = createLander(terrain, current, current.era)
   const oldLanders = landers.slice(0, -1).map((spot) => {
-    const old = createLander(terrain, spot, landerModelFor(spot.era), true)
+    const old = createLander(terrain, spot, spot.era, true)
     old.place()
     return old
   })

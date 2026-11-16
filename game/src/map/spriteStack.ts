@@ -52,6 +52,21 @@ export function loadModuleStacks(): Promise<void> {
   return loading
 }
 
+/** The eras that have their own lander art (assets/blender/eraN.blend). Later eras come down in the last one. */
+export const LANDER_ERAS = 4
+const landers = new Map<number, Promise<SpriteStack | null>>()
+
+/** The lander an era comes down in, as a sprite stack, or null if its files can't be loaded. */
+export function loadLanderStack(era: number): Promise<SpriteStack | null> {
+  const which = Math.min(Math.max(1, era), LANDER_ERAS)
+  let stack = landers.get(which)
+  if (!stack) {
+    stack = loadStack(`sprites/era${which}/lander`)
+    landers.set(which, stack)
+  }
+  return stack
+}
+
 /** A module type's stack, or undefined if it has none (or it hasn't loaded yet). */
 export const moduleStack = (id: ModuleTypeId) => stacks.get(id)
 

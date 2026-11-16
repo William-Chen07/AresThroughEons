@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { X } from "lucide-react"
 import { RESEARCH_ERAS, RESEARCH_PROJECTS, eraColor, researchProject, type ResearchProject } from "@/content/research"
+import { moduleUnlockedBy } from "@/content/modules"
 import { formatRealTime } from "@/sim/clock"
 import { hoursLeft, lockedByEra, researchState, type ResearchProgress, type ResearchState } from "@/sim/research"
 
@@ -131,6 +132,8 @@ export function ResearchPanel({
 
   /** One line beside the Research button about the picked project: what it takes, or why it can't start. */
   let note = "Pick a project to research."
+  /** The module the picked project adds to the Build bar, said at the end of the note. */
+  const unlocks = selected ? moduleUnlockedBy(selected.id) : undefined
   if (selected && selectedState === "done") note = `${selected.name} is researched.`
   else if (selected && lockedByEra(selected, era)) note = `${selected.name} unlocks in Era ${selected.era}.`
   else if (selected && selectedState === "locked") note = `${selected.name} needs the projects joined to it on the left first.`
@@ -148,6 +151,9 @@ export function ResearchPanel({
     else {
       note = `${selected.name}: ${time} with one astronaut in a Research Lab. A Researcher works 1.5× as fast, and each extra lab with an astronaut in it makes the time count down faster.`
     }
+  }
+  if (unlocks) {
+    note += selectedState === "done" ? ` The ${unlocks.name} is in the Build bar.` : ` Unlocks the ${unlocks.name} in the Build bar.`
   }
 
   return (
