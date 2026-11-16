@@ -54,6 +54,11 @@ export interface SpaceEvent {
   towardMars?: boolean
   /** A flare's class, e.g. "X1.4". */
   flareClass?: string
+  /**
+   * True for an event started from the Build panel to try it out. It works like a real one, but
+   * it isn't in NASA's records, so it's left out when the era's real history is shown.
+   */
+  test?: boolean
 }
 
 export interface Calendar {
@@ -203,6 +208,40 @@ export function nextRealStorm(calendar: Calendar, clock: number): number | null 
     if (event.kind === "marsStorm" && at > clock) return at
   }
   return null
+}
+
+/** Only the events from NASA's records: leaves out the ones started from the Build panel. */
+export const realEvents = (events: readonly SpaceEvent[]) => events.filter((event) => !event.test)
+
+/**
+ * Game-hours a test solar eruption aimed at Mars takes to arrive (see testSpaceEvents). Real ones
+ * take days; this one is short enough to try out, and lands inside the storm warning's time.
+ */
+export const TEST_ERUPTION_TRAVEL_HOURS = 12
+
+/** What the Build panel can start: each kind of space event (an eruption either way). */
+export type TestSpaceEvent = "eruptionToMars" | "eruptionAway" | "particleStorm" | "flare"
+
+/**
+ * Test events for the Build panel, starting at `clock` on the expedition's clock. An eruption
+ * aimed at Mars also brings its storm, TEST_ERUPTION_TRAVEL_HOURS later; the numbers are typical
+ * of real ones (see describeSpaceEvent for how they read).
+ */
+export function testSpaceEvents(kind: TestSpaceEvent, calendar: Calendar, clock: number): SpaceEvent[] {
+  const hour = Math.max(0, clock - calendar.startHours)
+  switch (kind) {
+    case "eruptionToMars":
+      return [
+        { kind: "eruption", hour, speed: 1200, towardMars: true, test: true },
+        { kind: "marsStorm", hour: hour + TEST_ERUPTION_TRAVEL_HOURS, test: true },
+      ]
+    case "eruptionAway":
+      return [{ kind: "eruption", hour, speed: 600, towardMars: false, test: true }]
+    case "particleStorm":
+      return [{ kind: "particleStorm", hour, test: true }]
+    case "flare":
+      return [{ kind: "flare", hour, flareClass: "X1.0", test: true }]
+  }
 }
 
 /** Real events that happened in this era up to `clock`, oldest first. */

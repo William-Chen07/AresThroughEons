@@ -5,7 +5,8 @@ import { GameMap } from "@/components/GameMap"
 import { MainMenu } from "@/components/MainMenu"
 import { devSiteOverride } from "@/map/marsSite"
 import { useSpaceCalendar } from "@/data/useSpaceCalendar"
-import { HOURS_PER_DAY, dayOf, describeSpaceEvent, eventsSoFar, latestNews, realDateAt, type Calendar } from "@/sim/calendar"
+import { HOURS_PER_DAY, dayOf, describeSpaceEvent, eventsSoFar, latestNews, realDateAt, realEvents, type Calendar } from "@/sim/calendar"
+import { stormWarning } from "@/sim/weather"
 import { useSaves } from "@/sim/saves"
 import { useSettings } from "@/lib/settings"
 
@@ -20,7 +21,8 @@ const readableDate = (day: string) =>
  * mattered to Mars, each with the day it happened. Eruptions that headed elsewhere are only counted.
  */
 function eraHistoryOf(calendar: Calendar, clock: number) {
-  const past = eventsSoFar(calendar, clock)
+  // Test events started from the Build panel aren't NASA's records, so they're left out.
+  const past = realEvents(eventsSoFar(calendar, clock))
   const quiet = past.filter((event) => event.kind === "eruption" && !event.towardMars)
   return {
     from: readableDate(calendar.start),
@@ -46,6 +48,9 @@ function App() {
   const startResearch = useSaves((s) => s.startResearch)
   const passTime = useSaves((s) => s.passTime)
   const setWeather = useSaves((s) => s.setWeather)
+  const stormSoon = useSaves((s) => s.stormSoon)
+  const addTestSpaceEvent = useSaves((s) => s.addTestSpaceEvent)
+  const forceTripEvent = useSaves((s) => s.forceTripEvent)
   const resetMap = useSaves((s) => s.resetMap)
   const sendExploring = useSaves((s) => s.sendExploring)
   const nextEra = useSaves((s) => s.nextEra)
@@ -86,6 +91,10 @@ function App() {
           onSendExploring={(placeId, crewIds) => activeSlot !== null && sendExploring(activeSlot, placeId, crewIds)}
           weather={save.weather}
           onWeather={(id) => activeSlot !== null && setWeather(activeSlot, id)}
+          stormWarning={stormWarning(save.weather, save.nextWeatherAt, save.calendar, save.hours)}
+          onStormSoon={() => activeSlot !== null && stormSoon(activeSlot)}
+          onSpaceEvent={(kind) => activeSlot !== null && addTestSpaceEvent(activeSlot, kind)}
+          onTripEvent={(id) => activeSlot !== null && forceTripEvent(activeSlot, id)}
           onResetMap={() => {
             if (activeSlot === null) return
             resetMap(activeSlot)
