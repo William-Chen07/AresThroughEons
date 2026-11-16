@@ -2,8 +2,10 @@
  * The base's resources. This is plain data on purpose: add a row to add a
  * resource, or change a starting amount or colour, without touching the game code.
  *
- * `start` is how much a new expedition lands with. `color` is the swatch shown
- * beside the name in the resource bar. `what` (what it is) and `why` (why it
+ * `start` is how much a new expedition lands with. `mined` marks the raw
+ * materials the crew dig out of Mars: those are carried in the backpack
+ * (bottom right of the map), the rest are shown in the resource bar along the
+ * top. `color` is the swatch shown beside the resource. `what` (what it is) and `why` (why it
  * matters on a NASA mission to Mars) are shown when the pointer rests on the
  * resource: kid-friendly, plain words, a science word explained where it is used.
  *
@@ -17,14 +19,15 @@
  * The same page names a third raw resource, the carbon dioxide in Mars's air,
  * which the game doesn't have as a resource (yet).
  *
- * The five minerals at the end (`mineral: true`) are mined from deposits on the
- * base map (see sim/deposits.ts) and shown on their own row of the resource
- * bar. Where they're placed follows real NASA data only loosely, and the text
- * says so: no spacecraft has mapped copper, gold or sulfur deposits on Mars.
+ * The five minerals at the end are mined from deposits on the base map (see
+ * sim/deposits.ts), so like ice and regolith they're carried in the backpack.
+ * Where they're placed follows real NASA data only loosely, and the text says
+ * so: no spacecraft has mapped copper, gold or sulfur deposits on Mars.
  */
 export const RESOURCE_TYPES = [
   {
     id: "oxygen",
+    mined: false,
     name: "Oxygen",
     start: 100,
     color: 0x7fd4ff,
@@ -33,6 +36,7 @@ export const RESOURCE_TYPES = [
   },
   {
     id: "water",
+    mined: false,
     name: "Water",
     start: 100,
     color: 0x4f9fd9,
@@ -41,6 +45,7 @@ export const RESOURCE_TYPES = [
   },
   {
     id: "food",
+    mined: false,
     name: "Food",
     start: 100,
     color: 0x62b56c,
@@ -49,6 +54,7 @@ export const RESOURCE_TYPES = [
   },
   {
     id: "power",
+    mined: false,
     name: "Power",
     start: 100,
     color: 0xe0b040,
@@ -57,6 +63,7 @@ export const RESOURCE_TYPES = [
   },
   {
     id: "ice",
+    mined: true,
     name: "Ice",
     start: 100,
     color: 0xe6f2f8,
@@ -65,6 +72,7 @@ export const RESOURCE_TYPES = [
   },
   {
     id: "regolith",
+    mined: true,
     name: "Regolith",
     start: 100,
     color: 0xc8744a,
@@ -73,6 +81,7 @@ export const RESOURCE_TYPES = [
   },
   {
     id: "morale",
+    mined: false,
     name: "Morale",
     start: 100,
     color: 0xd98ad9,
@@ -84,7 +93,7 @@ export const RESOURCE_TYPES = [
     name: "Aluminum",
     start: 0,
     color: 0xb8c4cc,
-    mineral: true,
+    mined: true,
     what: "A light, strong metal, mined from deposits in the middle of the map.",
     why: "On Mars, aluminum is locked up in minerals like feldspar, which NASA's Mars Global Surveyor mapped from orbit. Light metal is just right for building on a planet where everything has to be carried or made.",
   },
@@ -93,7 +102,7 @@ export const RESOURCE_TYPES = [
     name: "Copper",
     start: 0,
     color: 0xd9824a,
-    mineral: true,
+    mined: true,
     what: "A metal that carries electricity, mined from deposits in the middle of the map.",
     why: "Wires and motors need copper. On Earth it collects where hot water once flowed through rock, and Mars had volcanoes and hot springs. No copper deposit has been found on Mars yet, so in this game it hides near slopes and crater rims.",
   },
@@ -102,7 +111,7 @@ export const RESOURCE_TYPES = [
     name: "Titanium",
     start: 0,
     color: 0x9fb7d9,
-    mineral: true,
+    mined: true,
     what: "A very strong, light metal that doesn't rust, mined far from the landing site.",
     why: "Titanium is found in a dark mineral called ilmenite, inside volcanic rock like the dark basalt that covers much of Mars. Spacecraft and rovers use it because it is strong but light.",
   },
@@ -111,7 +120,7 @@ export const RESOURCE_TYPES = [
     name: "Gold",
     start: 0,
     color: 0xf2c94c,
-    mineral: true,
+    mined: true,
     what: "A rare metal that never rusts, mined far from the landing site.",
     why: "Spacecraft use gold in electronics, and astronauts' helmet visors have a thin layer of gold to block harsh sunlight. No gold has been found on Mars, so in this game it's rare and far away.",
   },
@@ -120,13 +129,17 @@ export const RESOURCE_TYPES = [
     name: "Sulfur",
     start: 0,
     color: 0xe8e05a,
-    mineral: true,
+    mined: true,
     what: "A yellow element found almost anywhere on the map.",
     why: "Martian soil is full of sulfur. In 2024 NASA's Curiosity rover cracked open a rock by driving over it and found pure yellow sulfur crystals inside, a first on Mars.",
   },
 ] as const
 
 export type ResourceType = (typeof RESOURCE_TYPES)[number]
+/** The base's supplies, shown in the resource bar along the top. */
+export const BASE_RESOURCES = RESOURCE_TYPES.filter((type) => !type.mined)
+/** The raw materials dug out of Mars, carried in the backpack. */
+export const MINED_RESOURCES = RESOURCE_TYPES.filter((type) => type.mined)
 export type ResourceId = ResourceType["id"]
 /** How much of each resource a base has. */
 export type Resources = Record<ResourceId, number>

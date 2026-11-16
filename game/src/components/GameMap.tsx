@@ -6,6 +6,7 @@ import { ResourceIcon } from "@/components/ResourceIcon"
 import { ExploreMap } from "@/components/ExploreMap"
 import { ResearchPanel } from "@/components/ResearchPanel"
 import { ResourceBar } from "@/components/ResourceBar"
+import { useSettings } from "@/lib/settings"
 import { StormOverlay } from "@/components/StormOverlay"
 import { explorePlace } from "@/content/explore"
 import { exploreEvent } from "@/content/exploreEvents"
@@ -88,8 +89,8 @@ import type { Weather } from "@/sim/weather"
  * Where they stand isn't saved yet, so they start beside the lander each time the map opens.
  * An astronaut whose health runs out is evacuated: gone from the map for good.
  * Astronauts sent out from the explore map (Explore in the Actions dropdown) are off this map until they are back.
- * Crew outside the modules joined to an Airlock (out on the surface, or in a module with no
- * Airlock) breathe the base's oxygen faster (see sim/navigation.ts and sim/lifeSupport.ts).
+ * Crew out on the surface, outside the modules and tubes, breathe the base's oxygen faster
+ * (see sim/navigation.ts and sim/lifeSupport.ts).
  * The panels copy the look of MainMenu.
  */
 
@@ -334,6 +335,11 @@ export function GameMap({
   const [exploreOpen, setExploreOpen] = useState(false)
   /** The map's data credits, bottom right. Folded away to start with. */
   const [creditsOpen, setCreditsOpen] = useState(false)
+  /** Whether the credits have been opened yet: only then can they be put away with the x. */
+  const [creditsSeen, setCreditsSeen] = useState(false)
+  /** Put away with the x for good (a setting kept in this browser), so the button stops covering the map. */
+  const creditsDismissed = useSettings((s) => s.mapCreditsDismissed)
+  const setSettings = useSettings((s) => s.setSettings)
   const [tool, setTool] = useState<BuildTool>(null)
   const [message, setMessage] = useState<string | null>(null)
   /** Where the run of tube being laid starts, once the first click of the tube tool has set it. */
@@ -378,7 +384,7 @@ export function GameMap({
   const base = useMemo<Base>(() => ({ modules, tubes, landers }), [modules, tubes, landers])
   // What stands on each cell, worked out once per change to the base.
   const grid = useMemo(() => (terrain ? occupancy(terrain.size, base) : null), [terrain, base])
-  /** Cells of modules and tubes joined to an Airlock: no oxygen is used up there. */
+  /** Cells of modules and tubes: crew there breathe at the normal rate (see pressurizedCells). */
   const pressurized = useMemo(() => (terrain && grid ? pressurizedCells(terrain.size, base, grid) : null), [terrain, base, grid])
   const pressurizedRef = useRef(pressurized)
   useEffect(() => {
@@ -724,7 +730,7 @@ export function GameMap({
       const crew: CrewMember[] = Object.values(world?.movers ?? {}).map((mover) => ({
         id: mover.pawnId,
         outside: mover.exposure === "outside",
-        // In a module or tube joined to an Airlock (see pressurizedCells).
+        // In a module or tube (see pressurizedCells).
         pressurized: Boolean(
           world && cells?.has(Math.round(mover.pos.y) * world.grid.width + Math.round(mover.pos.x)),
         ),
@@ -1158,26 +1164,45 @@ export function GameMap({
               </>
             )}
           </p>
-          {/* The map's data credits: folded away until asked for, so they don't cover the map. */}
-          <div className="pointer-events-auto flex max-w-xl flex-col items-end gap-2">
-            {creditsOpen && (
-              <p id="map-credits" className={`${panelClass} py-2 text-[11px] text-white/50`}>
-                Drawn as pixel art from real Mars data, via NASA Mars Trek. Detail: Mars Odyssey THEMIS infrared mosaic,
-                NASA/JPL-Caltech/Arizona State University/USGS. Colour: Viking MDIM 2.1, NASA Ames/USGS. Elevation: MGS
-                MOLA, NASA GSFC/USGS. Mineral richness: MGS TES mineral maps (Bandfield 2002), NASA/JPL/ASU. Colours are
-                simplified and block heights exaggerated. Full credits are on the main menu.
-              </p>
-            )}
-            <button
-              type="button"
-              aria-expanded={creditsOpen}
-              aria-controls="map-credits"
-              onClick={() => setCreditsOpen((open) => !open)}
-              className={buttonClass}
-            >
-              {creditsOpen ? "Hide map credits" : "Map credits"}
-            </button>
-          </div>
+          {/* The map's data credits: folded away until asked for, so they don't cover the map, and kept left of the
+              Backpack and Crew buttons (see App.tsx). Once they have been read, the x puts them away for good. */}
+          {!creditsDismissed && (
+            <div className="pointer-events-auto flex max-w-xl flex-col items-end gap-2">
+              {creditsOpen && (
+                <p id="map-credits" className={`${panelClass} mr-28 py-2 text-[11px] text-white/50`}>
+                  Drawn as pixel art from real Mars data, via NASA Mars Trek. Detail: Mars Odyssey THEMIS infrared
+                  mosaic, NASA/JPL-Caltech/Arizona State University/USGS. Colour: Viking MDIM 2.1, NASA Ames/USGS.
+                  Elevation: MGS MOLA, NASA GSFC/USGS. Mineral richness: MGS TES mineral maps (Bandfield 2002),
+                  NASA/JPL/ASU. Colours are simplified and block heights exaggerated. Full credits are on the main menu.
+                </p>
+              )}
+              <div className="flex items-stretch gap-1">
+                <button
+                  type="button"
+                  aria-expanded={creditsOpen}
+                  aria-controls="map-credits"
+                  onClick={() => {
+                    setCreditsOpen((open) => !open)
+                    setCreditsSeen(true)
+                  }}
+                  className={buttonClass}
+                >
+                  {creditsOpen ? "Hide map credits" : "Map credits"}
+                </button>
+                {creditsSeen && (
+                  <button
+                    type="button"
+                    aria-label="Remove map credits"
+                    title="Remove map credits (they stay on the main menu)"
+                    onClick={() => setSettings({ mapCreditsDismissed: true })}
+                    className={buttonClass.replace("px-5", "px-3")}
+                  >
+                    <span aria-hidden>×</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

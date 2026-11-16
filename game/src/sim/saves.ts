@@ -489,8 +489,10 @@ export const savesStore = createStore<Saves & SavesActions>()(
       // Version 18 removed the Storage module: any already built is taken off the map.
       // Version 19 added `researchProgress` (research takes time now; an older save has nothing
       // being researched) and `crewSpots` (an older save's crew steps out beside the lander once more).
-      version: 20,
-      // Version 20 added `deposits`: an older save gets them the next time its map opens.
+      // Version 20 removed the Airlock module: any already built is taken off the map. (Every module
+      // and tube now counts as pressurized, see sim/navigation.ts.)
+      // Version 21 added `deposits`: an older save gets them the next time its map opens.
+      version: 21,
       migrate: (stored) => {
         const old = stored as Saves
         return {
@@ -504,8 +506,8 @@ export const savesStore = createStore<Saves & SavesActions>()(
                 era: slot.era ?? 1,
                 landers: slot.landers?.length ? slot.landers : [firstLander(MAP_SIZE)],
                 modules: (slot.modules ?? [])
-                  // Storage is no longer a kind of module (version 18).
-                  .filter((module) => (module.type as string) !== "storage")
+                  // Storage (version 18) and Airlock (version 20) are no longer kinds of module.
+                  .filter((module) => !["storage", "airlock"].includes(module.type as string))
                   .map((module) => ({ ...module, era: module.era ?? 1 })),
                 tubes: slot.tubes ?? [],
                 researched: slot.researched ?? [],
