@@ -65,6 +65,15 @@ export function createCrew(rng: Rng, occupations: OccupationId[] = OCCUPATION_ID
   })
 }
 
+/**
+ * One new astronaut joining a crew that already exists, with a name none of `taken` has (any name,
+ * once every one is taken).
+ */
+export function createRecruit(rng: Rng, occupation: OccupationId, id: string, taken: readonly string[]): Pawn {
+  const free = NAMES.filter((name) => !taken.includes(name))
+  return createPawn(rng, occupation, rng.pick(free.length > 0 ? free : NAMES), id)
+}
+
 export function createColony(crewSize: number, daysOfSupplies = 10): Colony {
   const days = crewSize * daysOfSupplies
   return {

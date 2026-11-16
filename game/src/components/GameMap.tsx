@@ -1439,8 +1439,8 @@ export function GameMap({
               Era {era} over
             </h2>
             <p className="mt-4 text-sm text-white/70">
-              Every astronaut on {name} was evacuated to Earth. Nobody is left to run the base. A new crew can
-              land beside it and carry on.
+              Every astronaut on {name} was evacuated to Earth. Nobody is left to run the base. Once they are
+              well, they can fly back with a new crewmate, land beside it and carry on.
             </p>
             {/* The calendar's secret: the real days this era was played on, and what NASA saw then. */}
             <div className="mt-5 border-t border-white/10 pt-4 text-left">
