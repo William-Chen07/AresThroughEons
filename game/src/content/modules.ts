@@ -33,8 +33,9 @@ export const MODULE_TYPES = [
   { id: "wind-turbine", name: "Wind Turbine", code: "WND", width: 1, height: 1, color: 0xe8e4da,
     description: "Less power than solar panels, but steady, day and night.",
     cost: { regolith: 10 } as BuildCost },
-  { id: "observatory", name: "Observatory", code: "OBS", width: 2, height: 2, color: 0xcfd6e0,
-    description: "A domed telescope for watching the sky. When a nebula sound plays, you can see the nebula.",
+  // Its id stays "observatory" so saves and the research that unlocks it still match.
+  { id: "observatory", name: "Sonification Station", code: "SON", width: 2, height: 2, color: 0xcfd6e0,
+    description: "Turns pictures of space into sound. When a nebula sound plays, you can see the nebula.",
     cost: { regolith: 25, power: 10 } as BuildCost },
   { id: "big-lounge", name: "Big Lounge", code: "BLG", width: 3, height: 2, color: 0xe8743b,
     description: "A bigger Lounge, with room for more of the crew.",
