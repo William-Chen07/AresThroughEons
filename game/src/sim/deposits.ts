@@ -60,7 +60,7 @@ export const MIDDLE_RING = { min: CLEAR_RADIUS, max: 44 }
 /** The outer ring starts here and runs to the edge of the map: titanium and gold. */
 export const OUTER_RING_MIN = 52
 /** A deposit is a clump this many cells a side, around its middle cell. */
-export const CLUMP = 100
+export const CLUMP = 7
 const HALF = Math.floor(CLUMP / 2)
 /** A clump's middle stays this many cells in from the map's edge, so there's room to stand beside it. */
 const EDGE_MARGIN = HALF + 2
