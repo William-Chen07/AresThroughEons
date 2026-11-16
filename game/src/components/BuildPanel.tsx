@@ -107,10 +107,12 @@ function Cost({ cost }: { cost: BuildCost | null }) {
   return (
     <p className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] tabular-nums text-white/80">
       {parts.map((type) => (
-        <span key={type.id} className="flex items-center gap-1" title={type.name}>
+        <span key={type.id} className="flex items-center gap-1" title={type.id === "power" ? "Power used each hour to run" : type.name}>
           <ResourceIcon id={type.id} color={type.color} className="size-3.5" />
           {cost![type.id]}
-          <span className="sr-only"> {type.name}</span>
+          {/* Power isn't paid once: it is what the module uses every game-hour to run (sim/power.ts). */}
+          {type.id === "power" && <span className="text-white/45">/h</span>}
+          <span className="sr-only"> {type.name}{type.id === "power" ? " each hour to run" : ""}</span>
         </span>
       ))}
     </p>
@@ -236,6 +238,7 @@ export function BuildPanel({
   onTool,
   tubeStarted,
   moduleCount,
+  joinableCount,
   tubeCells,
   groupCount,
   message,
@@ -260,9 +263,11 @@ export function BuildPanel({
   /** True once the tube tool's first click has picked where a run starts. */
   tubeStarted: boolean
   moduleCount: number
+  /** How many modules need joining to the base: every one but the Solar Panels, which work standing alone. */
+  joinableCount: number
   /** How many cells of tube the base has. */
   tubeCells: number
-  /** How many separate groups of joined modules there are. One means every module is connected. */
+  /** How many separate groups of joined modules there are, not counting Solar Panels on their own. One means the base is all joined. */
   groupCount: number
   /** What the last click did, or why it did nothing. */
   message: string | null
@@ -332,7 +337,7 @@ export function BuildPanel({
         <p className="hidden shrink-0 text-[11px] text-white/45 md:block">
           {moduleCount} {moduleCount === 1 ? "module" : "modules"}, {tubeCells} {tubeCells === 1 ? "block" : "blocks"} of
           tube
-          {moduleCount > 1 && (groupCount === 1 ? ", all joined" : `, ${groupCount} separate groups`)}. Esc drops the tool.
+          {joinableCount > 1 && (groupCount === 1 ? ", all joined" : `, ${groupCount} separate groups`)}. Esc drops the tool.
         </p>
         <button
           type="button"

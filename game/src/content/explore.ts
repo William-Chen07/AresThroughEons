@@ -132,7 +132,7 @@ export const EXPLORE_PLACES: ExplorePlace[] = [
     text: "Rows of dark sand dunes, slowly pushed along by the wind.",
     finds: [
       { resource: "regolith", min: 5, max: 15 },
-      { resource: "power", min: 30, max: 60 },
+      { resource: "power", min: 225, max: 450 },
     ],
   },
 ]

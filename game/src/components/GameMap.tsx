@@ -498,10 +498,13 @@ export function GameMap({
   useEffect(() => {
     pressurizedRef.current = pressurized
   }, [pressurized])
-  const groupCount = useMemo(
-    () => (terrain && grid ? connectedGroups(terrain.size, base, grid).length : 0),
-    [terrain, base, grid],
-  )
+  // Solar Panels stand on their own and send their power to the base without tubes, so a group
+  // that is only panels doesn't count as a separate part of the base.
+  const groupCount = useMemo(() => {
+    if (!terrain || !grid) return 0
+    const solar = new Set(base.modules.filter((m) => m.type === "solar").map((m) => m.id))
+    return connectedGroups(terrain.size, base, grid).filter((group) => group.some((id) => !solar.has(id))).length
+  }, [terrain, base, grid])
 
   /** Whether any of these cells has a mineral deposit on it. Nothing can be built on one. */
   const onDeposit = useCallback(
@@ -1519,6 +1522,7 @@ export function GameMap({
             onTool={pickTool}
             tubeStarted={tubeStart !== null}
             moduleCount={modules.length}
+            joinableCount={modules.filter((m) => m.type !== "solar").length}
             tubeCells={tubes.length}
             groupCount={groupCount}
             message={message}

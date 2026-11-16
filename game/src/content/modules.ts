@@ -6,7 +6,8 @@
  * the module's roof. `color` is the roof colour. `description` is shown in the Build bar.
  * Some modules need a research project first (see MODULE_RESEARCH). Tubes are free.
  * `cost` is what building one takes. The amounts are placeholders: building doesn't use
- * resources yet.
+ * resources yet. The one that is real is `power`: it is what the module uses each game-hour to
+ * run (see MODULE_POWER_PER_HOUR in sim/power.ts), and the Build bar shows it as "per hour".
  */
 import type { ResourceId } from "@/content/resources"
 
@@ -18,7 +19,7 @@ export const MODULE_TYPES = [
     description: "Home for the crew: somewhere to sleep, eat and shelter from radiation storms.",
     cost: { regolith: 40, power: 10 } as BuildCost },
   { id: "solar", name: "Solar Panel", code: "SOL", width: 2, height: 2, color: 0x2c4f7c,
-    description: "Turns sunlight into electricity for the base. Dust storms make it weaker.",
+    description: "Turns sunlight into electricity for the base. Works anywhere: it doesn't need tubes.",
     cost: { regolith: 15 } as BuildCost },
   { id: "medbay", name: "Med Bay", code: "MED", width: 2, height: 2, color: 0xd96a6a,
     description: "A small clinic where sick or injured crew can be looked after.",

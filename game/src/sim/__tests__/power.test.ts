@@ -101,9 +101,9 @@ describe("solar panels make power", () => {
   it("a turbine makes less than a panel, hour for hour and over a day; a uranium plant far more", () => {
     const day = (module: PlacedModule) => powerMade([module], 1, 0, 24)
     expect(WIND_POWER_PER_HOUR).toBeLessThan(SOLAR_POWER_PER_HOUR)
-    expect(day(wind("w"))).toBe(96)
-    expect(day(panel("a"))).toBe(128)
-    expect(day(plant("u"))).toBe(576)
+    expect(day(wind("w"))).toBe(720)
+    expect(day(panel("a"))).toBe(960)
+    expect(day(plant("u"))).toBe(4320)
   })
 
   it("a power-out storm stops turbines but not a uranium plant; decayed ones make nothing", () => {
@@ -133,6 +133,13 @@ describe("modules use power", () => {
     expect(powerUsed(base, 1, 10, 0)).toBe(0)
   })
 
+  it("each module uses the power number shown on its Build bar card", () => {
+    for (const type of MODULE_TYPES) {
+      expect(MODULE_POWER_PER_HOUR[type.id]).toBe((type.cost as { power?: number }).power ?? 0)
+    }
+    expect(MODULE_POWER_PER_HOUR.habitat).toBe(10)
+  })
+
   it("every number is a whole number", () => {
     for (const n of [SOLAR_POWER_PER_HOUR, WIND_POWER_PER_HOUR, URANIUM_POWER_PER_HOUR, ...Object.values(MODULE_POWER_PER_HOUR)]) {
       expect(Number.isInteger(n)).toBe(true)
@@ -143,13 +150,13 @@ describe("modules use power", () => {
     const base = [made("solar"), made("habitat"), made("medbay"), made("research")]
     const day = powerMade(base, 1, 0, DAYLIGHT_HOURS) - powerUsed(base, 1, DAYLIGHT_HOURS)
     const night = powerUsed(base, 1, 24 - DAYLIGHT_HOURS) - powerMade(base, 1, DAYLIGHT_HOURS, 24 - DAYLIGHT_HOURS)
-    expect(day).toBe(64)
-    expect(night).toBe(32)
+    expect(day).toBe(400)
+    expect(night).toBe(280)
   })
 
   it("one uranium plant runs one of every module on its own", () => {
     const base = MODULE_TYPES.map((type) => made(type.id)).filter((m) => m.type !== "solar" && m.type !== "wind-turbine")
-    expect(powerUsed(base, 1, 1)).toBe(20)
+    expect(powerUsed(base, 1, 1)).toBe(130)
     expect(powerMade(base, 1, DAYLIGHT_HOURS, 1)).toBeGreaterThan(powerUsed(base, 1, 1))
   })
 })
