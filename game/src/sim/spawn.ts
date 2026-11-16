@@ -7,7 +7,7 @@ import type { Colony, Mission, OccupationId, Pawn, RoleId, Skill, TraitId } from
 
 const NAMES = [
   "Hailey", "William", "Brandon", "Syan", "Derek", "Esteban", "Neil", "Vian",
-  "Cavasos", "Juno", "Billiam", "Victory", "JoJo", "Vegeta", "Cookie", "Luna",
+  "Cavasos", "Juno", "Billiam", "Victory", "JoJo", "Gohan", "Cookie", "Luna",
   "Quincy", "Rosa", "Payaso", "Sirius", "Nathan", "Nemo", "Sahur", "Betelguese", "Underscore"
 ]
 
