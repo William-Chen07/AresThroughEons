@@ -133,7 +133,8 @@ def indoor_parts(suit, skin):
 def finish(era):
     # No edge dimming: every pixel of a figure this small is an edge, so dimming would just
     # make the whole astronaut grey (and dull every crew colour).
-    kit.finish(era=era, cells_x=1, cells_y=1, layers=LAYERS, edge_darken=1.0)
+    # flat=True also saves the whole figure as one picture, which is what the game draws.
+    kit.finish(era=era, cells_x=1, cells_y=1, layers=LAYERS, edge_darken=1.0, flat=True)
 
 
 if __name__ == "__main__":
