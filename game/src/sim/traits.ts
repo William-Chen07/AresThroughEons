@@ -142,8 +142,7 @@ export const TRAITS: Record<TraitId, TraitDef> = {
     id: "tooSmart",
     name: "Too Smart",
     description: "Extremely intelligent, not fun to be around.",
-    modifiers: { injuryChance: 1.75, moraleBase: 10},
-
+    modifiers: { roleBonus: { researching: 1.5 } },
   },
   heavyBreather: {
     id: "heavyBreather",

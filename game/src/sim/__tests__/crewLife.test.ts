@@ -15,6 +15,7 @@ import {
 } from "@/sim/crewLife"
 import { SUIT_OXYGEN_FACTOR, type CrewMember } from "@/sim/lifeSupport"
 import { hasStatus, NASA_DATA, TUNING, type Pawn } from "@/sim"
+import { TRAITS } from "@/sim/traits"
 import { DAYLIGHT_HOURS, darkness, hourOfDay, isNight } from "@/sim/dayNight"
 
 /** A crew with no traits (so numbers are predictable), everyone inside a pressurized module. */
@@ -183,7 +184,8 @@ describe("crew in the real game (crewLife)", () => {
   })
 
   it("each astronaut's own oxygen runs down outside and is filled up in a pressurized module", () => {
-    const { crew, resources } = setup(1)
+    const { crew, resources: start } = setup(1)
+    const resources = { ...start, power: 10 }
     const id = crew[0].id
     const out = live({ crew, atBase: [{ id, outside: true, pressurized: false }], resources, away: [], storm: null }, 6)
     expect(byId(out.crew, id).needs.oxygen).toBeCloseTo(100 - 6 * TUNING.consumableDecayPerHour * SUIT_OXYGEN_FACTOR, 4)
@@ -192,6 +194,20 @@ describe("crew in the real game (crewLife)", () => {
     expect(byId(back.crew, id).needs.oxygen).toBe(100)
     const stayed = live({ crew: back.crew, atBase: [{ id, outside: false, pressurized: true }], resources, away: [], storm: null }, 48)
     expect(byId(stayed.crew, id).needs.oxygen).toBe(100)
+  })
+
+  it("with no power, a tank isn't refilled indoors: it stays as it is until the power is back", () => {
+    const { crew, resources: start } = setup(1)
+    const id = crew[0].id
+    const noPower = { ...start, power: 0 }
+    const inside: CrewMember[] = [{ id, outside: false, pressurized: true }]
+    const out = live({ crew, atBase: [{ id, outside: true, pressurized: false }], resources: noPower, away: [], storm: null }, 6)
+    const left = byId(out.crew, id).needs.oxygen
+    expect(left).toBeLessThan(100)
+    const back = live({ crew: out.crew, atBase: inside, resources: noPower, away: [], storm: null }, 12)
+    expect(byId(back.crew, id).needs.oxygen).toBe(left)
+    const powered = live({ crew: back.crew, atBase: inside, resources: { ...start, power: 1 }, away: [], storm: null }, 0.5)
+    expect(byId(powered.crew, id).needs.oxygen).toBe(100)
   })
 
   it("outside gets the real surface dose; inside the habitat blocks some of it", () => {
@@ -343,9 +359,20 @@ describe("crew rules steering the map (urgent needs)", () => {
     const crew = newCrew(1)
     const researcher = crew.find((p) => p.occupation === "researcher")!
     const engineer = crew.find((p) => p.occupation === "engineer")!
+    for (const p of crew) p.traits = []
     expect(researchRate(researcher)).toBe(RESEARCHER_SPEED)
     expect(researchRate(engineer)).toBe(1)
     expect(researchRate({ ...researcher, activity: "sleeping" })).toBe(0)
+  })
+
+  it("Too Smart only makes research faster, for anyone", () => {
+    expect(TRAITS.tooSmart.modifiers).toEqual({ roleBonus: { researching: 1.5 } })
+    const crew = newCrew(1)
+    for (const p of crew) p.traits = []
+    const researcher = crew.find((p) => p.occupation === "researcher")!
+    const engineer = crew.find((p) => p.occupation === "engineer")!
+    expect(researchRate({ ...engineer, traits: ["tooSmart"] })).toBe(1.5)
+    expect(researchRate({ ...researcher, traits: ["tooSmart"] })).toBe(RESEARCHER_SPEED * 1.5)
   })
 
   it("says why someone can't go exploring", () => {
