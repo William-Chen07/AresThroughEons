@@ -109,6 +109,10 @@ const NIGHT_SHADE = 0.6
 const oxygenLevels = (crew: readonly Pawn[]): Record<string, number> =>
   Object.fromEntries(crew.map((p) => [p.id, p.needs.oxygen]))
 
+/** Each astronaut's health (0-100), by id, for the bar that shows above them on the map once they're hurt. */
+const healthLevels = (crew: readonly Pawn[]): Record<string, number> =>
+  Object.fromEntries(crew.map((p) => [p.id, p.health]))
+
 /** Free open ground right round the lander, south side first, for the crew to step out onto. */
 function spotsBesideLander(world: World, footprint: Rect): Tile[] {
   const { col, row, width, height } = footprint
@@ -388,6 +392,10 @@ export function GameMap({
   /** The Build bar is open as the dev console (the ` key): everything in it is unlocked. */
   const [devConsole, setDevConsole] = useState(false)
   const [researchOpen, setResearchOpen] = useState(false)
+  /** Evacuation shuttles in flight. The "era over" screen waits for the last one to leave. */
+  const [shuttles, setShuttles] = useState(0)
+  /** Ids of the astronauts a shuttle is on its way for, so nobody is sent two. */
+  const shuttleForRef = useRef(new Set<string>())
   // App's Backpack and Crew buttons sit above everything, so tell it while research is open.
   useEffect(() => {
     onResearchOpenChange(researchOpen)
@@ -755,22 +763,43 @@ export function GameMap({
     if (newest && newest.kind !== "info") queueMicrotask(() => setCrewMessage(newest.text))
   }, [crewLog])
 
-  // An astronaut who has just been evacuated leaves the map.
+  // An astronaut who has just been evacuated stops where they are, and the shuttle (the craft the
+  // crew landed in) comes down to pick them up: they leave the map when it does.
   useEffect(() => {
     const crew = crewRef.current?.world
     if (!crew) return
-    const leaving = evacuated.filter((id) => crew.movers[id])
+    const leaving = evacuated.filter((id) => crew.movers[id] && !shuttleForRef.current.has(id))
     if (leaving.length === 0) return
-    for (const id of leaving) removePawn(crew, id)
+    for (const id of leaving) {
+      const board = () => {
+        const world = crewRef.current?.world
+        if (!world?.movers[id]) return
+        removePawn(world, id)
+        setSelectedCrew([...world.selectedPawnIds])
+        // Drawn here too, because once the era is over the frame loop no longer draws the crew.
+        view?.drawCrew(world, suitColors(rosterRef.current), oxygenLevels(rosterRef.current), healthLevels(rosterRef.current))
+      }
+      if (!view) {
+        board()
+        continue
+      }
+      cancelOrder(crew, id)
+      shuttleForRef.current.add(id)
+      view.flyShuttleTo(crew.movers[id].pos, board, () => {
+        shuttleForRef.current.delete(id)
+        setShuttles(shuttleForRef.current.size)
+      })
+    }
     // Out of an effect's own run, as the other map callbacks do, so the panel updates after the map has.
     queueMicrotask(() => {
+      setShuttles(shuttleForRef.current.size)
       setSelectedCrew([...crew.selectedPawnIds])
       const why = leaving.map((id) => rosterRef.current.find((p) => p.id === id)?.evacuated?.reason).find(Boolean)
       setCrewMessage(
         `${listNames(leaving)} ${leaving.length === 1 ? "was" : "were"} evacuated to Earth to get well${why ? ` (${why})` : ""}.`,
       )
     })
-  }, [evacuated, listNames])
+  }, [evacuated, listNames, view])
 
   const onTimePassedRef = useRef(onTimePassed)
   /** Set when the map is being reset: game time not handed to the save yet belongs to the old game and is dropped. */
@@ -850,7 +879,7 @@ export function GameMap({
       if (!crew) return
       // Once the era is over everything stands still: no clock, no weather, nobody moves.
       if (gameOverRef.current) {
-        view.drawCrew(crew, suitColors(rosterRef.current), oxygenLevels(rosterRef.current))
+        view.drawCrew(crew, suitColors(rosterRef.current), oxygenLevels(rosterRef.current), healthLevels(rosterRef.current))
         return
       }
       // A long gap (the tab was hidden) shouldn't make everyone teleport. At 2× or 3× the clock
@@ -909,7 +938,7 @@ export function GameMap({
         unsaved.ms += deltaMs
         if (unsaved.ms >= 1000) handOver()
       }
-      view.drawCrew(crew, suitColors(rosterRef.current), oxygenLevels(rosterRef.current))
+      view.drawCrew(crew, suitColors(rosterRef.current), oxygenLevels(rosterRef.current), healthLevels(rosterRef.current))
       showCrewInside(crew)
       const kindOf = (stationId: string) => crew.stations.find((station) => station.id === stationId)?.kind
       const said = events.map((event) => describeEvent(event, nameOf, kindOf)).filter((line) => line !== null)
@@ -1541,7 +1570,7 @@ export function GameMap({
       )}
 
       {/* PLACEHOLDER game over: shows once every astronaut has been evacuated. */}
-      {gameOver && (
+      {gameOver && shuttles === 0 && (
         <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
           <div role="alertdialog" aria-labelledby="game-over-title" className="max-w-md border border-white/15 bg-neutral-950/90 p-8 text-center">
             <h2 id="game-over-title" className="text-lg font-semibold uppercase tracking-[0.25em]">

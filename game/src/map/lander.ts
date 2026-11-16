@@ -473,3 +473,158 @@ export function createLander(terrain: VoxelTerrain, cell: Cell, model: LanderMod
 
   return { view, center: { x: origin.x + SIZE_PX / 2, y: origin.y + SIZE_PX / 2 }, land, place: rest }
 }
+
+/** The evacuation shuttle: how high it comes in from, in map pixels, and how long each part of the pickup takes. */
+const SHUTTLE_DROP_PX = 460
+const SHUTTLE_DOWN_MS = 1900
+const SHUTTLE_WAIT_MS = 900
+const SHUTTLE_UP_MS = 1900
+
+/**
+ * The evacuation shuttle: the same craft the crew landed in comes down on `at` (the spot on the
+ * ground where the astronaut is standing, in map pixels), waits a moment while they climb in,
+ * and flies off again. `onPickup` is called while it is on the ground, when the astronaut is on
+ * board, and `onGone` once it has left. Add `view` to the map above the crew; it removes itself.
+ * `cancel` stops it early (when the map is closed).
+ */
+export function flyEvacuationShuttle(
+  at: { x: number; y: number },
+  model: LanderModel,
+  ticker: Ticker,
+  onPickup: () => void,
+  onGone: () => void,
+): { view: Container; cancel: () => void } {
+  const view = new Container()
+  view.position.set(Math.round(at.x), Math.round(at.y))
+  const shadow = new Graphics().ellipse(0, 0, SIZE_PX * 0.44, SIZE_PX * 0.14).fill({ color: 0x1a0c08, alpha: 1 })
+  const smoke = new Container()
+  // The craft's origin is where its feet meet the ground, as in createLander.
+  const craft = new Container()
+  craft.pivot.set(SIZE_PX / 2, FEET_Y)
+  const flame = new Graphics()
+    .rect(-5, 0, 10, 7)
+    .fill(0xf08a3c)
+    .rect(-3, 6, 6, 9)
+    .fill(0xf8b84a)
+    .rect(-1, 14, 2, 10)
+    .fill(0xfff0b0)
+  flame.position.copyFrom(NOZZLE)
+  const body = new Sprite(landerTexture(model, false))
+  body.setSize(SIZE_PX, SIZE_PX)
+  craft.addChild(flame, body)
+  view.addChild(shadow, smoke, craft)
+
+  const puffs: Puff[] = []
+  let owed = 0
+  /** Exhaust from the nozzle while flying, and dust off the ground when it is close. */
+  const blow = (deltaMs: number, height: number) => {
+    owed += 60 * (deltaMs / 1000)
+    for (; owed >= 1; owed--) {
+      const nearGround = height < 120 && Math.random() < 0.6
+      const side = Math.random() < 0.5 ? -1 : 1
+      const sprite = new Sprite(Texture.WHITE)
+      sprite.anchor.set(0.5)
+      sprite.tint = nearGround ? pick(DUST_COLORS) : pick(EXHAUST_COLORS)
+      sprite.position.set(nearGround ? side * between(0, 8) : between(-4, 4), nearGround ? between(-3, 4) : -height + between(-2, 6))
+      smoke.addChild(sprite)
+      puffs.push({
+        sprite,
+        vx: nearGround ? side * between(90, 260) : between(-40, 40),
+        vy: nearGround ? between(-120, 20) : between(120, 260),
+        ageMs: 0,
+        lifeMs: between(500, 1300),
+        size: between(4, 8),
+        growth: between(10, 26),
+        alpha: 0.75,
+      })
+    }
+  }
+  const movePuffs = (deltaMs: number) => {
+    const seconds = deltaMs / 1000
+    for (let i = puffs.length - 1; i >= 0; i--) {
+      const p = puffs[i]
+      p.ageMs += deltaMs
+      if (p.ageMs >= p.lifeMs) {
+        p.sprite.destroy()
+        puffs.splice(i, 1)
+        continue
+      }
+      const life = p.ageMs / p.lifeMs
+      const drag = 0.04 ** seconds
+      p.vx *= drag
+      p.vy *= drag
+      p.sprite.x += p.vx * seconds
+      p.sprite.y += p.vy * seconds
+      const size = Math.round((p.size + p.growth * life) / 2) * 2
+      p.sprite.setSize(size, size)
+      p.sprite.alpha = p.alpha * (1 - life) ** 1.5
+    }
+  }
+  /** Places the craft `height` map pixels above the ground. */
+  const pose = (height: number) => {
+    const high = height / SHUTTLE_DROP_PX
+    craft.position.set(0, -height)
+    craft.scale.set(1 + 0.35 * high)
+    craft.alpha = Math.min(1, (1 - high) * 5)
+    shadow.scale.set(1 + 0.7 * high)
+    shadow.alpha = 0.4 * (1 - high)
+  }
+
+  let elapsed = 0
+  let pickedUp = false
+  let over = false
+  const finish = () => {
+    if (over) return
+    over = true
+    ticker.remove(step)
+    if (!view.destroyed) view.destroy({ children: true })
+  }
+  function step(time: Ticker) {
+    const deltaMs = time.deltaMS
+    elapsed += deltaMs
+    movePuffs(deltaMs)
+    if (elapsed < SHUTTLE_DOWN_MS) {
+      // Comes in fast, and the engine brakes it to a gentle touchdown.
+      const height = SHUTTLE_DROP_PX * (1 - elapsed / SHUTTLE_DOWN_MS) ** 2
+      pose(height)
+      flame.visible = true
+      flame.scale.set(1, 1.2 + 0.25 * Math.sin(elapsed / 37))
+      blow(deltaMs, height)
+      return
+    }
+    const waited = elapsed - SHUTTLE_DOWN_MS
+    if (waited < SHUTTLE_WAIT_MS) {
+      pose(0)
+      flame.visible = false
+      // Halfway through the wait the astronaut is on board.
+      if (!pickedUp && waited >= SHUTTLE_WAIT_MS / 2) {
+        pickedUp = true
+        onPickup()
+      }
+      return
+    }
+    if (!pickedUp) {
+      pickedUp = true
+      onPickup()
+    }
+    const rising = (waited - SHUTTLE_WAIT_MS) / SHUTTLE_UP_MS
+    if (rising < 1) {
+      // Lifts off slowly, then climbs away faster and faster.
+      const height = SHUTTLE_DROP_PX * rising ** 2
+      pose(height)
+      flame.visible = true
+      flame.scale.set(1, 1.5 + 0.25 * Math.sin(elapsed / 37))
+      blow(deltaMs, height)
+      return
+    }
+    craft.visible = false
+    shadow.visible = false
+    if (puffs.length === 0) {
+      finish()
+      onGone()
+    }
+  }
+  pose(SHUTTLE_DROP_PX)
+  ticker.add(step)
+  return { view, cancel: finish }
+}
