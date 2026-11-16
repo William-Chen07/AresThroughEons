@@ -2,7 +2,7 @@ import { CLUMP, depositIdOf, depositStationId, type Deposit, type MineralId } fr
 import { createStation, orderGroup, type ClickResult, type Station, type World } from "@/sim/pathing"
 
 /*
- * Tasks the player can give an astronaut from their task list (right-click them on the base map),
+ * Tasks the player can give an astronaut from their task list (double-click them on the base map),
  * as pure logic. For now that's mining: going to a mineral deposit and digging it out. Mining
  * itself happens in sim/saves.ts (passTime), which takes from the deposit and adds to the
  * resource while the astronaut works there (see mine in sim/deposits.ts).

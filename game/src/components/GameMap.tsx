@@ -8,7 +8,6 @@ import { ResourceIcon } from "@/components/ResourceIcon"
 import { ExploreMap } from "@/components/ExploreMap"
 import { ResearchPanel } from "@/components/ResearchPanel"
 import { ResourceBar } from "@/components/ResourceBar"
-import { useSettings } from "@/lib/settings"
 import { leavingAttr, usePresence } from "@/lib/motion"
 import { StormOverlay } from "@/components/StormOverlay"
 import { EXPLORE_UNLOCK_ERA, explorePlace, exploreUnlocked } from "@/content/explore"
@@ -188,7 +187,7 @@ function describeClick(world: World, result: ClickResult, nameOf: NameOf): strin
   const listNames = (ids: string[]) => ids.map(nameOf).join(", ")
   switch (result.kind) {
     case "selected":
-      return `${listNames(result.pawnIds)} selected. Click where to send them, a module to work in, or a mineral deposit to mine. Click an astronaut for their task list.`
+      return `${listNames(result.pawnIds)} selected. Click where to send them, a module to work in, or a mineral deposit to mine. Double-click an astronaut for their task list.`
     case "deselected":
       return "Nobody selected."
     case "nothing":
@@ -236,6 +235,8 @@ function describeEvent(event: PathingEvent, nameOf: NameOf, kindOf: (stationId: 
 const resourceColor = (id: ResourceId) => RESOURCE_TYPES.find((type) => type.id === id)?.color ?? 0xffffff
 
 const kickerClass = "holo-text text-xs font-medium uppercase tracking-[0.4em] text-cyan-300/90"
+/** Two clicks on the same astronaut this close together (ms) are a double-click: it opens their task list. */
+const DOUBLE_CLICK_MS = 400
 const panelClass = "holo-surface holo-frame border border-cyan-300/25 px-5 py-3 backdrop-blur-sm"
 const buttonClass =
   "pointer-events-auto border border-cyan-300/25 holo-surface px-5 py-2 text-xs font-semibold uppercase tracking-[0.25em] backdrop-blur-sm transition hover:border-cyan-300/80 hover:bg-cyan-950/85 hover:text-cyan-100 focus-visible:outline-2 focus-visible:outline-cyan-300"
@@ -418,11 +419,6 @@ export function GameMap({
   const [exploreOpen, setExploreOpen] = useState(false)
   /** The map's data credits, bottom right. Folded away to start with. */
   const [creditsOpen, setCreditsOpen] = useState(false)
-  /** Whether the credits have been opened yet: only then can they be put away with the x. */
-  const [creditsSeen, setCreditsSeen] = useState(false)
-  /** Put away with the x for good (a setting kept in this browser), so the button stops covering the map. */
-  const creditsDismissed = useSettings((s) => s.mapCreditsDismissed)
-  const setSettings = useSettings((s) => s.setSettings)
   const [tool, setTool] = useState<BuildTool>(null)
   const [message, setMessage] = useState<string | null>(null)
   /** Where the run of tube being laid starts, once the first click of the tube tool has set it. */
@@ -432,7 +428,7 @@ export function GameMap({
   const [selectedCrew, setSelectedCrew] = useState<string[]>([])
   const [crewMessage, setCrewMessage] = useState<string | null>(null)
   /**
-   * The astronaut whose task list is open (right-click them), where on the screen it opens, and
+   * The astronaut whose task list is open (double-click them), where on the screen it opens, and
    * what it shows, read when it opened.
    */
   const [taskMenu, setTaskMenu] = useState<{
@@ -445,6 +441,8 @@ export function GameMap({
   } | null>(null)
   /** When the task list was last closed by a click outside it: that click only closes it. */
   const menuClosedAtRef = useRef(0)
+  /** The last click on an astronaut, to tell a double-click (which opens their task list) from a single one. */
+  const lastAstronautClickRef = useRef<{ pawnId: string; at: number } | null>(null)
   const closeTaskMenu = useCallback((how: "outside" | "escape") => {
     if (how === "outside") menuClosedAtRef.current = performance.now()
     setTaskMenu(null)
@@ -557,16 +555,26 @@ export function GameMap({
         setCrewMessage(describeClick(crew, orderGroup(crew, [movingFor], { kind: "move", target: here }, keys.shift), nameOf))
         return
       }
-      // Clicking an astronaut picks them and opens their task list. Shift-click picks several instead.
+      // Clicking an astronaut picks them; double-clicking them opens their task list too (a single click
+      // doesn't, so the list isn't in the way when just picking someone). Shift-click picks several instead.
       const [astronaut] = pawnsAt(crew, here)
       if (astronaut && !keys.shift) {
+        const now = performance.now()
+        const last = lastAstronautClickRef.current
+        const double = last?.pawnId === astronaut.pawnId && now - last.at < DOUBLE_CLICK_MS
+        lastAstronautClickRef.current = double ? null : { pawnId: astronaut.pawnId, at: now }
         selectPawns(crew, [astronaut.pawnId])
         setSelectedCrew([astronaut.pawnId])
-        const mining = deposits ? miningChoices(crew, deposits, astronaut.pawnId) : []
-        setTaskMenu({ pawnId: astronaut.pawnId, ...screen, ...taskList(crew, astronaut), mining })
-        setCrewMessage(`${nameOf(astronaut.pawnId)} selected. Pick a task, or click where to send them.`)
+        if (double) {
+          const mining = deposits ? miningChoices(crew, deposits, astronaut.pawnId) : []
+          setTaskMenu({ pawnId: astronaut.pawnId, ...screen, ...taskList(crew, astronaut), mining })
+          setCrewMessage(`${nameOf(astronaut.pawnId)}'s tasks. Pick one, or click where to send them.`)
+        } else {
+          setCrewMessage(`${nameOf(astronaut.pawnId)} selected. Click where to send them, or double-click them for their tasks.`)
+        }
         return
       }
+      lastAstronautClickRef.current = null
       if (closedMenu) return
       const tile = { x: cell.col, y: cell.row }
       // A Sonification Station with a "!": its card shows the nebula the music is playing.
@@ -1204,7 +1212,10 @@ export function GameMap({
         className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between p-4 sm:p-6"
         style={buildOpen ? { paddingBottom: "calc(var(--build-bar, 0px) + 1rem)" } : undefined}
       >
-        <div className="flex items-start justify-between gap-4">
+        {/* The top of the screen takes only the space that is left (min-h-0), so however tall the crew list grows it can't
+            push the bottom row (elevation, map credits) off the screen. A list too tall for the screen runs on past
+            the bottom on the left; its header folds it away. */}
+        <div className="flex min-h-0 flex-1 items-start justify-between gap-4">
           <div className="flex flex-col items-start gap-3">
             {/* The calendar: only the day number, never the real date (see sim/calendar.ts). */}
             <section aria-label="Calendar" className={`${panelClass} w-72`}>
@@ -1458,7 +1469,7 @@ export function GameMap({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
+        <div className="relative z-10 flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
           <p className={`${panelClass} text-sm ${terrain && hoveredIndex !== null ? "" : "invisible"}`} aria-live="off">
             {terrain && hoveredIndex !== null && (
               <>
@@ -1476,44 +1487,28 @@ export function GameMap({
             )}
           </p>
           {/* The map's data credits: folded away until asked for, so they don't cover the map, and kept left of the
-              Backpack and Crew buttons (see App.tsx). Once they have been read, the x puts them away for good. */}
-          {!creditsDismissed && (
-            <div className="pointer-events-auto flex max-w-xl flex-col items-end gap-2">
-              {creditsOpen && (
-                <p id="map-credits" className={`fx-credits ${panelClass} mr-28 py-2 text-[11px] text-white/50`}>
-                  Drawn as pixel art from real Mars data, via NASA Mars Trek. Detail: Mars Odyssey THEMIS infrared
-                  mosaic, NASA/JPL-Caltech/Arizona State University/USGS. Colour: Viking MDIM 2.1, NASA Ames/USGS.
-                  Elevation: MGS MOLA, NASA GSFC/USGS. Mineral richness: MGS TES mineral maps (Bandfield 2002),
-                  NASA/JPL/ASU. Colours are simplified and block heights exaggerated. Full credits are on the main menu.
-                </p>
-              )}
-              <div className="flex items-stretch gap-1">
-                <button
-                  type="button"
-                  aria-expanded={creditsOpen}
-                  aria-controls="map-credits"
-                  onClick={() => {
-                    setCreditsOpen((open) => !open)
-                    setCreditsSeen(true)
-                  }}
-                  className={buttonClass}
-                >
-                  {creditsOpen ? "Hide map credits" : "Map credits"}
-                </button>
-                {creditsSeen && (
-                  <button
-                    type="button"
-                    aria-label="Remove map credits"
-                    title="Remove map credits (they stay on the main menu)"
-                    onClick={() => setSettings({ mapCreditsDismissed: true })}
-                    className={buttonClass.replace("px-5", "px-3")}
-                  >
-                    <span aria-hidden>×</span>
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
+              Backpack and Crew buttons (see App.tsx). The button is always there: NASA's data needs its credit.
+              (It used to have an x that removed it for good, in that browser, with no way back; players clicked it
+              to close the text and lost the button.) */}
+          <div className="pointer-events-auto flex max-w-xl flex-col items-end gap-2">
+            {creditsOpen && (
+              <p id="map-credits" className={`fx-credits ${panelClass} mr-28 py-2 text-[11px] text-white/50`}>
+                Drawn as pixel art from real Mars data, via NASA Mars Trek. Detail: Mars Odyssey THEMIS infrared
+                mosaic, NASA/JPL-Caltech/Arizona State University/USGS. Colour: Viking MDIM 2.1, NASA Ames/USGS.
+                Elevation: MGS MOLA, NASA GSFC/USGS. Mineral richness: MGS TES mineral maps (Bandfield 2002),
+                NASA/JPL/ASU. Colours are simplified and block heights exaggerated. Full credits are on the main menu.
+              </p>
+            )}
+            <button
+              type="button"
+              aria-expanded={creditsOpen}
+              aria-controls="map-credits"
+              onClick={() => setCreditsOpen((open) => !open)}
+              className={buttonClass}
+            >
+              {creditsOpen ? "Hide map credits" : "Map credits"}
+            </button>
+          </div>
         </div>
       </div>
 
