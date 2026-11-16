@@ -35,7 +35,7 @@ import {
   type Rect,
 } from "@/sim/base"
 import { describeFinds, type Trip, type TripNews, type TripReport } from "@/sim/explore"
-import { cannotExplore, urgentNeedOf } from "@/sim/crewLife"
+import { cannotExplore, researchRate, urgentNeedOf } from "@/sim/crewLife"
 import type { CrewMember } from "@/sim/lifeSupport"
 import { workSpeed } from "@/sim/pawn"
 import type { LogEntry, Pawn } from "@/sim/types"
@@ -61,6 +61,7 @@ import {
   stationAt,
   pawnsAt,
   removePawn,
+  scaleFor,
   selectPawns,
   stepPathing,
   type ClickResult,
@@ -167,15 +168,20 @@ function describeClick(world: World, result: ClickResult, nameOf: NameOf): strin
   }
 }
 
-/** Crew events worth telling the player about, as plain words. */
-function describeEvent(event: PathingEvent, nameOf: NameOf): string | null {
+/** Crew events worth telling the player about, as plain words. `kindOf` is a station's kind (e.g. "research"). */
+function describeEvent(event: PathingEvent, nameOf: NameOf, kindOf: (stationId: string) => string | undefined): string | null {
   switch (event.type) {
     case "blocked":
     case "cancelled":
     case "needUnmet":
       return `${nameOf(event.pawnId)}: ${event.reason}`
+    case "workStarted":
+      return kindOf(event.stationId) === "research" ? `${nameOf(event.pawnId)} is doing research in the Research Lab.` : null
     case "needInterrupt":
+      if (event.need === "rest") return `${nameOf(event.pawnId)} is sleepy and going to bed in the Habitat.`
       return event.need === "shelter" ? `${nameOf(event.pawnId)} is heading inside to shelter.` : null
+    case "needMet":
+      return event.need === "rest" ? `${nameOf(event.pawnId)} woke up, rested.` : null
     case "exposureChanged":
       return event.exposure === "outside"
         ? `${nameOf(event.pawnId)} stepped outside onto the surface.`
@@ -371,6 +377,8 @@ export function GameMap({
   const [labCrew, setLabCrew] = useState({ staffed: 0, claimed: 0 })
   /** Set when the last astronaut working in a lab leaves it while something is being researched. */
   const [researchStopped, setResearchStopped] = useState(false)
+  /** Ids of the astronauts in a Research Lab doing research right now, for the Crew list. */
+  const [researchers, setResearchers] = useState<string[]>([])
 
   // What's on screen belongs to this site and this try; anything else is still loading.
   const key = `${site.lat},${site.lon},${attempt}`
@@ -721,6 +729,8 @@ export function GameMap({
     const unsaved = { hours: 0, ms: 0, labHours: 0 }
     /** Labs staffed and claimed as last told to React, so it only re-renders when they change. */
     let shownLabs = { staffed: 0, claimed: 0 }
+    /** Who was last shown as researching, as sorted ids joined by commas. */
+    let shownResearchers = ""
     /** What was last made see-through for the crew inside, so the map is only told when it changes. */
     let shownInside = ""
     /** Fades only the modules someone is in, and only the pieces of tube someone is walking along. */
@@ -787,12 +797,23 @@ export function GameMap({
           const pawn = pawnOf(id)
           return pawn ? workSpeed(pawn) : 1
         },
+        // Someone asleep doesn't move, except to get to a bed (or indoors) once they've dozed off.
+        walkSpeed: (id) =>
+          pawnOf(id)?.activity === "sleeping" && !crew.movers[id]?.interrupt ? 0 : scaleFor(crew.grid).walkTilesPerHour,
         canShelterAt: storm ? shelterRule(crew) : undefined,
       })
       if (storm) keepHidersResearching(crew)
-      // Each lab with its astronaut inside puts one astronaut's work into the research. In a storm,
-      // an astronaut hiding in a lab nobody was sent to counts as working in it.
-      const staffed = staffedLabs(crew, storm).length
+      // Each lab with its astronaut inside puts that astronaut's work into the research: a trained
+      // Researcher does more than anyone else (see researchRate). In a storm, an astronaut hiding in
+      // a lab nobody was sent to counts as working in it.
+      const inLabs = staffedLabs(crew, storm)
+      const staffed = inLabs.length
+      const labWork = inLabs.reduce((sum, lab) => sum + researchRate(pawnOf(lab.pawnId)), 0)
+      const researcherIds = inLabs.map((lab) => lab.pawnId).sort().join(",")
+      if (researcherIds !== shownResearchers) {
+        shownResearchers = researcherIds
+        setResearchers(researcherIds ? researcherIds.split(",") : [])
+      }
       const claimed = claimedLabCount(crew, storm)
       if (staffed !== shownLabs.staffed || claimed !== shownLabs.claimed) {
         // The last astronaut working in a lab just left it: research stops, and the player is told.
@@ -808,13 +829,14 @@ export function GameMap({
       // at the base or out exploring.
       if (Object.keys(crew.movers).length > 0 || someoneAwayRef.current) {
         unsaved.hours += dtHours
-        unsaved.labHours += dtHours * staffed
+        unsaved.labHours += dtHours * labWork
         unsaved.ms += deltaMs
         if (unsaved.ms >= 1000) handOver()
       }
       view.drawCrew(crew, suitColors(rosterRef.current))
       showCrewInside(crew)
-      const said = events.map((event) => describeEvent(event, nameOf)).filter((line) => line !== null)
+      const kindOf = (stationId: string) => crew.stations.find((station) => station.id === stationId)?.kind
+      const said = events.map((event) => describeEvent(event, nameOf, kindOf)).filter((line) => line !== null)
       if (said.length > 0) setCrewMessage(said[said.length - 1])
     })
     return () => {
@@ -1007,6 +1029,18 @@ export function GameMap({
                       const isAway = away.includes(member.id)
                       const gone = isEvacuated || isAway
                       const selected = selectedCrew.includes(member.id) && !isAway
+                      // What they're up to, shown at the end of the row.
+                      const doing = isEvacuated
+                        ? { label: "Evacuated", className: "text-orange-300/80" }
+                        : isAway
+                          ? { label: "Exploring", className: "text-emerald-300/80" }
+                          : member.activity === "sleeping"
+                            ? { label: "Sleeping", className: "text-indigo-200/80" }
+                            : researchers.includes(member.id)
+                              ? { label: "Researching", className: "text-sky-300/90" }
+                              : selected
+                                ? { label: "Selected", className: "text-orange-200" }
+                                : null
                       return (
                         <li key={member.id}>
                           {/* One row per astronaut. Clicking it selects them, like clicking them on the map. */}
@@ -1026,12 +1060,8 @@ export function GameMap({
                             <span className="flex items-center gap-1.5 text-[11px] font-semibold">
                               <span className="size-2 shrink-0 rounded-full" style={{ background: member.color }} />
                               <span className="truncate">{member.name}</span>
-                              {isEvacuated ? (
-                                <span className="ml-auto text-[9px] uppercase tracking-[0.15em] text-orange-300/80">Evacuated</span>
-                              ) : isAway ? (
-                                <span className="ml-auto text-[9px] uppercase tracking-[0.15em] text-white/50">Exploring</span>
-                              ) : (
-                                selected && <span className="ml-auto text-[9px] uppercase tracking-[0.15em] text-orange-200">Selected</span>
+                              {doing && (
+                                <span className={`ml-auto text-[9px] uppercase tracking-[0.15em] ${doing.className}`}>{doing.label}</span>
                               )}
                             </span>
                             {!gone && (
@@ -1310,7 +1340,11 @@ export function GameMap({
           })}
           trips={trips}
           tripLog={tripLog}
-          onSend={onSendExploring}
+          onSend={(placeId, crewIds) => {
+            onSendExploring(placeId, crewIds)
+            const place = explorePlace(placeId)?.name ?? "somewhere new"
+            setCrewMessage(`${listNames(crewIds)} set off to explore the ${place}.`)
+          }}
           onClose={() => setExploreOpen(false)}
         />
       )}

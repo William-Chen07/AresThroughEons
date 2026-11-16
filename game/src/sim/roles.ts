@@ -1,5 +1,5 @@
 import { TUNING } from "./constants"
-import { addStatus, canGoOnEva, clamp, isActive, removeStatus, traitMultiplier } from "./pawn"
+import { canGoOnEva, clamp, injure, isActive, removeStatus, traitMultiplier } from "./pawn"
 import type { Rng } from "./rng"
 import { STATUSES } from "./statuses"
 import type { Activity, LogEntry, Mission, Pawn, ResourceId, RoleId } from "./types"
@@ -114,7 +114,7 @@ export const ROLES: Record<RoleId, RoleDef> = {
 
       const baseInjury = weather.dustStorm ? TUNING.stormInjuryChancePerHour : TUNING.injuryChancePerHour
       const injuryChance = baseInjury * traitMultiplier(pawn, (m) => m.injuryChance) * hours
-      if (rng.next() < injuryChance && addStatus(pawn, "injured", mission.hour)) {
+      if (rng.next() < injuryChance && injure(pawn, mission.hour)) {
         log(
           "warning",
           weather.dustStorm

@@ -42,9 +42,12 @@ export type NavigationTerrain = Pick<VoxelTerrain, "size" | "metersPerCell" | "m
 
 /**
  * Urgent needs each kind of module takes care of (see sim/pathing/needs.ts).
- * TODO(team): decide these, e.g. habitat → rest, greenhouse → food and water.
+ * TODO(team): decide the rest, e.g. greenhouse → food and water.
  */
-export const MODULE_PROVIDES: Partial<Record<ModuleTypeId, Exclude<UrgentNeed, "shelter">[]>> = {}
+export const MODULE_PROVIDES: Partial<Record<ModuleTypeId, Exclude<UrgentNeed, "shelter">[]>> = {
+  // The crew's beds: a sleepy crewmate goes to the nearest Habitat and stays put until rested.
+  habitat: ["rest"],
+}
 
 /** Station ids for modules, so they can be told apart from any other stations. */
 export const moduleStationId = (moduleId: string) => `module:${moduleId}`

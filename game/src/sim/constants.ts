@@ -76,6 +76,10 @@ export const TUNING = {
   scoutFindKg: { min: 5, max: 15 },
   stormFindPenalty: 0.5,
   injuryChancePerHour: 0.005,
+  /** Inside the base, slips and bumps are rarer than out on the rocks: this share of the outside chance. */
+  indoorInjuryFactor: 0.4,
+  /** Health lost at once when a crewmate gets hurt (a slip, a fall, a bump). */
+  injuryHealthLoss: 15,
   stormInjuryChancePerHour: 0.05,
   injuryNaturalHealHours: 96,
 

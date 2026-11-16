@@ -15,6 +15,17 @@ export function addStatus(pawn: Pawn, id: StatusId, hour: number): boolean {
   return true
 }
 
+/**
+ * The crewmate gets hurt: loses TUNING.injuryHealthLoss health at once (never below 1, so a slip
+ * alone never sends anyone home) and is Injured until treated or healed. Returns false if they
+ * were already injured, in which case nothing happens.
+ */
+export function injure(pawn: Pawn, hour: number, amount: number = TUNING.injuryHealthLoss): boolean {
+  if (!addStatus(pawn, "injured", hour)) return false
+  pawn.health = Math.max(1, pawn.health - amount)
+  return true
+}
+
 export function removeStatus(pawn: Pawn, id: StatusId): boolean {
   const before = pawn.statuses.length
   pawn.statuses = pawn.statuses.filter((s) => s.id !== id)
