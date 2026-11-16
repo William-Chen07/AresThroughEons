@@ -114,9 +114,10 @@ function App() {
 
         {/* Bottom right, above the map credits button: the backpack (the ice and regolith dug up), then the
             button for the crew system's details for this save (sim/crewLife.ts). Fixed above the crew
-            screen, so the Crew button can also close it. */}
+            screen, so the Crew button can also close it. While the Build bar is open it all sits above it
+            (--build-bar is the bar's height, see BuildPanel). */}
         <div
-          className={`pointer-events-none fixed right-4 z-40 flex flex-col items-end gap-2 sm:right-6 ${creditsDismissed ? "bottom-4 sm:bottom-6" : "bottom-20 sm:bottom-24"}`}
+          className={`pointer-events-none fixed right-4 z-40 flex flex-col items-end gap-2 sm:right-6 ${creditsDismissed ? "bottom-[calc(var(--build-bar,0px)+1rem)] sm:bottom-[calc(var(--build-bar,0px)+1.5rem)]" : "bottom-[calc(var(--build-bar,0px)+5rem)] sm:bottom-[calc(var(--build-bar,0px)+6rem)]"}`}
         >
           {!showCrew && <Backpack resources={save.resources} />}
           <button

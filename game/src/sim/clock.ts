@@ -4,7 +4,7 @@
 
 /**
  * How fast crew time runs: game-hours per real second. 0.15 = 9 game-minutes a second, so a
- * suited walk crosses about one 162 m block a second and an airlock cycles in under a second.
+ * suited walk crosses about one 162 m block a second.
  */
 export const GAME_HOURS_PER_SECOND = 0.15
 
