@@ -7,8 +7,8 @@ import {
 } from "@/content/resources";
 
 /*
- * The base's resources in one row along the top of the base map, left of the
- * Back to menu button. It only shows the amounts kept in the save; nothing
+ * The base's resources in one row along the top right of the base map. It
+ * only shows the amounts kept in the save; nothing
  * makes or uses resources yet. Resting the pointer on a resource (or moving to
  * it with the Tab key) opens a short card: what it is and why it matters on a
  * NASA mission to Mars. The card is opened from code, not with a CSS hover

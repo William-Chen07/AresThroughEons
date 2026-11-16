@@ -75,7 +75,7 @@ function App() {
         <button
           type="button"
           onClick={() => setShowCrew((v) => !v)}
-          className="fixed bottom-20 right-4 z-40 sm:bottom-24 sm:right-6 border border-white/15 bg-black/70 px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-white backdrop-blur-sm hover:border-orange-400/70"
+          className="fixed bottom-20 right-4 z-40 sm:bottom-24 sm:right-6 border border-white/15 bg-black/70 px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-white backdrop-blur-sm transition hover:border-orange-400/70 hover:bg-orange-950/85 hover:text-orange-100 focus-visible:outline-2 focus-visible:outline-orange-400"
         >
           {showCrew ? "Close crew" : "Crew"}
         </button>
@@ -100,7 +100,7 @@ function App() {
       <button
         type="button"
         onClick={() => setScreen("menu")}
-        className="border border-white/15 px-5 py-2 text-xs font-semibold uppercase tracking-[0.25em] hover:border-orange-400/70"
+        className="border border-white/15 px-5 py-2 text-xs font-semibold uppercase tracking-[0.25em] transition hover:border-orange-400/70 hover:bg-orange-500/15"
       >
         Back to menu
       </button>

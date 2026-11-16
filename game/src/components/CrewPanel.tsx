@@ -26,7 +26,8 @@ const NEED_LABELS: Record<NeedId, string> = {
   morale: "Morale",
 }
 
-function Bar({ label, value }: { label: string; value: number }) {
+/** A 0–100 stat as a coloured bar: green, amber below 60, red below 30. Also used by the map's Crew list. */
+export function Bar({ label, value }: { label: string; value: number }) {
   const color = value < 30 ? "bg-red-500" : value < 60 ? "bg-amber-400" : "bg-emerald-400"
   return (
     <div className="flex items-center gap-2 text-[11px]">
