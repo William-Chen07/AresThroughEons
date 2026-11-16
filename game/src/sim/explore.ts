@@ -85,6 +85,18 @@ export function carryLimit(crewCount: number) {
 }
 
 /**
+ * About how much a group usually carries back from a place, for the explore map: the middle of
+ * each astronaut's share of the place's everyday finds, cut to what the group can carry. Rare
+ * finds and events aren't counted (rare finds stay a surprise), nor is morale (it isn't carried).
+ */
+export function usualFinds(place: ExplorePlace, crewCount: number) {
+  const each = place.finds
+    .filter((find) => find.resource !== "morale")
+    .reduce((sum, find) => sum + (find.min + find.max) / 2, 0)
+  return Math.min(Math.round(each * crewCount), carryLimit(crewCount))
+}
+
+/**
  * How good a place's finds are, for the explore map: 1 to 4 stars. Further is better, and once
  * finds join that weren't there when exploring opened (uranium, from Era 3), better again. Says
  * nothing about which finds.

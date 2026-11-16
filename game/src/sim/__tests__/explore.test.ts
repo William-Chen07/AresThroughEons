@@ -12,6 +12,7 @@ import {
   rollFinds,
   tripFood,
   tripHours,
+  usualFinds,
   withinCarryLimit,
 } from "@/sim/explore"
 
@@ -123,5 +124,16 @@ describe("exploring: distance", () => {
     expect(dangerOf(near)).toBe("Low")
     expect(dangerOf(middle)).toBe("Medium")
     expect(dangerOf(far)).toBe("High")
+  })
+})
+
+describe("exploring: what the explore map shows about the group", () => {
+  it("a bigger group usually brings more, up to what it can carry", () => {
+    // The test places have 5 to 10 water each, so about 7.5 an astronaut.
+    expect(usualFinds(middle, 0)).toBe(0)
+    expect(usualFinds(middle, 2)).toBe(15)
+    expect(usualFinds(middle, 3)).toBeGreaterThan(usualFinds(middle, 2))
+    const heavy = { ...middle, finds: [{ resource: "regolith" as const, min: 90, max: 110 }] }
+    expect(usualFinds(heavy, 2)).toBe(carryLimit(2))
   })
 })

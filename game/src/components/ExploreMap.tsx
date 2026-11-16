@@ -14,6 +14,7 @@ import {
   tripFood,
   tripHours,
   tripReach,
+  usualFinds,
   type Trip,
   type TripReport,
 } from "@/sim/explore"
@@ -309,22 +310,32 @@ export function ExploreMap({
                   const stars = findStars(place, era)
                   const danger = dangerOf(place)
                   return (
-                    <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border border-cyan-300/15 bg-cyan-300/5 px-3 py-2 text-xs">
-                      <dt className="text-white/55">Distance</dt>
-                      <dd>{distanceWord(farness(place))}</dd>
-                      <dt className="text-white/55">Finds</dt>
-                      <dd aria-label={`${stars} out of 4 stars`}>
-                        <span aria-hidden className="tracking-[0.15em] text-amber-300 [text-shadow:0_0_6px_rgb(252_211_77/0.6)]">
-                          {"★".repeat(stars)}
-                          <span className="text-white/25">{"★".repeat(4 - stars)}</span>
-                        </span>
-                      </dd>
-                      <dt className="text-white/55">Danger</dt>
-                      <dd className={dangerLook[danger]}>{danger}</dd>
-                      <dd className="col-span-2 mt-1 text-[11px] text-white/50">
-                        The further the trip, the better the finds, and the more likely someone gets hurt.
-                      </dd>
-                    </dl>
+                    // Side by side, like the group's numbers below, so the panel stays short.
+                    <div
+                      title="The further the trip, the better the finds, and the more likely someone gets hurt."
+                      className="mt-3 border border-cyan-300/15 bg-cyan-300/5 px-2 py-1.5 text-xs"
+                    >
+                      <dl className="grid grid-cols-3 gap-1 text-center">
+                        <div className="flex flex-col">
+                          <dt className="text-[10px] uppercase tracking-[0.1em] text-white/50">Distance</dt>
+                          <dd className="font-semibold">{distanceWord(farness(place))}</dd>
+                        </div>
+                        <div className="flex flex-col">
+                          <dt className="text-[10px] uppercase tracking-[0.1em] text-white/50">Finds</dt>
+                          <dd aria-label={`${stars} out of 4 stars`}>
+                            <span aria-hidden className="tracking-[0.1em] text-amber-300 [text-shadow:0_0_6px_rgb(252_211_77/0.6)]">
+                              {"★".repeat(stars)}
+                              <span className="text-white/25">{"★".repeat(4 - stars)}</span>
+                            </span>
+                          </dd>
+                        </div>
+                        <div className="flex flex-col">
+                          <dt className="text-[10px] uppercase tracking-[0.1em] text-white/50">Danger</dt>
+                          <dd className={`font-semibold ${dangerLook[danger]}`}>{danger}</dd>
+                        </div>
+                      </dl>
+                      <p className="mt-1 text-[11px] text-white/50">Further: better finds, but more danger.</p>
+                    </div>
                   )
                 })()}
 
@@ -359,19 +370,56 @@ export function ExploreMap({
                     )
                   })}
                 </ul>
-                {/* What this group needs and can do: the food it packs, and how much it can carry. */}
+                {/* The group: what it can do and what it costs, and what one more astronaut would add,
+                    so the point of sending more people is plain to see. */}
                 {(() => {
-                  const food = tripFood(place, going.length)
-                  const short = going.length > 0 && food > foodInStore
+                  const n = going.length
+                  const more = n + 1
+                  const canAddMore = crew.some((member) => member.status === "ready" && !going.includes(member.id))
+                  const food = tripFood(place, n)
+                  const short = n > 0 && food > foodInStore
+                  // One column each, side by side: a short label, the group's number, and under it what one
+                  // more astronaut adds. `about` is the full wording, for hovering and screen readers.
+                  const stats: { label: string; about: string; now: string; plus: number; cost?: boolean }[] = [
+                    { label: "Carry", about: `Can carry back up to ${carryLimit(n)}`, now: `${carryLimit(n)}`, plus: carryLimit(more) - carryLimit(n) },
+                    { label: "Brings", about: `Usually brings about ${usualFinds(place, n)}`, now: `~${usualFinds(place, n)}`, plus: usualFinds(place, more) - usualFinds(place, n) },
+                    // Every astronaut gets their own try at something rare, but only away from the base.
+                    ...(farness(place) > 0 ? [{ label: "Rare tries", about: `${n} tries at a rare find`, now: `${n}`, plus: 1 }] : []),
+                    { label: "Food", about: `Packs ${food} food from the base`, now: `${food}`, plus: tripFood(place, more) - food, cost: true },
+                  ]
                   return (
-                    going.length > 0 && (
-                      <p className="mt-2 text-xs text-white/65">
-                        Packs <span className={short ? "text-orange-300" : "text-white/90"}>{food} food</span> from the base
-                        ({Math.floor(foodInStore)} there). Can carry back up to{" "}
-                        <span className="text-white/90">{carryLimit(going.length)}</span>.
-                        {short && <span className="mt-1 block text-orange-300">Not enough food at the base for this group.</span>}
+                    <div className="mt-2 border border-cyan-300/15 bg-cyan-300/5 px-2 py-1.5 text-xs">
+                      <p className="flex items-baseline justify-between gap-2">
+                        <span className={heading}>{n === 0 ? "Nobody picked yet" : `Group of ${n}`}</span>
+                        {canAddMore && <span className="text-[10px] text-white/45">+ one more</span>}
                       </p>
-                    )
+                      <dl className="mt-1 grid gap-1 text-center" style={{ gridTemplateColumns: `repeat(${stats.length}, minmax(0, 1fr))` }}>
+                        {stats.map((stat) => (
+                          <div key={stat.label} title={stat.about} className="flex flex-col">
+                            <dt className="text-[10px] uppercase tracking-[0.1em] text-white/50">{stat.label}</dt>
+                            <dd
+                              aria-label={stat.about}
+                              className={`text-sm font-semibold tabular-nums ${stat.cost && short ? "text-orange-300" : "text-white/90"}`}
+                            >
+                              {stat.now}
+                            </dd>
+                            <dd
+                              aria-hidden
+                              className={`h-4 text-[11px] tabular-nums ${stat.cost ? "text-amber-200/80" : "holo-text text-cyan-200"}`}
+                            >
+                              {canAddMore && stat.plus > 0 ? `+${stat.plus}` : ""}
+                            </dd>
+                          </div>
+                        ))}
+                      </dl>
+                      <p className="mt-1 text-[11px] text-white/50">
+                        {short ? (
+                          <span className="text-orange-300">Not enough food at the base ({Math.floor(foodInStore)}).</span>
+                        ) : (
+                          `${Math.floor(foodInStore)} food at the base. More people carry more, but eat more.`
+                        )}
+                      </p>
+                    </div>
                   )
                 })()}
                 <button
