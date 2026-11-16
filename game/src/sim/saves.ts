@@ -33,6 +33,9 @@ import { OCCUPATIONS } from "@/sim/occupations"
 
 export const SAVE_SLOT_COUNT = 3
 
+/** Kinds of module that used to exist: a save that has one built loses it when it's loaded. */
+const REMOVED_MODULES: readonly string[] = ["storage", "airlock", "power"]
+
 /**
  * Where an astronaut was on the base map, so they are back there when the map opens again: the
  * tile they were on, and the Research Lab (its movement station id, see sim/labs.ts) they were
@@ -546,7 +549,9 @@ export const savesStore = createStore<Saves & SavesActions>()(
       // and tube now counts as pressurized, see sim/navigation.ts.)
       // Version 21 added `deposits`: an older save gets them the next time its map opens.
       // Version 22 removed ice as a resource: a save's ice is melted into its water (see upgradeResources).
-      version: 22,
+      // Version 23 removed the Power Plant (Solar Panels and, later, the Uranium Power Plant make power
+      // now): any already built is taken off the map.
+      version: 23,
       migrate: (stored) => {
         const old = stored as Saves
         return {
@@ -560,8 +565,9 @@ export const savesStore = createStore<Saves & SavesActions>()(
                 era: slot.era ?? 1,
                 landers: slot.landers?.length ? slot.landers : [firstLander(MAP_SIZE)],
                 modules: (slot.modules ?? [])
-                  // Storage (version 18) and Airlock (version 20) are no longer kinds of module.
-                  .filter((module) => !["storage", "airlock"].includes(module.type as string))
+                  // Storage (version 18), the Airlock (version 20) and the Power Plant (version 23) are no
+                  // longer kinds of module.
+                  .filter((module) => !REMOVED_MODULES.includes(module.type as string))
                   .map((module) => ({ ...module, era: module.era ?? 1 })),
                 tubes: slot.tubes ?? [],
                 researched: slot.researched ?? [],

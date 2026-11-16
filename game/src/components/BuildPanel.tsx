@@ -20,7 +20,7 @@ import {
   Zap,
   type LucideIcon,
 } from "lucide-react"
-import { MODULE_RESEARCH, MODULE_TYPES, moduleUnlocked, type BuildCost, type ModuleType, type ModuleTypeId } from "@/content/modules"
+import { MODULE_RESEARCH, MODULE_TYPES, moduleIcon, moduleUnlocked, type BuildCost, type ModuleType, type ModuleTypeId } from "@/content/modules"
 import { researchProject } from "@/content/research"
 import { RESOURCE_TYPES } from "@/content/resources"
 import { ResourceIcon } from "@/components/ResourceIcon"
@@ -56,11 +56,21 @@ const darker = (color: number, by = 0.6) => {
   return hex((channel(16) << 16) | (channel(8) << 8) | channel(0))
 }
 
-/**
- * A module seen from above, the way the map draws it: its roof, its label, and its front wall with
- * the door. Every module is drawn at the same scale, so their sizes compare.
- */
+/** A module's picture on its card. */
 function ModulePicture({ type }: { type: ModuleType }) {
+  // The module's own art (its icon from the Blender exports), when there is one.
+  const icon = moduleIcon(type.id)
+  if (icon) {
+    return <img src={icon} alt="" width={64} height={64} className="h-full w-auto" style={{ imageRendering: "pixelated" }} />
+  }
+  return <ModuleDrawing type={type} />
+}
+
+/**
+ * A module with no art yet, seen from above the way the map draws it: its roof, its label, and its
+ * front wall with the door. Every module is drawn at the same scale, so their sizes compare.
+ */
+function ModuleDrawing({ type }: { type: ModuleType }) {
   const cell = 14
   const w = type.width * cell
   const h = type.height * cell
@@ -86,21 +96,6 @@ function ModulePicture({ type }: { type: ModuleType }) {
       >
         {type.code}
       </text>
-    </svg>
-  )
-}
-
-/** Two small modules joined by a run of tube. */
-function TubePicture() {
-  return (
-    <svg aria-hidden viewBox="0 0 64 28" className="h-full max-w-full">
-      <rect x={2} y={4} width={18} height={18} fill="#1a1412" />
-      <rect x={3.5} y={5.5} width={15} height={13} fill="#d8d4cc" />
-      <rect x={44} y={4} width={18} height={18} fill="#1a1412" />
-      <rect x={45.5} y={5.5} width={15} height={13} fill="#d8d4cc" />
-      <rect x={20} y={9} width={24} height={8} fill="#1a1412" />
-      <rect x={20} y={10.5} width={24} height={5} fill="#9a958d" />
-      <path d="M26 10.5v5M32 10.5v5M38 10.5v5" stroke="#6b665f" strokeWidth={1} />
     </svg>
   )
 }
@@ -391,7 +386,16 @@ export function BuildPanel({
         <Group label="Tubes">
           <Card
             name="Lay tubes"
-            picture={<TubePicture />}
+            picture={
+              <img
+                src={`${import.meta.env.BASE_URL}sprites/era1/pipe_cross_icon.png`}
+                alt=""
+                width={64}
+                height={64}
+                className="h-full w-auto"
+                style={{ imageRendering: "pixelated" }}
+              />
+            }
             cost={null}
             description="Joins modules, so the crew can walk between them without going outside."
             pressed={tool?.kind === "tube"}

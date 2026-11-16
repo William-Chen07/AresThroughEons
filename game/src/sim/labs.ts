@@ -4,7 +4,7 @@ import { issueOrder, tileOf, type Mover, type OrderResult, type ShelterRule, typ
  * Research Labs and the crew in them, as pure logic over the movement world (sim/pathing).
  *
  * Every module is a walk-in station (see sim/navigation.ts); a Research Lab's station has kind
- * "research". Each lab holds one astronaut: the one sent to work there. A lab is *staffed* while
+ * "research" (or "research-pro" for the Advanced Research Lab, see LAB_SPEED). Each lab holds one astronaut: the one sent to work there. A lab is *staffed* while
  * that astronaut is standing inside it. Someone just walking through, or wandering about, doesn't
  * count, and nor does the assigned astronaut while still on the way or after stepping out (for
  * oxygen, to explore, or because the player sent them somewhere else).
@@ -14,7 +14,18 @@ import { issueOrder, tileOf, type Mover, type OrderResult, type ShelterRule, typ
  * else may shelter there (see shelterRule).
  */
 
-export const isLab = (station: Station) => station.kind === "research"
+/** The kinds of module that are Research Labs, and how fast each works compared with a plain one. */
+export const LAB_SPEED: Record<string, number> = {
+  research: 1,
+  // The Advanced Research Lab, unlocked by the Better Research project.
+  "research-pro": 1.5,
+}
+
+export const isLab = (station: Station) => station.kind in LAB_SPEED
+
+/** How fast this lab works: 1 for a plain Research Lab, more for an advanced one. */
+export const labSpeed = (world: World, stationId: string) =>
+  LAB_SPEED[world.stations.find((s) => s.id === stationId)?.kind ?? ""] ?? 1
 
 /** The Research Labs on the map. */
 export const researchLabs = (world: World) => world.stations.filter(isLab)

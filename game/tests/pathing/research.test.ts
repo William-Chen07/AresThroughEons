@@ -8,8 +8,9 @@ import { test } from "node:test"
 import assert from "node:assert/strict"
 import type { Base, PlacedModule } from "@/sim/base"
 import { RESEARCH_ERAS, RESEARCH_PROJECTS, researchProject } from "@/content/research"
-import { MODULE_RESEARCH, moduleUnlocked } from "@/content/modules"
-import { claimedLabCount, keepHidersResearching, labWorker, pickLabWorker, sendResearcher, shelterRule, staffedLabs } from "@/sim/labs"
+import { MODULE_RESEARCH, MODULE_STACKS, MODULE_TYPES, moduleUnlocked, moduleUnlockedBy } from "@/content/modules"
+import { existsSync, readFileSync } from "node:fs"
+import { claimedLabCount, isLab, keepHidersResearching, labSpeed, labWorker, pickLabWorker, sendResearcher, shelterRule, staffedLabs } from "@/sim/labs"
 import { buildNavigation, moduleStationId, type NavigationTerrain } from "@/sim/navigation"
 import { addPawn, issueOrder, stepPathing, type World } from "@/sim/pathing"
 import { NO_RESEARCH, addResearchWork, researchState, startResearch } from "@/sim/research"
@@ -194,4 +195,31 @@ test("a module that needs research is locked until that project is researched", 
   assert.equal(moduleUnlocked("greenhouse", []), false)
   assert.equal(moduleUnlocked("greenhouse", ["potato-greenhouse"]), true)
   assert.equal(moduleUnlocked("habitat", []), true, "a module that needs no research is there from the start")
+})
+
+test("every module has art from the Blender exports, the size its art was made for", () => {
+  for (const type of MODULE_TYPES) {
+    const path = MODULE_STACKS[type.id]
+    assert.ok(path, `${type.id} has a sprite stack`)
+    for (const suffix of ["_stack.png", "_stack.json", "_icon.png"]) {
+      assert.ok(existsSync(`public/${path}${suffix}`), `public/${path}${suffix} is there`)
+    }
+    const { cells } = JSON.parse(readFileSync(`public/${path}_stack.json`, "utf8")) as { cells: [number, number] }
+    assert.deepEqual([type.width, type.height], cells, `${type.id} covers the cells its art does`)
+  }
+})
+
+test("each research project that adds a module unlocks exactly that module", () => {
+  assert.equal(moduleUnlockedBy("observatory")?.id, "observatory")
+  assert.equal(moduleUnlockedBy("better-research")?.id, "research-pro")
+  assert.equal(moduleUnlockedBy("radiation-suits"), undefined, "suits aren't a module")
+  for (const [id, projectId] of Object.entries(MODULE_RESEARCH)) assert.equal(moduleUnlockedBy(projectId!)?.id, id)
+})
+
+test("the Advanced Research Lab is a Research Lab that works 1.5x as fast", () => {
+  const w = buildNavigation(flat(), { modules: [mod("pro", "research-pro", 2, 2), mod("lab1", "research", 10, 2)], tubes: [] })
+  const pro = w.stations.find((station) => station.id === moduleStationId("pro"))!
+  assert.ok(isLab(pro))
+  assert.equal(labSpeed(w, moduleStationId("pro")), 1.5)
+  assert.equal(labSpeed(w, LAB1), 1)
 })

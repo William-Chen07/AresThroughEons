@@ -1,15 +1,20 @@
 import { CanvasSource, Container, Graphics, Sprite, Texture, type Ticker } from "pixi.js"
 import { CELL_PX, cellTopLeft, type Cell, type VoxelTerrain } from "@/map/voxelTerrain"
 import { LANDER_CELLS } from "@/sim/base"
+import { createStackSprite, loadLanderStack } from "@/map/spriteStack"
 
 /*
  * The expedition's landers: pixel-art sprites that cover 3 × 3 cells, and the
- * animation of this era's lander coming down when the map opens. The first era
- * has the classic gold-foil lander; later eras come down in a newer, more
- * advanced one. Landers from earlier eras stay on the map, worn down.
+ * animation of this era's lander coming down when the map opens. Each era comes
+ * down in its own lander, a sprite stack made from assets/blender/eraN.blend
+ * (see map/spriteStack.ts); until that has loaded, or if it can't be, the drawing
+ * below stands in: the classic gold-foil lander for era 1 and a newer one after.
+ * Landers from earlier eras stay on the map, worn down.
  */
 
 const SIZE_PX = LANDER_CELLS * CELL_PX
+/** What a lander from an earlier era is tinted: dusty and dim, like the old modules (see map/baseView.ts). */
+const WORN_TINT = 0xb39a86
 
 /*
  * The sprite, one character per pixel. It is drawn the way the terrain is:
@@ -109,6 +114,11 @@ const ART_PX = SIZE_PX / ART.length
 /** Where the engine nozzle ends and where the lander meets the ground, in the sprite's own map pixels. */
 const NOZZLE = { x: SIZE_PX / 2, y: 21 * ART_PX }
 const FEET_Y = SIZE_PX - ART_PX
+/**
+ * With the era's art (a sprite stack), the lander stands in the middle of its 3 × 3 footprint, not
+ * at the bottom edge the way the drawing does: its feet, shadow, dust and flame go there instead.
+ */
+const STACK_FEET_Y = SIZE_PX / 2 + 4
 
 /** How high above its landing spot the lander starts, in map pixels, and how long it takes to come down. */
 const DROP_PX = 680
@@ -218,7 +228,7 @@ export interface Lander {
  * A lander standing (or about to come down) on `cell`, the middle of its 3 × 3 footprint. A worn
  * one is from an earlier era: it is only ever placed, never landed.
  */
-export function createLander(terrain: VoxelTerrain, cell: Cell, model: LanderModel, worn = false): Lander {
+export function createLander(terrain: VoxelTerrain, cell: Cell, era: number, worn = false): Lander {
   // The 3 × 3 footprint is centred on the landing cell and sits at that cell's height.
   // (The cells around it may be a block higher or lower; levelling the pad comes later.)
   const middle = cellTopLeft(terrain, cell)
@@ -228,19 +238,19 @@ export function createLander(terrain: VoxelTerrain, cell: Cell, model: LanderMod
   view.position.copyFrom(origin)
 
   const shadow = new Graphics().ellipse(0, 0, SIZE_PX * 0.44, SIZE_PX * 0.14).fill({ color: 0x1a0c08, alpha: 1 })
-  shadow.position.set(SIZE_PX / 2, FEET_Y - 2)
+  /** Where the feet meet the ground, in the craft's own pixels; moved up once the art has loaded. */
+  let feetY = FEET_Y
+  let nozzle = { ...NOZZLE }
 
   // Smoke and dust behind the craft, and a second layer in front of it so the cloud wraps around it.
   const smokeBehind = new Container()
   const smokeInFront = new Container()
   const ring = new Graphics().ellipse(0, 0, SIZE_PX * 0.5, SIZE_PX * 0.17).stroke({ width: 3, color: 0xf3d2b0 })
-  ring.position.set(SIZE_PX / 2, FEET_Y - 2)
   ring.visible = false
 
   // The craft moves as one piece. Its origin is where the feet meet the ground,
   // so it scales and bounces about that point.
   const craft = new Container()
-  craft.pivot.set(SIZE_PX / 2, FEET_Y)
   const flame = new Graphics()
     .rect(-7, 0, 14, 6)
     .fill({ color: 0xf08a3c, alpha: 0.55 })
@@ -250,16 +260,37 @@ export function createLander(terrain: VoxelTerrain, cell: Cell, model: LanderMod
     .fill(0xf8b84a)
     .rect(-1, 14, 2, 10)
     .fill(0xfff0b0)
-  flame.position.copyFrom(NOZZLE)
-  const body = new Sprite(landerTexture(model, worn))
-  body.setSize(SIZE_PX, SIZE_PX)
+  /** Puts the shadow, the dust ring, the flame and the point the craft scales about at the feet. */
+  const standAt = (y: number, flameY: number) => {
+    feetY = y
+    nozzle = { x: SIZE_PX / 2, y: flameY }
+    shadow.position.set(SIZE_PX / 2, feetY - 2)
+    ring.position.set(SIZE_PX / 2, feetY - 2)
+    craft.pivot.set(SIZE_PX / 2, feetY)
+    flame.position.copyFrom(nozzle)
+  }
+  standAt(FEET_Y, NOZZLE.y)
+  // The drawn lander until this era's art has loaded, then the art in its place.
+  const body = new Container()
+  const drawn = new Sprite(landerTexture(landerModelFor(era), worn))
+  drawn.setSize(SIZE_PX, SIZE_PX)
+  body.addChild(drawn)
+  void loadLanderStack(era).then((stack) => {
+    if (!stack || body.destroyed) return
+    body.removeChildren().forEach((child) => child.destroy())
+    body.addChild(createStackSprite(stack, worn ? WORN_TINT : 0xffffff))
+    // The feet stand on the ground in the middle of the footprint, so it doesn't look as if it floats.
+    const landed = craft.y === feetY
+    standAt(STACK_FEET_Y, STACK_FEET_Y - 2)
+    if (landed) craft.y = feetY
+  })
   craft.addChild(flame, body)
 
   view.addChild(shadow, ring, smokeBehind, craft, smokeInFront)
 
   /** Places everything for a given height above the ground. `progress` runs 0 to 1 over the descent. */
   const pose = (height: number, progress: number, sway: number) => {
-    craft.position.set(SIZE_PX / 2 + sway, FEET_Y - height)
+    craft.position.set(SIZE_PX / 2 + sway, feetY - height)
     // Seen from above, something higher up is nearer the viewer, so a little bigger.
     craft.scale.set(1 + 0.35 * (height / DROP_PX))
     // The shadow starts wide and faint and tightens as the lander nears the ground.
@@ -289,7 +320,7 @@ export function createLander(terrain: VoxelTerrain, cell: Cell, model: LanderMod
     let exhaustOwed = 0
     let blastOwed = 0
     let smolderOwed = 0
-    const ground = { x: SIZE_PX / 2, y: FEET_Y - 2 }
+    const ground = { x: SIZE_PX / 2, y: feetY - 2 }
 
     const puff = (
       layer: Container,
@@ -358,16 +389,16 @@ export function createLander(terrain: VoxelTerrain, cell: Cell, model: LanderMod
 
         // Exhaust: hot at the nozzle, cooling to grey smoke as it is left behind.
         const scale = craft.scale.x
-        const nozzle = {
-          x: craft.x + (NOZZLE.x - SIZE_PX / 2) * scale,
-          y: craft.y + (NOZZLE.y - FEET_Y + 14) * scale,
+        const exhaust = {
+          x: craft.x + (nozzle.x - SIZE_PX / 2) * scale,
+          y: craft.y + (nozzle.y - feetY + 14) * scale,
         }
         exhaustOwed += (40 + 70 * progress) * (deltaMs / 1000)
         for (; exhaustOwed >= 1; exhaustOwed--) {
           puff(
             smokeBehind,
-            nozzle.x + between(-4, 4),
-            nozzle.y + between(0, 8),
+            exhaust.x + between(-4, 4),
+            exhaust.y + between(0, 8),
             between(-45, 45),
             between(140, 300),
             between(450, 1100),
@@ -489,7 +520,7 @@ const SHUTTLE_UP_MS = 1900
  */
 export function flyEvacuationShuttle(
   at: { x: number; y: number },
-  model: LanderModel,
+  era: number,
   ticker: Ticker,
   onPickup: () => void,
   onGone: () => void,
@@ -509,8 +540,18 @@ export function flyEvacuationShuttle(
     .rect(-1, 14, 2, 10)
     .fill(0xfff0b0)
   flame.position.copyFrom(NOZZLE)
-  const body = new Sprite(landerTexture(model, false))
-  body.setSize(SIZE_PX, SIZE_PX)
+  // Looks like this era's lander: the drawn one until the era's art has loaded, as in createLander.
+  const body = new Container()
+  const drawn = new Sprite(landerTexture(landerModelFor(era), false))
+  drawn.setSize(SIZE_PX, SIZE_PX)
+  body.addChild(drawn)
+  void loadLanderStack(era).then((stack) => {
+    if (!stack || body.destroyed) return
+    body.removeChildren().forEach((child) => child.destroy())
+    body.addChild(createStackSprite(stack))
+    craft.pivot.set(SIZE_PX / 2, STACK_FEET_Y)
+    flame.position.set(SIZE_PX / 2, STACK_FEET_Y - 2)
+  })
   craft.addChild(flame, body)
   view.addChild(shadow, smoke, craft)
 

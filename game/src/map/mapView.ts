@@ -4,7 +4,7 @@ import { createBaseView, type Ghost } from "@/map/baseView"
 import { createCrewView } from "@/map/crewView"
 import { createDepositView } from "@/map/depositView"
 import { playLanding } from "@/lib/sound"
-import { createLander, flyEvacuationShuttle, landerModelFor } from "@/map/lander"
+import { createLander, flyEvacuationShuttle } from "@/map/lander"
 import {
   CELL_PX,
   cellTopLeft,
@@ -64,13 +64,11 @@ export interface ClickKeys {
 
 export interface MapEvents {
   onHover: (cell: Cell | null) => void
-  /** A click or tap on a cell (not the end of a drag). */
-  onCellClick: (cell: Cell, keys: ClickKeys) => void
   /**
-   * A right-click on a cell (not the end of a right-drag that moved the map), with where it was on
-   * the screen, in pixels from the map's top left. Not while something is being placed.
+   * A click or tap on a cell (not the end of a drag), with where it was on the screen, in pixels
+   * from the map's top left.
    */
-  onCellRightClick: (cell: Cell, screen: { x: number; y: number }) => void
+  onCellClick: (cell: Cell, keys: ClickKeys, screen: { x: number; y: number }) => void
   /** Null if the lander is already down. Otherwise the landing plays, and this is called at touchdown. */
   onLanded: (() => void) | null
 }
@@ -95,7 +93,7 @@ const START_ZOOM = 1.5
 export async function createMapView(
   host: HTMLElement,
   terrain: VoxelTerrain,
-  { onHover, onCellClick, onCellRightClick, onLanded }: MapEvents,
+  { onHover, onCellClick, onLanded }: MapEvents,
   { era, landers }: MapEra,
   signal: AbortSignal,
 ): Promise<MapView | null> {
@@ -142,9 +140,9 @@ export async function createMapView(
   highlight.visible = false
 
   const current = landers[landers.length - 1]
-  const lander = createLander(terrain, current, landerModelFor(current.era))
+  const lander = createLander(terrain, current, current.era)
   const oldLanders = landers.slice(0, -1).map((spot) => {
-    const old = createLander(terrain, spot, landerModelFor(spot.era), true)
+    const old = createLander(terrain, spot, spot.era, true)
     old.place()
     return old
   })
@@ -244,33 +242,13 @@ export async function createMapView(
   }
   app.canvas.addEventListener("pointerenter", enterCanvas)
   app.canvas.addEventListener("pointerleave", clearHover)
-  // Right-click: the browser's own menu never opens over the map. Dragging with the right button
-  // moves the map, so a right-click only counts if the pointer stayed put between press and release.
-  let rightDown: { x: number; y: number } | null = null
-  const onPointerDown = (e: PointerEvent) => {
-    if (e.button === 2) rightDown = { x: e.clientX, y: e.clientY }
-  }
-  const onContextMenu = (e: MouseEvent) => {
-    e.preventDefault()
-    const start = rightDown
-    rightDown = null
-    if (placement || (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 6)) return
-    const box = app.canvas.getBoundingClientRect()
-    const screen = { x: e.clientX - box.left, y: e.clientY - box.top }
-    // The canvas can be drawn at a different size from its box on the page.
-    const world = viewport.toWorld((screen.x * app.screen.width) / box.width, (screen.y * app.screen.height) / box.height)
-    const cell = cellAt(world.x, world.y)
-    if (cell) onCellRightClick(cell, screen)
-  }
-  app.canvas.addEventListener("pointerdown", onPointerDown)
-  app.canvas.addEventListener("contextmenu", onContextMenu)
   // The camera reports a click only when the pointer didn't drag the map.
   viewport.on("clicked", (e) => {
-    // Only the main button (or a tap) clicks: a right-click is for the task list (see onContextMenu).
+    // Only the main button (or a tap) clicks: the other buttons just drag the map.
     if ("button" in e.event && e.event.button !== 0) return
     const cell = cellAt(e.world.x, e.world.y)
     // Taps have no shift key; mouse and pen clicks do.
-    if (cell) onCellClick(cell, { shift: "shiftKey" in e.event && Boolean(e.event.shiftKey) })
+    if (cell) onCellClick(cell, { shift: "shiftKey" in e.event && Boolean(e.event.shiftKey) }, { x: e.screen.x, y: e.screen.y })
   })
 
   return {
@@ -299,7 +277,7 @@ export async function createMapView(
       }
       // The same spot the crewmate's feet are drawn on (see map/crewView.ts).
       const at = { x: pos.x * CELL_PX + CELL_PX / 2, y: cellTopLeft(terrain, cell).y + CELL_PX / 2 + 4 }
-      const shuttle = flyEvacuationShuttle(at, landerModelFor(current.era), app.ticker, onPickup, () => {
+      const shuttle = flyEvacuationShuttle(at, current.era, app.ticker, onPickup, () => {
         stopShuttles.delete(shuttle.cancel)
         onGone()
       })
@@ -321,8 +299,6 @@ export async function createMapView(
       observer.disconnect()
       app.canvas.removeEventListener("pointerenter", enterCanvas)
       app.canvas.removeEventListener("pointerleave", clearHover)
-      app.canvas.removeEventListener("pointerdown", onPointerDown)
-      app.canvas.removeEventListener("contextmenu", onContextMenu)
       app.destroy(
         { removeView: true, releaseGlobalResources: true },
         { children: true, texture: true, textureSource: true },
