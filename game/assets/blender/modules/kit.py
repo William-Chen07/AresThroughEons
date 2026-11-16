@@ -1,0 +1,143 @@
+"""
+Shared helpers for the module build scripts in this folder. Each script builds ONE module:
+
+    /Applications/Blender.app/Contents/MacOS/Blender --background --python modules/era1_habitat.py
+
+A script opens its era's .blend (made from mars_outpost_base.blend the first time), rebuilds its
+own collection from scratch, slices it into game/public/sprites/eraN/, and saves the .blend.
+
+Scale: 1 Blender unit = 1 grid cell = 16 px. A module's footprint starts at the origin
+(x from 0 to cells_x, y from 0 to cells_y, z from 0 up). South is -Y.
+"""
+
+import math
+import os
+import shutil
+
+import bpy
+
+BLENDER_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+GAME_DIR = os.path.dirname(os.path.dirname(BLENDER_DIR))
+PREVIEW_DIR = os.path.join(BLENDER_DIR, "out")
+# How much the "in game" picture is blown up, so the pixels are easy to see.
+INGAME_SCALE = 6
+
+_slicer = {}
+_collection = None
+
+
+def begin(era, name):
+    """Opens eraN.blend and gives the module an empty collection called `name`."""
+    global _collection
+    era_path = os.path.join(BLENDER_DIR, f"era{era}.blend")
+    if os.path.exists(era_path):
+        bpy.ops.wm.open_mainfile(filepath=era_path)
+    else:
+        bpy.ops.wm.open_mainfile(filepath=os.path.join(BLENDER_DIR, "mars_outpost_base.blend"))
+        bpy.ops.wm.save_as_mainfile(filepath=era_path)
+    with open(os.path.join(BLENDER_DIR, "slicer.py")) as file:
+        exec(file.read(), _slicer)
+
+    old = bpy.data.collections.get(name)
+    if old is not None:
+        for obj in list(old.all_objects):
+            mesh = obj.data
+            bpy.data.objects.remove(obj)
+            if mesh.users == 0:
+                bpy.data.meshes.remove(mesh)
+        bpy.data.collections.remove(old)
+    _collection = bpy.data.collections.new(name)
+    bpy.context.scene.collection.children.link(_collection)
+
+
+def _adopt(material, rotation):
+    obj = bpy.context.active_object
+    for owner in list(obj.users_collection):
+        owner.objects.unlink(obj)
+    _collection.objects.link(obj)
+    obj.data.materials.append(bpy.data.materials["MARS_PALETTE_" + material])
+    if rotation is not None:
+        obj.rotation_euler = [math.radians(angle) for angle in rotation]
+    return obj
+
+
+def box(material, low, high, rotation=None):
+    """A box from corner `low` to corner `high`. `rotation` is in degrees, about its middle."""
+    center = [(a + b) / 2 for a, b in zip(low, high)]
+    bpy.ops.mesh.primitive_cube_add(size=1, location=center)
+    obj = _adopt(material, rotation)
+    obj.scale = [b - a for a, b in zip(low, high)]
+    return obj
+
+
+def cylinder(material, center, radius, z_low, z_high, top_radius=None, sides=32, rotation=None):
+    """An upright cylinder at `center` (x, y). Give `top_radius` for a cone or a tapered roof."""
+    location = (center[0], center[1], (z_low + z_high) / 2)
+    if top_radius is None:
+        bpy.ops.mesh.primitive_cylinder_add(vertices=sides, radius=radius, depth=z_high - z_low, location=location)
+    else:
+        bpy.ops.mesh.primitive_cone_add(
+            vertices=sides, radius1=radius, radius2=top_radius, depth=z_high - z_low, location=location
+        )
+    return _adopt(material, rotation)
+
+
+def sphere(material, center, radius, squash=1.0):
+    """A ball at `center` (x, y, z). `squash` below 1 flattens it into a dome shape."""
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=16, ring_count=8, radius=radius, location=center)
+    obj = _adopt(material, None)
+    obj.scale = (1, 1, squash)
+    return obj
+
+
+def finish(era, cells_x, cells_y, layers):
+    """Slices the module, writes its icon and review pictures, saves the .blend. Returns the files."""
+    name = _collection.name
+    triangles = 0
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    for obj in _collection.all_objects:
+        evaluated = obj.evaluated_get(depsgraph)
+        mesh = evaluated.to_mesh()
+        triangles += sum(len(polygon.vertices) - 2 for polygon in mesh.polygons)
+        evaluated.to_mesh_clear()
+
+    sprite_dir = os.path.join(GAME_DIR, "public", "sprites", f"era{era}")
+    written = _slicer["slice_module"](name, cells_x, cells_y, layers, sprite_dir)
+
+    # Only the icon ships with the game; the big preview is just for looking at.
+    for path in _slicer["preview_module"](name, PREVIEW_DIR):
+        if path.endswith("_icon.png"):
+            icon = os.path.join(sprite_dir, os.path.basename(path))
+            shutil.move(path, icon)
+            written.append(icon)
+
+    # A picture of the stack as the game draws it: each slice one pixel above the last.
+    width, height = cells_x * 16, cells_y * 16
+    strip = bpy.data.images.load(written[0])
+    source = list(strip.pixels)
+    bpy.data.images.remove(strip)
+    tall = height + layers - 1
+    flat = [0.0] * (width * tall * 4)
+    for layer in range(layers):
+        for y in range(height):
+            for x in range(width):
+                at = (y * width * layers + layer * width + x) * 4
+                if source[at + 3] > 0:
+                    to = ((y + layer) * width + x) * 4
+                    flat[to : to + 4] = source[at : at + 4]
+    big_w, big_h = width * INGAME_SCALE, tall * INGAME_SCALE
+    big = [0.0] * (big_w * big_h * 4)
+    for y in range(big_h):
+        row = (y // INGAME_SCALE) * width
+        for x in range(big_w):
+            at = (row + x // INGAME_SCALE) * 4
+            to = (y * big_w + x) * 4
+            big[to : to + 4] = flat[at : at + 4]
+    ingame = os.path.join(PREVIEW_DIR, f"{name}_ingame.png")
+    _slicer["_save_png"](ingame, big_w, big_h, big)
+
+    bpy.ops.wm.save_mainfile()
+    print(f"kit: {name}: {triangles} triangles (limit about 2,000)")
+    print(f"kit: review pictures: {ingame} and {os.path.join(PREVIEW_DIR, name + '_preview.png')}")
+    print(f"kit: saved {bpy.data.filepath}")
+    return written
