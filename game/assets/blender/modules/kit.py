@@ -161,12 +161,14 @@ def doors(cells_x, cells_y, reach=0.3, z_low=0.1, height=0.82, frame="METAL_GREY
         door(side, cells_x, cells_y, reach, z_low, height, frame)
 
 
-def finish(era, cells_x, cells_y, layers, icon=True, edge_darken=None, flat=False, shade=None):
+def finish(era, cells_x, cells_y, layers, icon=True, edge_darken=None, flat=False, shade=None, review_tints=None):
     """
     Slices the module, writes its icon and review pictures, saves the .blend. Returns the files.
     `icon=False` is for pieces that never appear in the build menu: no icon or 3D preview.
     `flat=True` also saves <name>_flat.png beside the stack: the whole pile drawn as one picture,
     for things the game draws as a single sprite (the landers).
+    `review_tints` is {label: (r, g, b)}: one extra review picture per colour, named
+    <name>_<label>_ingame.png, to see tint-mask parts in each team colour. The sprite is unchanged.
     `shade="walls"` dims only upright walls, which keeps cones and domes smooth (see slicer.py).
     `edge_darken=1.0` turns off the dimming of each layer's outer edge, for tiny pieces that are
     all edge and would come out grey.
@@ -195,43 +197,56 @@ def finish(era, cells_x, cells_y, layers, icon=True, edge_darken=None, flat=Fals
 
     # A picture of the stack as the game draws it: each slice one pixel above the last.
     width, height = cells_x * 16, cells_y * 16
+    tall = height + layers - 1
     strip = bpy.data.images.load(written[0])
-    source = list(strip.pixels)
+    plain = list(strip.pixels)
     bpy.data.images.remove(strip)
     # Parts the game recolours are pure white in the sprite, which shows nothing on a white
-    # page. In the review picture only, they are given a sample team colour.
+    # page. In the review pictures only, they are given a sample team colour.
     tint_path = written[0].replace("_stack.png", "_tint.png")
+    mask = None
     if tint_path in written:
         tint = bpy.data.images.load(tint_path)
         mask = list(tint.pixels)
         bpy.data.images.remove(tint)
-        for at in range(0, len(source), 4):
-            if mask[at + 3] > 0:
-                for channel in range(3):
-                    source[at + channel] *= REVIEW_TINT[channel]
-    tall = height + layers - 1
-    flat = [0.0] * (width * tall * 4)
-    for layer in range(layers):
-        for y in range(height):
-            for x in range(width):
-                at = (y * width * layers + layer * width + x) * 4
-                if source[at + 3] > 0:
-                    to = ((y + layer) * width + x) * 4
-                    flat[to : to + 4] = source[at : at + 4]
+
+    def composite(color):
+        source = list(plain)
+        if mask is not None and color is not None:
+            for at in range(0, len(source), 4):
+                if mask[at + 3] > 0:
+                    for channel in range(3):
+                        source[at + channel] *= color[channel]
+        flat_pixels = [0.0] * (width * tall * 4)
+        for layer in range(layers):
+            for y in range(height):
+                for x in range(width):
+                    at = (y * width * layers + layer * width + x) * 4
+                    if source[at + 3] > 0:
+                        to = ((y + layer) * width + x) * 4
+                        flat_pixels[to : to + 4] = source[at : at + 4]
+        return flat_pixels
+
+    def save_big(pixels, path):
+        big_w, big_h = width * INGAME_SCALE, tall * INGAME_SCALE
+        big = [0.0] * (big_w * big_h * 4)
+        for y in range(big_h):
+            row = (y // INGAME_SCALE) * width
+            for x in range(big_w):
+                at = (row + x // INGAME_SCALE) * 4
+                to = (y * big_w + x) * 4
+                big[to : to + 4] = pixels[at : at + 4]
+        _slicer["_save_png"](path, big_w, big_h, big)
+
     if flat:
+        # The flat picture ships with the game, so it is drawn with no sample colour.
         flat_path = os.path.join(sprite_dir, f"{name}_flat.png")
-        _slicer["_save_png"](flat_path, width, tall, flat)
+        _slicer["_save_png"](flat_path, width, tall, composite(None))
         written.append(flat_path)
-    big_w, big_h = width * INGAME_SCALE, tall * INGAME_SCALE
-    big = [0.0] * (big_w * big_h * 4)
-    for y in range(big_h):
-        row = (y // INGAME_SCALE) * width
-        for x in range(big_w):
-            at = (row + x // INGAME_SCALE) * 4
-            to = (y * big_w + x) * 4
-            big[to : to + 4] = flat[at : at + 4]
     ingame = os.path.join(PREVIEW_DIR, f"{name}_ingame.png")
-    _slicer["_save_png"](ingame, big_w, big_h, big)
+    save_big(composite(REVIEW_TINT), ingame)
+    for label, color in (review_tints or {}).items():
+        save_big(composite(color), os.path.join(PREVIEW_DIR, f"{name}_{label}_ingame.png"))
 
     bpy.ops.wm.save_mainfile()
     print(f"kit: {name}: {triangles} triangles (limit about 2,000)")
