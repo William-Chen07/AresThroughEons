@@ -17,6 +17,7 @@ import math
 import os
 import shutil
 
+import bmesh
 import bpy
 
 BLENDER_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -103,6 +104,25 @@ def sphere(material, center, radius, squash=1.0, stretch=None, detail=16):
     bpy.ops.mesh.primitive_uv_sphere_add(segments=detail, ring_count=detail // 2, radius=radius, location=center)
     obj = _adopt(material, None)
     obj.scale = stretch if stretch is not None else (1, 1, squash)
+    return obj
+
+
+def dome(material, center, radius, stretch=(1, 1, 1), detail=16):
+    """
+    The top half of a ball, closed flat underneath, with its flat side at `center` (x, y, z).
+    Use this (not sphere) for anything that sits on the ground or on a base: a whole ball would
+    hang below it and show in the icon. `stretch` (x, y, z) scales each direction on its own.
+    """
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=detail, ring_count=detail // 2, radius=radius, location=center)
+    obj = _adopt(material, None)
+    mesh = bmesh.new()
+    mesh.from_mesh(obj.data)
+    bmesh.ops.delete(mesh, geom=[vertex for vertex in mesh.verts if vertex.co.z < -1e-5], context="VERTS")
+    bmesh.ops.holes_fill(mesh, edges=[edge for edge in mesh.edges if edge.is_boundary])
+    bmesh.ops.recalc_face_normals(mesh, faces=mesh.faces)
+    mesh.to_mesh(obj.data)
+    mesh.free()
+    obj.scale = stretch
     return obj
 
 
