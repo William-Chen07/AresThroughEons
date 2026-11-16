@@ -161,10 +161,13 @@ def doors(cells_x, cells_y, reach=0.3, z_low=0.1, height=0.82, frame="METAL_GREY
         door(side, cells_x, cells_y, reach, z_low, height, frame)
 
 
-def finish(era, cells_x, cells_y, layers, icon=True, edge_darken=None):
+def finish(era, cells_x, cells_y, layers, icon=True, edge_darken=None, flat=False, shade=None):
     """
     Slices the module, writes its icon and review pictures, saves the .blend. Returns the files.
     `icon=False` is for pieces that never appear in the build menu: no icon or 3D preview.
+    `flat=True` also saves <name>_flat.png beside the stack: the whole pile drawn as one picture,
+    for things the game draws as a single sprite (the landers).
+    `shade="walls"` dims only upright walls, which keeps cones and domes smooth (see slicer.py).
     `edge_darken=1.0` turns off the dimming of each layer's outer edge, for tiny pieces that are
     all edge and would come out grey.
     """
@@ -179,6 +182,8 @@ def finish(era, cells_x, cells_y, layers, icon=True, edge_darken=None):
 
     sprite_dir = os.path.join(GAME_DIR, "public", "sprites", f"era{era}")
     options = {} if edge_darken is None else {"edge_darken": edge_darken}
+    if shade is not None:
+        options["shade"] = shade
     written = _slicer["slice_module"](name, cells_x, cells_y, layers, sprite_dir, **options)
 
     # Only the icon ships with the game; the big preview is just for looking at.
@@ -213,6 +218,10 @@ def finish(era, cells_x, cells_y, layers, icon=True, edge_darken=None):
                 if source[at + 3] > 0:
                     to = ((y + layer) * width + x) * 4
                     flat[to : to + 4] = source[at : at + 4]
+    if flat:
+        flat_path = os.path.join(sprite_dir, f"{name}_flat.png")
+        _slicer["_save_png"](flat_path, width, tall, flat)
+        written.append(flat_path)
     big_w, big_h = width * INGAME_SCALE, tall * INGAME_SCALE
     big = [0.0] * (big_w * big_h * 4)
     for y in range(big_h):

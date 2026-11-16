@@ -124,13 +124,15 @@ def _save_png(path, width, height, pixels):
         bpy.data.images.remove(image)
 
 
-def slice_module(collection_name, cells_x, cells_y, layers, out_dir, edge_darken=EDGE_DARKEN):
+def slice_module(collection_name, cells_x, cells_y, layers, out_dir, edge_darken=EDGE_DARKEN, shade="edge"):
     """
     Cuts a collection into `layers` horizontal slices and writes:
       <name>_stack.png   one strip, layer 0 (the bottom) on the left
       <name>_stack.json  {name, w, h, layers, cells}
       <name>_tint.png    only if any TINT_MASK faces exist: just those pixels
-    `edge_darken` is how much the outer edge of each layer is dimmed (1.0 = not at all). Tiny
+    `shade` picks which pixels are dimmed: "edge" is the outer edge of every layer; "walls" is
+    only edge pixels with more of the shape directly above them.
+    `edge_darken` is how much those pixels are dimmed (1.0 = not at all). Tiny
     pieces are all edge, so dimming would grey them out completely.
     Returns the list of files written.
     """
@@ -219,6 +221,10 @@ def slice_module(collection_name, cells_x, cells_y, layers, out_dir, edge_darken
                     or grid[py - 1][px] is None
                     or grid[py + 1][px] is None
                 )
+                if shade == "walls":
+                    # Only dim an edge pixel with more of the shape above it: a wall. Top faces
+                    # and slopes stay bright, so cones and domes come out smooth, not speckled.
+                    on_edge = on_edge and layer + 1 < layers and voxels[layer + 1][py][px] is not None
                 if on_edge:
                     r, g, b = r * edge_darken, g * edge_darken, b * edge_darken
                 # Blender images start at the bottom row, which is the south edge here too.
