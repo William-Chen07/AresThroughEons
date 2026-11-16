@@ -178,6 +178,10 @@ export function GameMap({
   onResetMap,
   era,
   landers,
+  day,
+  dayProgress,
+  spaceNews,
+  eraHistory,
   onNextEra,
   onTimePassed,
   onExit,
@@ -221,6 +225,17 @@ export function GameMap({
   era: number
   /** Every lander on the map, oldest first; the last is this era's. */
   landers: LanderSpot[]
+  /** The calendar day the player sees: Day 1 on the era's first day (see sim/calendar.ts). */
+  day: number
+  /** How far through the current day the clock is, from 0 to 1. */
+  dayProgress: number
+  /** The latest real space event from NASA's records, as a line for the player, or null. */
+  spaceNews: string | null
+  /**
+   * For when the era ends: the real dates it ran over (as the player would read them) and the
+   * real events NASA recorded in that time, each as a line. Revealed only on the era's end.
+   */
+  eraHistory: { from: string; to: string; events: string[]; quietEruptions: number }
   /**
    * Ends this era and starts the next on the same map, with a new crew in a new lander (from the
    * game over screen or the Build panel). This screen is then built again, so the new landing plays.
@@ -766,6 +781,24 @@ export function GameMap({
           <div className="flex flex-col items-end gap-3">
             {/* The resources run along the top. */}
             <ResourceBar resources={resources} />
+            {/* The calendar: only the day number, never the real date (see sim/calendar.ts). */}
+            <section
+              aria-label="Calendar"
+              className="max-w-56 border border-white/15 bg-neutral-950/80 px-3 py-1.5 text-right backdrop-blur-sm"
+            >
+              <p className="text-xs font-semibold uppercase tracking-[0.25em] tabular-nums">Day {day}</p>
+              {/* How far through today the clock is. */}
+              <div className="mt-1 h-0.5 w-full bg-white/10" aria-hidden>
+                <div className="ml-auto h-full bg-orange-400/80" style={{ width: `${Math.round(dayProgress * 100)}%` }} />
+              </div>
+              {/* The latest real solar event on the calendar. */}
+              {spaceNews && (
+                <p className="mt-1.5 text-left text-[11px] leading-snug text-orange-200" aria-live="polite">
+                  <span className="text-white/50">Space news: </span>
+                  {spaceNews}
+                </p>
+              )}
+            </section>
             {/* Build, Research and Explore, folded into one dropdown. The ` key still toggles Build. */}
             {terrain && (
               <Menu.Root>
@@ -920,6 +953,29 @@ export function GameMap({
               Every astronaut on {name} was evacuated to Earth. Nobody is left to run the base. A new crew can
               land beside it and carry on.
             </p>
+            {/* The calendar's secret: the real days this era was played on, and what NASA saw then. */}
+            <div className="mt-5 border-t border-white/10 pt-4 text-left">
+              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-orange-300/80">The real dates</p>
+              <p className="mt-2 text-sm text-white/80">
+                {eraHistory.from === eraHistory.to
+                  ? `Day 1 of this era was really ${eraHistory.from}.`
+                  : `This era really ran from ${eraHistory.from} to ${eraHistory.to}.`}
+                {eraHistory.events.length > 0 ? " In that time, NASA recorded:" : " NASA's records show a quiet Sun on those days."}
+              </p>
+              {eraHistory.events.length > 0 && (
+                <ul className="mt-2 max-h-40 list-disc space-y-1 overflow-y-auto pl-5 text-xs text-white/65">
+                  {eraHistory.events.map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+              )}
+              {eraHistory.quietEruptions > 0 && (
+                <p className="mt-2 text-xs text-white/50">
+                  …and {eraHistory.quietEruptions} more solar {eraHistory.quietEruptions === 1 ? "eruption" : "eruptions"} that
+                  headed away from Mars.
+                </p>
+              )}
+            </div>
             <div className="mt-6 flex justify-center gap-3">
               <button
                 type="button"
