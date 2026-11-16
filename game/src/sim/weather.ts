@@ -107,3 +107,13 @@ export function advanceSky(
   // advanceWeather has already set the calm after the storm, CALM_HOURS, for when loading failed.
   return calendar.failed ? sky : { ...sky, nextAt: clock + quietFillHours(random()) }
 }
+
+/**
+ * The share (0 to 1) of `hours` game-hours that the base had power: none of the `stormHours` an
+ * event that knocks the power out was going on (see `powerOut` in content/weather.ts). Lab work
+ * done in that time is multiplied by this, so research stops while the power is out.
+ */
+export function poweredShare(hours: number, stormHours: number, powerOut: boolean) {
+  if (!powerOut || hours <= 0) return 1
+  return Math.min(1, Math.max(0, 1 - stormHours / hours))
+}

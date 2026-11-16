@@ -179,6 +179,8 @@ export interface BodyEnv {
   supplyPerDay: Record<Consumable, number>
   /** Multiplies how fast oxygen is used, e.g. on suit air outside. */
   oxygenFactor: number
+  /** Multiplies how fast water is used, e.g. in a solar storm. Leave out for the normal rate. */
+  waterFactor?: number
   /**
    * Oxygen is each astronaut's own suit tank, not a share of the base's supply: "refill" fills
    * the tank at once (they're in a building), "drain" uses it up with nothing to refill it
@@ -219,7 +221,7 @@ export function updateBody(pawn: Pawn, env: BodyEnv, hours: number, log: Log) {
         needs.oxygen = 100
         continue
       }
-      const factor = need === "oxygen" ? env.oxygenFactor : 1
+      const factor = need === "oxygen" ? env.oxygenFactor : need === "water" ? (env.waterFactor ?? 1) : 1
       const decay = TUNING.consumableDecayPerHour * traitMultiplier(pawn, (m) => m.needDecay?.[need]) * factor
       needs[need] = clamp(needs[need] - decay * hours, 0, 100)
 
