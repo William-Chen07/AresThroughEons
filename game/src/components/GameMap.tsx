@@ -7,6 +7,7 @@ import { StormOverlay } from "@/components/StormOverlay"
 import { explorePlace } from "@/content/explore"
 import { exploreEvent } from "@/content/exploreEvents"
 import { moduleType, type ModuleTypeId } from "@/content/modules"
+import { eraColor, researchProject } from "@/content/research"
 import type { Resources } from "@/content/resources"
 import { weatherEvent, type WeatherId } from "@/content/weather"
 import { createMapView, type ClickKeys, type MapView } from "@/map/mapView"
@@ -35,6 +36,9 @@ import {
   getZone,
   handleClick,
   isWalkable,
+  issueOrder,
+  orderGroup,
+  stationAt,
   pawnsAt,
   removePawn,
   selectPawns,
@@ -44,6 +48,11 @@ import {
   type Tile,
   type World,
 } from "@/sim/pathing"
+import { claimedLabCount, isLab, keepHidersResearching, labOf, pickLabWorker, sendResearcher, shelterRule, staffedLabs } from "@/sim/labs"
+import type { CrewSpot } from "@/sim/saves"
+import { GAME_HOURS_PER_SECOND, formatRealTime } from "@/sim/clock"
+import { hoursLeft, type ResearchProgress } from "@/sim/research"
+import { playSfx } from "@/lib/sound"
 import type { Weather } from "@/sim/weather"
 
 /*
@@ -64,11 +73,6 @@ import type { Weather } from "@/sim/weather"
  * The panels copy the look of MainMenu.
  */
 
-/**
- * How fast crew time runs: game-hours per real second. 0.15 = 9 game-minutes a second, so a
- * suited walk crosses about one 162 m block a second and an airlock cycles in under a second.
- */
-const GAME_HOURS_PER_SECOND = 0.15
 /** Placeholder crew until the crew model (needs, roles, names) is hooked up. */
 const PLACEHOLDER_CREW = [
   { id: "astronaut-1", name: "Astronaut 1", color: 0xf97316 },
@@ -161,10 +165,12 @@ export function GameMap({
   tubes,
   onBaseChange,
   researched,
-  onResearch,
+  researchProgress,
+  onStartResearch,
   resources,
   health,
   evacuated,
+  crewSpots,
   trips,
   tripLog,
   tripNews,
@@ -189,13 +195,18 @@ export function GameMap({
   onBaseChange: (base: Base) => void
   /** Ids of the research projects this expedition has finished. */
   researched: string[]
-  onResearch: (projectId: string) => void
+  /** The project being researched and the work done on each (see sim/research.ts). */
+  researchProgress: ResearchProgress
+  /** Makes a project the one being researched. It moves on while astronauts work in Research Labs. */
+  onStartResearch: (projectId: string) => void
   /** How much of each resource the base has. */
   resources: Resources
   /** Each astronaut's health, by astronaut id. */
   health: CrewHealth
   /** Ids of the astronauts who were evacuated to Earth when their health ran out. */
   evacuated: string[]
+  /** Where the crew at the base were when the map was last open (see sim/saves.ts). */
+  crewSpots: CrewSpot[]
   /** The groups of astronauts out exploring right now, and what the last few trips brought back (newest first). */
   trips: Trip[]
   tripLog: TripReport[]
@@ -222,9 +233,11 @@ export function GameMap({
   onNextEra: () => void
   /**
    * Called about once a second while the crew is out of the lander, with the game-hours that
-   * went by and the astronauts who lived through them (and whether each is outside right now).
+   * went by, the astronauts who lived through them (and whether each is outside right now), and
+   * the lab work done in that time (game-hours × Research Labs with their astronaut inside), and
+   * where the crew at the base are now, so they are back there next time the map opens.
    */
-  onTimePassed: (hours: number, crew: CrewMember[]) => void
+  onTimePassed: (hours: number, crew: CrewMember[], labHours: number, spots: CrewSpot[]) => void
   onExit: () => void
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
@@ -258,6 +271,13 @@ export function GameMap({
   const [crewMessage, setCrewMessage] = useState<string | null>(null)
   /** True once the player has clicked a module to see inside the base: every module is see-through until the next click on one. */
   const [baseOpen, setBaseOpen] = useState(false)
+  /**
+   * Research Labs with their astronaut inside (`staffed`) and with one sent to them, there or on
+   * the way (`claimed`). Mirrored from the frame loop only when they change.
+   */
+  const [labCrew, setLabCrew] = useState({ staffed: 0, claimed: 0 })
+  /** Set when the last astronaut working in a lab leaves it while something is being researched. */
+  const [researchStopped, setResearchStopped] = useState(false)
 
   // What's on screen belongs to this site and this try; anything else is still loading.
   const key = `${site.lat},${site.lon},${attempt}`
@@ -310,7 +330,22 @@ export function GameMap({
         )
         return
       }
-      setCrewMessage(describeClick(crew, handleClick(crew, { x: cell.col, y: cell.row }, { shift: keys.shift })))
+      // A Research Lab holds one astronaut: send just one of the selected crew, and none if it's taken.
+      const lab = crew.selectedPawnIds.length > 0 && pawnsAt(crew, tile).length === 0 ? stationAt(crew, tile) : undefined
+      if (lab && isLab(lab)) {
+        const pick = pickLabWorker(crew, crew.selectedPawnIds, lab.id, weather !== null)
+        if (!pick.ok) {
+          setCrewMessage(`Only one astronaut fits in a Research Lab, and ${crewName(pick.worker)} is already in this one.`)
+          return
+        }
+        const said = describeClick(crew, orderGroup(crew, [pick.pawnId], { kind: "work", stationId: lab.id }, keys.shift))
+        setCrewMessage(
+          pick.left.length > 0 ? `${said} Only one astronaut fits in a Research Lab, so ${listNames(pick.left)} stayed put.` : said,
+        )
+        setSelectedCrew([...crew.selectedPawnIds])
+        return
+      }
+      setCrewMessage(describeClick(crew, handleClick(crew, tile, { shift: keys.shift })))
       setSelectedCrew([...crew.selectedPawnIds])
       return
     }
@@ -404,9 +439,13 @@ export function GameMap({
   /** Ids of the astronauts out exploring: they are off this map until they are back. */
   const away = useMemo(() => trips.flatMap((trip) => trip.crew), [trips])
 
+  /** Where the crew were when the map was last open: used once, as they are put back on the map. */
+  const savedSpotsRef = useRef(crewSpots)
+
   // Once the lander is down, the placeholder crew step out beside it. Later on this keeps the map in
   // step with who is at the base: someone who left to explore is taken off, someone who is back
-  // (or was never put on) steps out beside the lander.
+  // (or was never put on) steps out beside the lander. When the map opens again, the crew are put
+  // back where they were (see crewSpots), and anyone who was working in a Research Lab carries on.
   useEffect(() => {
     const crew = crewRef.current
     if (!landed || !terrain || !crew || crew.terrain !== terrain) return
@@ -416,8 +455,25 @@ export function GameMap({
       (member) => !evacuated.includes(member.id) && !away.includes(member.id) && !world.movers[member.id],
     )
     if (missing.length === 0) return
+    const besideLander = []
+    for (const member of missing) {
+      const saved = savedSpotsRef.current.find((spot) => spot.id === member.id)
+      savedSpotsRef.current = savedSpotsRef.current.filter((spot) => spot.id !== member.id)
+      const tile = saved ? { x: saved.x, y: saved.y } : null
+      const free =
+        tile && tile.x >= 0 && tile.y >= 0 && tile.x < terrain.size && tile.y < terrain.size && isWalkable(world, tile) && pawnsAt(world, tile).length === 0
+      if (!saved || !tile || !free) {
+        besideLander.push(member)
+        continue
+      }
+      addPawn(world, member.id, tile)
+      if (saved.lab && world.stations.some((station) => station.id === saved.lab)) {
+        issueOrder(world, member.id, { kind: "work", stationId: saved.lab })
+      }
+    }
+    if (besideLander.length === 0) return
     const spots = spotsBesideLander(world, landerFootprint(terrain.size, base)).filter((spot) => pawnsAt(world, spot).length === 0)
-    missing.forEach((member, i) => {
+    besideLander.forEach((member, i) => {
       if (spots[i]) addPawn(world, member.id, spots[i])
     })
   }, [landed, terrain, base, evacuated, away])
@@ -469,8 +525,10 @@ export function GameMap({
   const someoneAwayRef = useRef(trips.length > 0)
   const gameOverRef = useRef(gameOver)
   const modulesRef = useRef(modules)
+  const researchingRef = useRef(researchProgress.active !== null)
   useEffect(() => {
     modulesRef.current = modules
+    researchingRef.current = researchProgress.active !== null
     onTimePassedRef.current = onTimePassed
     stormRef.current = weather !== null
     someoneAwayRef.current = trips.length > 0
@@ -482,7 +540,9 @@ export function GameMap({
     if (!view) return
     // Game time that has gone by but isn't in the save yet. The save is written to the browser's
     // storage on every change, so time is handed over about once a second, not on every frame.
-    const unsaved = { hours: 0, ms: 0 }
+    const unsaved = { hours: 0, ms: 0, labHours: 0 }
+    /** Labs staffed and claimed as last told to React, so it only re-renders when they change. */
+    let shownLabs = { staffed: 0, claimed: 0 }
     /** What was last made see-through for the crew inside, so the map is only told when it changes. */
     let shownInside = ""
     /** Fades only the modules someone is in, and the tubes while someone is in a tube. */
@@ -515,8 +575,15 @@ export function GameMap({
           world && cells?.has(Math.round(mover.pos.y) * world.grid.width + Math.round(mover.pos.x)),
         ),
       }))
-      if (unsaved.hours > 0 && !resettingRef.current) onTimePassedRef.current(unsaved.hours, crew)
-      unsaved.hours = unsaved.ms = 0
+      // Where everyone at the base stands, and the lab each was sent to, for next time the map opens.
+      const spots: CrewSpot[] = Object.values(world?.movers ?? {}).map((mover) => ({
+        id: mover.pawnId,
+        x: Math.round(mover.pos.x),
+        y: Math.round(mover.pos.y),
+        lab: world ? labOf(world, mover.pawnId) : null,
+      }))
+      if (unsaved.hours > 0 && !resettingRef.current) onTimePassedRef.current(unsaved.hours, crew, unsaved.labHours, spots)
+      unsaved.hours = unsaved.ms = unsaved.labHours = 0
     }
     const stop = view.onFrame((deltaMs) => {
       const crew = crewRef.current?.world
@@ -529,11 +596,32 @@ export function GameMap({
       // A long gap (the tab was hidden) shouldn't make everyone teleport.
       const dtHours = (Math.min(deltaMs, 100) / 1000) * GAME_HOURS_PER_SECOND
       // In a storm everyone needs shelter: the crew code sends them indoors and holds them there.
-      const events = stepPathing(crew, dtHours, { urgentNeed: () => (stormRef.current ? "shelter" : null) })
+      // A Research Lab still holds one astronaut, so nobody shelters in a lab someone else is using.
+      const storm = stormRef.current
+      const events = stepPathing(crew, dtHours, {
+        urgentNeed: () => (storm ? "shelter" : null),
+        canShelterAt: storm ? shelterRule(crew) : undefined,
+      })
+      if (storm) keepHidersResearching(crew)
+      // Each lab with its astronaut inside puts one astronaut's work into the research. In a storm,
+      // an astronaut hiding in a lab nobody was sent to counts as working in it.
+      const staffed = staffedLabs(crew, storm).length
+      const claimed = claimedLabCount(crew, storm)
+      if (staffed !== shownLabs.staffed || claimed !== shownLabs.claimed) {
+        // The last astronaut working in a lab just left it: research stops, and the player is told.
+        if (shownLabs.staffed > 0 && staffed === 0 && researchingRef.current) {
+          setResearchStopped(true)
+          playSfx("locked")
+        }
+        if (staffed > 0) setResearchStopped(false)
+        shownLabs = { staffed, claimed }
+        setLabCrew(shownLabs)
+      }
       // The clock starts once the crew has stepped out of the lander, and runs while anyone is
       // at the base or out exploring.
       if (Object.keys(crew.movers).length > 0 || someoneAwayRef.current) {
         unsaved.hours += dtHours
+        unsaved.labHours += dtHours * staffed
         unsaved.ms += deltaMs
         if (unsaved.ms >= 1000) handOver()
       }
@@ -628,6 +716,45 @@ export function GameMap({
         : "Nobody selected.",
     )
   }
+
+  const labCount = modules.filter((module) => module.type === "research").length
+
+  /**
+   * The Research button in the research tree: the project becomes the one being researched. If no
+   * lab has an astronaut yet, the nearest free one walks into the nearest free lab to work on it.
+   */
+  const startResearch = (projectId: string) => {
+    onStartResearch(projectId)
+    setResearchStopped(false)
+    const world = crewRef.current?.world
+    const storm = weather !== null
+    if (!world || claimedLabCount(world, storm) > 0) return
+    const sent = sendResearcher(world, storm)
+    if (!sent.ok) return setCrewMessage(`Research can't start yet. ${sent.reason}`)
+    setLabCrew({ staffed: staffedLabs(world, storm).length, claimed: claimedLabCount(world, storm) })
+    setCrewMessage(
+      sent.result.status === "deferred"
+        ? `${crewName(sent.pawnId)} will go to the Research Lab once it's safe.`
+        : `${crewName(sent.pawnId)} is walking to the Research Lab to start the research.`,
+    )
+  }
+
+  // A project has just been finished: say so.
+  const researchedRef = useRef(researched)
+  useEffect(() => {
+    const before = researchedRef.current
+    researchedRef.current = researched
+    const finished = researched.find((id) => !before.includes(id))
+    const project = finished ? researchProject(finished) : undefined
+    if (project) queueMicrotask(() => setCrewMessage(`Research finished: ${project.name}.`))
+  }, [researched])
+
+  const activeProject = researchProgress.active ? researchProject(researchProgress.active) : undefined
+  /**
+   * Hours of lab work left on the active project. Shown as real time at one astronaut's pace, so
+   * more staffed labs make it count down faster rather than jump.
+   */
+  const researchLeft = activeProject ? hoursLeft(researchProgress, activeProject) : 0
 
   const hoveredIndex = terrain && hovered ? hovered.row * terrain.size + hovered.col : null
 
@@ -728,7 +855,7 @@ export function GameMap({
                   Click an astronaut (or a name here), then click where to go, or a module to go in and work. Shift-click to pick more or
                   to queue an order. Crew go in and out of a module by its door, on the front wall. With nobody selected, click a module
                   to see inside them all. Click a selected astronaut again (or press Esc) to let go. Crew breathe the base's
-                  oxygen twice as fast outside the modules joined to an Airlock (by tubes, or wall to wall).
+                  oxygen twice as fast outside the modules joined to an Airlock (by tubes, or wall to wall). A Research Lab holds one astronaut, and research only moves on while they're inside.
                 </p>
                 {crewMessage && <p className="mt-2 text-xs text-orange-200">{crewMessage}</p>}
               </div>
@@ -756,6 +883,51 @@ export function GameMap({
             {terrain && landed && (
               <button type="button" onClick={() => setExploreOpen(true)} className={buttonClass}>
                 Explore
+              </button>
+            )}
+            {/* The research going on: how far along it is and how long is left, or why it has stopped. */}
+            {terrain && activeProject && (
+              <button
+                type="button"
+                onClick={() => setResearchOpen(true)}
+                role={researchStopped ? "alert" : "status"}
+                aria-label={`Research: ${activeProject.name}. Open the research tree.`}
+                className={`pointer-events-auto w-64 border bg-neutral-950/85 px-4 py-3 text-left backdrop-blur-sm transition hover:border-orange-400/70 focus-visible:outline-2 focus-visible:outline-orange-400 ${
+                  labCrew.staffed > 0 ? "border-white/15" : "border-orange-400/70"
+                }`}
+              >
+                <span className="flex items-center justify-between gap-2 text-xs font-semibold uppercase tracking-[0.25em] text-orange-300/90">
+                  Research
+                  <span className="tracking-[0.15em] text-white/50">
+                    {labCrew.staffed > 0
+                      ? `${formatRealTime(researchLeft)} left`
+                      : labCrew.claimed > 0
+                        ? "On the way"
+                        : "Stopped"}
+                  </span>
+                </span>
+                <span className="mt-1 flex items-center gap-2 text-sm">
+                  <span aria-hidden className="size-2.5 shrink-0" style={{ background: eraColor(activeProject.era) }} />
+                  {activeProject.name}
+                </span>
+                <span aria-hidden className="mt-2 block h-1.5 w-full bg-white/10">
+                  <span
+                    className={`block h-full ${labCrew.staffed > 0 ? "bg-orange-400" : "bg-white/30"}`}
+                    style={{ width: `${(1 - researchLeft / activeProject.hours) * 100}%` }}
+                  />
+                </span>
+                <span className="mt-2 block text-[11px] text-white/55">
+                  {labCrew.staffed > 0 ? (
+                    `${labCrew.staffed} ${labCrew.staffed === 1 ? "astronaut" : "astronauts"} working in Research Labs.`
+                  ) : labCrew.claimed > 0 ? (
+                    "An astronaut is walking to the Research Lab."
+                  ) : (
+                    <span className="text-orange-200">
+                      {researchStopped ? "Research has stopped: the astronaut left the Research Lab. " : "Research is paused. "}
+                      Send an astronaut into a Research Lab to carry on.
+                    </span>
+                  )}
+                </span>
               </button>
             )}
           </div>
@@ -823,7 +995,16 @@ export function GameMap({
       )}
 
       {researchOpen && (
-        <ResearchPanel era={era} researched={researched} onResearch={onResearch} onClose={() => setResearchOpen(false)} />
+        <ResearchPanel
+          era={era}
+          researched={researched}
+          progress={researchProgress}
+          labCount={labCount}
+          staffedLabs={labCrew.staffed}
+          claimedLabs={labCrew.claimed}
+          onStart={startResearch}
+          onClose={() => setResearchOpen(false)}
+        />
       )}
 
       {!terrain && (

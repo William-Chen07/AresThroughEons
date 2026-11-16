@@ -19,10 +19,22 @@ import {
   type TripReport,
 } from "@/sim/explore"
 import { healthOf, liveThrough, needEvacuating, type CrewHealth, type CrewMember } from "@/sim/lifeSupport"
-import { withResearch } from "@/sim/research"
+import { NO_RESEARCH, addResearchWork, startResearch, type ResearchProgress } from "@/sim/research"
 import { advanceWeather, calmHours, startWeather, type Weather } from "@/sim/weather"
 
 export const SAVE_SLOT_COUNT = 3
+
+/**
+ * Where an astronaut was on the base map, so they are back there when the map opens again: the
+ * tile they were on, and the Research Lab (its movement station id, see sim/labs.ts) they were
+ * working in or walking to, if any.
+ */
+export interface CrewSpot {
+  id: string
+  x: number
+  y: number
+  lab: string | null
+}
 export const SAVE_NAME_MAX = 16
 
 /**
@@ -57,6 +69,8 @@ export interface SaveSlot {
   landers: LanderSpot[]
   /** Ids of the research projects this expedition has finished (see content/research.ts). */
   researched: string[]
+  /** The project being researched and the work done so far on each (see sim/research.ts). */
+  researchProgress: ResearchProgress
   /** How much of each resource the base has (see content/resources.ts). */
   resources: Resources
   /**
@@ -68,6 +82,11 @@ export interface SaveSlot {
   health: CrewHealth
   /** Ids of the astronauts who were evacuated to Earth when their health ran out. They don't come back. */
   evacuated: string[]
+  /**
+   * Where each astronaut at the base was when the clock last moved. Empty until the crew steps out
+   * of the lander, and again for a new era's crew; anyone not listed steps out beside the lander.
+   */
+  crewSpots: CrewSpot[]
   /** The weather event going on right now, or null in calm weather (see sim/weather.ts). */
   weather: Weather
   /** The time on the clock (`hours`) when the next weather event starts. */
@@ -97,16 +116,21 @@ interface SavesActions {
   /** Records that the save's lander has touched down, so the landing isn't shown again. */
   markLanded: (index: number) => void
   setBase: (index: number, base: Base) => void
-  /** Researches a project, if everything it needs is already researched. */
-  research: (index: number, projectId: string) => void
+  /**
+   * Makes a project the one being researched, if everything it needs is already researched.
+   * It moves on only while astronauts work in Research Labs (see passTime).
+   */
+  startResearch: (index: number, projectId: string) => void
   /** Sets the amounts of the resources given; the others stay as they are. Amounts can't go below zero. */
   setResources: (index: number, amounts: Partial<Resources>) => void
   /**
    * Moves the expedition's clock on by `hours` game-hours: the weather moves on, and the crew
    * use up what they needed in that time and lose health if it wasn't there, or if they were
-   * outside in a storm (see sim/lifeSupport.ts and sim/weather.ts).
+   * outside in a storm (see sim/lifeSupport.ts and sim/weather.ts). `labHours` is the lab work
+   * done in that time (game-hours × staffed Research Labs), which moves the research on.
+   * `crewSpots`, when given, is where the crew at the base are now.
    */
-  passTime: (index: number, hours: number, crew: readonly CrewMember[]) => void
+  passTime: (index: number, hours: number, crew: readonly CrewMember[], labHours?: number, crewSpots?: CrewSpot[]) => void
   /** Starts a weather event right now, or with null ends the one going on. For the Build panel. */
   setWeather: (index: number, id: WeatherId | null) => void
   /**
@@ -160,10 +184,12 @@ export const savesStore = createStore<Saves & SavesActions>()(
           tubes: [],
           landers: [firstLander(MAP_SIZE)],
           researched: [],
+          researchProgress: NO_RESEARCH,
           resources: startingResources(),
           hours: 0,
           health: {},
           evacuated: [],
+          crewSpots: [],
           weather: null,
           nextWeatherAt: calmHours(Math.random()),
           trips: [],
@@ -194,12 +220,12 @@ export const savesStore = createStore<Saves & SavesActions>()(
         const modules = base.modules.map((module) => (module.era ? module : { ...module, era: slot.era }))
         set({ slots: withSlot(get().slots, index, { ...slot, modules, tubes: base.tubes }) })
       },
-      research: (index, projectId) => {
+      startResearch: (index, projectId) => {
         const slot = get().slots[index]
         if (!slot) return
-        const researched = withResearch(slot.researched, projectId)
-        if (researched.length !== slot.researched.length) {
-          set({ slots: withSlot(get().slots, index, { ...slot, researched }) })
+        const researchProgress = startResearch(slot.researchProgress, slot.researched, slot.era, projectId)
+        if (researchProgress !== slot.researchProgress) {
+          set({ slots: withSlot(get().slots, index, { ...slot, researchProgress }) })
         }
       },
       setResources: (index, amounts) => {
@@ -211,7 +237,7 @@ export const savesStore = createStore<Saves & SavesActions>()(
         }
         set({ slots: withSlot(get().slots, index, { ...slot, resources }) })
       },
-      passTime: (index, hours, crew) => {
+      passTime: (index, hours, crew, labHours = 0, crewSpots) => {
         const slot = get().slots[index]
         if (!slot) return
         const clock = slot.hours + hours
@@ -237,9 +263,13 @@ export const savesStore = createStore<Saves & SavesActions>()(
           resources = addFinds(resources, finds)
           reports.unshift({ id: trip.id, placeId: trip.placeId, crew: trip.crew, finds, events: trip.events })
         }
+        const research = addResearchWork(slot.researchProgress, slot.researched, labHours)
         const next: SaveSlot = {
           ...slot,
           hours: clock,
+          researched: research.researched,
+          researchProgress: research.progress,
+          crewSpots: crewSpots ?? slot.crewSpots,
           weather: sky.weather,
           nextWeatherAt: sky.nextAt,
           health,
@@ -276,6 +306,7 @@ export const savesStore = createStore<Saves & SavesActions>()(
           landed: false,
           era: 1,
           researched: [],
+          researchProgress: NO_RESEARCH,
           modules: [],
           tubes: [],
           landers: [firstLander(MAP_SIZE)],
@@ -283,6 +314,7 @@ export const savesStore = createStore<Saves & SavesActions>()(
           hours: 0,
           health: {},
           evacuated: [],
+          crewSpots: [],
           weather: null,
           nextWeatherAt: calmHours(Math.random()),
           trips: [],
@@ -308,6 +340,7 @@ export const savesStore = createStore<Saves & SavesActions>()(
           resources,
           health: {},
           evacuated: [],
+          crewSpots: [],
           weather: null,
           nextWeatherAt: slot.hours + calmHours(Math.random()),
           trips: [],
@@ -333,14 +366,16 @@ export const savesStore = createStore<Saves & SavesActions>()(
       // `health`, version 11 `weather` and `nextWeatherAt`, version 12
       // `evacuated`, version 13 `trips` and `tripLog` and version 14 events on
       // trips (`tripNews`, and each trip's own event fields), version 15 `era`
-      // and `landers` (and the era on each module). Older saves get a random site, count as not landed yet (so
+      // and `landers` (and the era on each module), version 16 `researchProgress`
+      // (research takes time now; an older save has nothing being researched) and version 17
+      // `crewSpots` (an older save's crew steps out beside the lander once more). Older saves get a random site, count as not landed yet (so
       // they see the landing once) and start with no modules or tubes, nothing
       // researched, the starting amount of any resource they don't have yet,
       // the clock at zero, everyone at full health, nobody evacuated or out
       // exploring and calm weather, with the first event a while off. (An astronaut already at
       // zero health in an older save is evacuated the next time the clock moves.)
       // A save from before eras is in era 1, with its one lander in the middle and everything built in era 1.
-      version: 15,
+      version: 17,
       migrate: (stored) => {
         const old = stored as Saves
         return {
@@ -356,10 +391,12 @@ export const savesStore = createStore<Saves & SavesActions>()(
                 modules: (slot.modules ?? []).map((module) => ({ ...module, era: module.era ?? 1 })),
                 tubes: slot.tubes ?? [],
                 researched: slot.researched ?? [],
+                researchProgress: slot.researchProgress ?? NO_RESEARCH,
                 resources: upgradeResources(slot.resources),
                 hours: slot.hours ?? 0,
                 health: slot.health ?? {},
                 evacuated: slot.evacuated ?? [],
+                crewSpots: slot.crewSpots ?? [],
                 // A trip from before events existed carries on with none.
                 trips: (slot.trips ?? []).map((trip) => ({
                   ...trip,
