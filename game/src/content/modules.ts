@@ -55,8 +55,6 @@ export type ModuleTypeId = ModuleType["id"]
 export const MODULE_STACKS: Partial<Record<ModuleTypeId, string>> = {
   habitat: "sprites/era1/habitat",
   research: "sprites/era1/research",
-  storage: "sprites/era1/storage",
-  airlock: "sprites/era1/airlock",
   greenhouse: "sprites/era2/greenhouse",
   medbay: "sprites/era2/medbay",
   power: "sprites/era3/power",

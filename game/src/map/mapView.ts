@@ -59,6 +59,11 @@ export interface MapEvents {
   onHover: (cell: Cell | null) => void
   /** A click or tap on a cell (not the end of a drag). */
   onCellClick: (cell: Cell, keys: ClickKeys) => void
+  /**
+   * A right-click on a cell (not the end of a right-drag that moved the map), with where it was on
+   * the screen, in pixels from the map's top left. Not while something is being placed.
+   */
+  onCellRightClick: (cell: Cell, screen: { x: number; y: number }) => void
   /** Null if the lander is already down. Otherwise the landing plays, and this is called at touchdown. */
   onLanded: (() => void) | null
 }
@@ -83,7 +88,7 @@ const START_ZOOM = 1.5
 export async function createMapView(
   host: HTMLElement,
   terrain: VoxelTerrain,
-  { onHover, onCellClick, onLanded }: MapEvents,
+  { onHover, onCellClick, onCellRightClick, onLanded }: MapEvents,
   { era, landers }: MapEra,
   signal: AbortSignal,
 ): Promise<MapView | null> {
@@ -228,8 +233,30 @@ export async function createMapView(
   }
   app.canvas.addEventListener("pointerenter", enterCanvas)
   app.canvas.addEventListener("pointerleave", clearHover)
+  // Right-click: the browser's own menu never opens over the map. Dragging with the right button
+  // moves the map, so a right-click only counts if the pointer stayed put between press and release.
+  let rightDown: { x: number; y: number } | null = null
+  const onPointerDown = (e: PointerEvent) => {
+    if (e.button === 2) rightDown = { x: e.clientX, y: e.clientY }
+  }
+  const onContextMenu = (e: MouseEvent) => {
+    e.preventDefault()
+    const start = rightDown
+    rightDown = null
+    if (placement || (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 6)) return
+    const box = app.canvas.getBoundingClientRect()
+    const screen = { x: e.clientX - box.left, y: e.clientY - box.top }
+    // The canvas can be drawn at a different size from its box on the page.
+    const world = viewport.toWorld((screen.x * app.screen.width) / box.width, (screen.y * app.screen.height) / box.height)
+    const cell = cellAt(world.x, world.y)
+    if (cell) onCellRightClick(cell, screen)
+  }
+  app.canvas.addEventListener("pointerdown", onPointerDown)
+  app.canvas.addEventListener("contextmenu", onContextMenu)
   // The camera reports a click only when the pointer didn't drag the map.
   viewport.on("clicked", (e) => {
+    // Only the main button (or a tap) clicks: a right-click is for the task list (see onContextMenu).
+    if ("button" in e.event && e.event.button !== 0) return
     const cell = cellAt(e.world.x, e.world.y)
     // Taps have no shift key; mouse and pen clicks do.
     if (cell) onCellClick(cell, { shift: "shiftKey" in e.event && Boolean(e.event.shiftKey) })
@@ -262,6 +289,8 @@ export async function createMapView(
       observer.disconnect()
       app.canvas.removeEventListener("pointerenter", enterCanvas)
       app.canvas.removeEventListener("pointerleave", clearHover)
+      app.canvas.removeEventListener("pointerdown", onPointerDown)
+      app.canvas.removeEventListener("contextmenu", onContextMenu)
       app.destroy(
         { removeView: true, releaseGlobalResources: true },
         { children: true, texture: true, textureSource: true },
