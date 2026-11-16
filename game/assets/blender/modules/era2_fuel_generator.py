@@ -22,7 +22,7 @@ TANK_Y = 1.05
 kit.box("METAL_GREY", (0.06, 0.3, 0.0), (1.94, 1.9, 0.12))
 
 # Mars soil banked up behind the tanks.
-kit.sphere("REGOLITH_TAN", (1.0, 1.66, 0.1), 1.0, stretch=(0.92, 0.26, 0.46), detail=12)
+kit.dome("REGOLITH_TAN", (1.0, 1.66, 0.1), 1.0, stretch=(0.92, 0.26, 0.46), detail=12)
 
 # The two tanks: a drum with a domed top and two grey titanium bands.
 for x, material in ((0.5, "HULL_WHITE"), (1.5, "ACCENT_ORANGE")):

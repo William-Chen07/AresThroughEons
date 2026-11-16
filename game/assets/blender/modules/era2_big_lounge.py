@@ -22,7 +22,7 @@ kit.box("METAL_GREY", (0.9, 0.5, 0.0), (2.1, 1.6, 0.14))
 
 # The two domes, and the short tube that joins them (a rounded tunnel lying along X).
 for x, y in DOMES:
-    kit.sphere("HULL_WHITE", (x, y, 0.1), 0.78, squash=0.95)
+    kit.dome("HULL_WHITE", (x, y, 0.1), 0.78, stretch=(1, 1, 0.95))
 tube = kit.cylinder("HULL_WHITE", (1.5, 1.05), 1.0, 0.36 - 0.35, 0.36 + 0.35)
 tube.rotation_euler = (0, 1.5707963, 0)
 tube.scale = (0.44, 0.5, 1)
@@ -33,8 +33,8 @@ kit.sphere("GLASS_TEAL", (0.86, 0.52, 0.42), 0.36, squash=0.9, detail=12)
 kit.sphere("GLASS_TEAL", (2.14, 0.52, 0.42), 0.36, squash=0.9, detail=12)
 
 # Mars soil heaped over the back half of each dome. It stays north of the east and west doors.
-kit.sphere("REGOLITH_TAN", (0.9, 1.5, 0.1), 1.0, stretch=(0.8, 0.48, 0.84), detail=12)
-kit.sphere("REGOLITH_TAN", (2.1, 1.5, 0.1), 1.0, stretch=(0.8, 0.48, 0.84), detail=12)
+kit.dome("REGOLITH_TAN", (0.9, 1.5, 0.1), 1.0, stretch=(0.8, 0.48, 0.84), detail=12)
+kit.dome("REGOLITH_TAN", (2.1, 1.5, 0.1), 1.0, stretch=(0.8, 0.48, 0.84), detail=12)
 
 # The walls are round, so each door gets a short white porch joining it to the building.
 kit.box("HULL_WHITE", (1.2, 0.2, 0.1), (1.8, 0.62, 0.6))

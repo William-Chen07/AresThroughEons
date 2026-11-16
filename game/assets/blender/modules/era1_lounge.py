@@ -16,7 +16,7 @@ MIDDLE = (1.0, 1.0)
 
 # A grey footing ring and the low white dome on it, with a gold band round its foot.
 kit.cylinder("METAL_GREY", MIDDLE, 0.96, 0.0, 0.12)
-kit.sphere("HULL_WHITE", (1.0, 1.0, 0.1), 0.92, squash=0.82)
+kit.dome("HULL_WHITE", (1.0, 1.0, 0.1), 0.92, stretch=(1, 1, 0.82))
 kit.cylinder("FOIL_GOLD", MIDDLE, 0.94, 0.12, 0.25)
 
 # One big window: a glass bubble bulging out of the south-west of the dome.
