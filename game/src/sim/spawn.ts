@@ -9,7 +9,8 @@ const NAMES = [
   "Hailey", "William", "Brandon", "Syan", "Derek", "Esteban", "Neil", "Vian",
   "Cavasos", "Juno", "Billiam", "Victory", "JoJo", "Gohan", "Cookie", "Luna",
   "Quincy", "Rosa", "Payaso", "Sirius", "Nathan", "Nemo", "Sahur", "Betelguese", "Underscore", "Lori", "Verity", "Tristan", "Galacia", 
-  "Vianney", "Jane", "John", "Yuri", "Alan", "David", "Edwin", "Eugene", "Edgar", "Buzz", "Valentina", "Svetlana", "Rodolfo", "Scott", "Ares", "Ian"
+  "Vianney", "Jane", "John", "Yuri", "Alan", "David", "Edwin", "Eugene", "Edgar", "Buzz", "Valentina", "Svetlana", "Rodolfo", "Scott", "Ares", "Ian",
+  "Grace", "Simon"
 ]
 
 export function rollTraits(rng: Rng, count = 2): TraitId[] {
