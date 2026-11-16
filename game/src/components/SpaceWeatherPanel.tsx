@@ -32,9 +32,9 @@ export function SpaceWeatherPanel() {
   return (
     <section
       aria-label="Space weather"
-      className="pointer-events-auto w-64 border border-white/15 bg-neutral-950/80 px-4 py-3 text-right backdrop-blur-sm"
+      className="pointer-events-auto w-64 holo-surface holo-frame border border-cyan-300/25 px-4 py-3 text-right backdrop-blur-sm"
     >
-      <h2 className="text-xs font-medium uppercase tracking-[0.3em] text-orange-300/80">Space weather</h2>
+      <h2 className="holo-text text-xs font-medium uppercase tracking-[0.3em] text-cyan-300/90">Space weather</h2>
       {state.status === "loading" && <p className="mt-1 text-[11px] text-white/50">Checking with NASA…</p>}
       {state.status === "error" && (
         <p className="mt-1 text-[11px] text-white/50">No signal from NASA’s space weather service right now.</p>
@@ -58,7 +58,7 @@ export function SpaceWeatherPanel() {
                 href={headline.url}
                 target="_blank"
                 rel="noreferrer"
-                className="text-orange-300 underline underline-offset-2"
+                className="text-cyan-300 underline underline-offset-2"
               >
                 Read the alert
               </a>

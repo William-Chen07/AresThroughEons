@@ -20,8 +20,10 @@
  * The same page names a third raw resource, the carbon dioxide in Mars's air,
  * which the game doesn't have as a resource (yet).
  *
- * The five minerals at the end are mined from deposits on the base map (see
- * sim/deposits.ts), so like regolith they're carried in the backpack.
+ * The five minerals after morale are mined from deposits on the base map (see
+ * sim/deposits.ts), so like regolith they're carried in the backpack. Uranium,
+ * last, is carried there too, but it has no deposits on the base map: it is only
+ * found on long expeditions (see content/explore.ts).
  * Where they're placed follows real NASA data only loosely, and the text says
  * so: no spacecraft has mapped copper, gold or sulfur deposits on Mars.
  */
@@ -124,6 +126,16 @@ export const RESOURCE_TYPES = [
     mined: true,
     what: "A yellow element found almost anywhere on the map.",
     why: "Martian soil is full of sulfur. In 2024 NASA's Curiosity rover cracked open a rock by driving over it and found pure yellow sulfur crystals inside, a first on Mars.",
+  },
+  {
+    // Not on the base map: only found on long expeditions, from Era 3 on (see content/explore.ts).
+    id: "uranium",
+    name: "Uranium",
+    start: 0,
+    color: 0x86efac,
+    mined: true,
+    what: "A heavy metal that gives off a little radiation, found only on long expeditions far from the base.",
+    why: "A tiny amount of uranium can make power for years. NASA's Kilopower test reactor, called KRUSTY, made electricity from a uranium core in 2018, to power bases on the Moon and Mars. No uranium deposit has been found on Mars, so in this game it's rare and far away.",
   },
 ] as const
 

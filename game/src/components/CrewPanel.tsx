@@ -1,4 +1,4 @@
-import type { ReactNode } from "react"
+import type { CSSProperties, ReactNode } from "react"
 import {
   isTrainedFor,
   NASA_DATA,
@@ -42,7 +42,7 @@ export function Bar({ label, value, icon }: { label: string; value: number; icon
         <span className="sr-only">
           {label} {Math.round(value)}
         </span>
-        <div className="h-1 flex-1 overflow-hidden rounded bg-white/10">
+        <div className="h-1 flex-1 overflow-hidden rounded bg-cyan-300/15">
           <div className={`h-full ${color}`} style={{ width: `${value}%` }} />
         </div>
       </div>
@@ -51,7 +51,7 @@ export function Bar({ label, value, icon }: { label: string; value: number; icon
   return (
     <div className="flex items-center gap-2 text-[11px]">
       <span className="w-14 shrink-0 text-white/60">{label}</span>
-      <div className="h-1.5 flex-1 overflow-hidden rounded bg-white/10">
+      <div className="h-1.5 flex-1 overflow-hidden rounded bg-cyan-300/15">
         <div className={`h-full ${color}`} style={{ width: `${value}%` }} />
       </div>
       <span className="w-7 text-right tabular-nums text-white/60">{Math.round(value)}</span>
@@ -65,10 +65,10 @@ function PawnCard({ pawn, onRole }: { pawn: Pawn; onRole: (role: RoleId) => void
   const bonusPct = Math.round((TUNING.occupationMatchBonus - 1) * 100)
 
   return (
-    <article className={`flex flex-col gap-2 border border-white/10 bg-white/5 p-3 ${pawn.evacuated ? "opacity-50" : ""}`}>
+    <article className={`holo-frame flex flex-col gap-2 border border-cyan-300/15 bg-cyan-300/5 p-3 ${pawn.evacuated ? "opacity-50" : ""}`}>
       <header className="flex items-center gap-2">
         <span className="size-3 rounded-full" style={{ background: pawn.color }} />
-        <h3 className="font-semibold">{pawn.name}</h3>
+        <h3 className="holo-title font-semibold">{pawn.name}</h3>
         <span className="text-xs text-white/60" title={occupation.description}>
           {occupation.name}
         </span>
@@ -103,7 +103,7 @@ function PawnCard({ pawn, onRole }: { pawn: Pawn; onRole: (role: RoleId) => void
           </span>
         )}
       </div>
-      <p className="text-xs text-orange-200/90">{pawn.evacuated ? `Evacuated (${pawn.evacuated.reason})` : pawn.task}</p>
+      <p className={`text-xs ${pawn.evacuated ? "text-orange-200/90" : "text-cyan-100/90"}`}>{pawn.evacuated ? `Evacuated (${pawn.evacuated.reason})` : pawn.task}</p>
 
       <div className="flex flex-col gap-1">
         <Bar label="Health" value={pawn.health} />
@@ -153,17 +153,20 @@ export function CrewPanel({
 
   return (
     <div className="flex flex-col gap-4 p-4 text-white">
-      <p className="text-xs font-semibold uppercase tracking-widest">
+      <p className="holo-title text-xs font-semibold uppercase tracking-widest">
         Crew · Sol {sol} <span className="font-normal normal-case tracking-normal text-white/50">(a sol is a Mars day, 24 h 39 min)</span>
       </p>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {crew.map((p) => (
-          <PawnCard key={p.id} pawn={p} onRole={(role) => onRole(p.id, role)} />
+        {crew.map((p, i) => (
+          // Each card steps up after the one before it when the crew screen opens (index.css).
+          <div key={p.id} className="fx-crew-card" style={{ "--i": i } as CSSProperties}>
+            <PawnCard pawn={p} onRole={(role) => onRole(p.id, role)} />
+          </div>
         ))}
       </div>
 
-      <ol className="max-h-48 overflow-y-auto border border-white/10 p-2 text-xs">
+      <ol className="max-h-48 overflow-y-auto border border-cyan-300/15 p-2 text-xs">
         {crewLog.length === 0 && <li className="text-white/40">Nothing has happened to the crew yet.</li>}
         {[...crewLog].reverse().map((e, i) => (
           <li

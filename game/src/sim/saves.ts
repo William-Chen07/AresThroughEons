@@ -6,7 +6,7 @@ import { firstLander, landersOf, nextLanderSpot, type Base, type LanderSpot } fr
 import { MAP_SIZE, type Cell } from "@/map/voxelTerrain"
 import { progressStore } from "@/sim/progress"
 import { startingResources, upgradeResources, type Resources } from "@/content/resources"
-import { explorePlace } from "@/content/explore"
+import { explorePlace, exploreUnlocked } from "@/content/explore"
 import { weatherEvent, type WeatherId } from "@/content/weather"
 import {
   TRIP_LOG_LENGTH,
@@ -14,6 +14,7 @@ import {
   advanceTrips,
   rollFinds,
   startTrip,
+  tripFood,
   type Trip,
   type TripNews,
   type TripReport,
@@ -327,7 +328,7 @@ export const savesStore = createStore<Saves & SavesActions>()(
         const reports: TripReport[] = []
         for (const trip of trips.back) {
           const place = explorePlace(trip.placeId)
-          const finds = place ? rollFinds(place, trip.crew.length, Math.random, trip.events) : {}
+          const finds = place ? rollFinds(place, trip.crew.length, Math.random, trip.events, slot.era) : {}
           // Morale found on a trip cheers up the crew, which is what the morale bar shows.
           if (finds.morale) crew = cheerUp(crew, finds.morale)
           resources = addFinds(resources, { ...finds, morale: 0 })
@@ -365,12 +366,18 @@ export const savesStore = createStore<Saves & SavesActions>()(
         const slot = get().slots[index]
         const place = explorePlace(placeId)
         if (!slot || !place || crewIds.length === 0) return
+        // Exploring is locked until the Rover's era (content/explore.ts).
+        if (!exploreUnlocked(slot.era)) return
         const away = slot.trips.flatMap((trip) => trip.crew)
         if (crewIds.some((id) => slot.evacuated.includes(id) || away.includes(id))) return
         // Injured, at the radiation limit, short of oxygen or asleep: not going anywhere.
         if (crewIds.some((id) => cannotExplore(slot.crew.find((p) => p.id === id)))) return
+        // The group packs food from the base for the trip: no food, no trip.
+        const food = tripFood(place, crewIds.length)
+        if (slot.resources.food < food) return
         const trip = startTrip(crypto.randomUUID(), place, [...crewIds], Math.random)
-        set({ slots: withSlot(get().slots, index, { ...slot, trips: [...slot.trips, trip] }) })
+        const resources = { ...slot.resources, food: slot.resources.food - food }
+        set({ slots: withSlot(get().slots, index, { ...slot, resources, trips: [...slot.trips, trip] }) })
       },
       setWeather: (index, id) => {
         const slot = get().slots[index]
@@ -493,7 +500,8 @@ export const savesStore = createStore<Saves & SavesActions>()(
       // and tube now counts as pressurized, see sim/navigation.ts.)
       // Version 21 added `deposits`: an older save gets them the next time its map opens.
       // Version 22 removed ice as a resource: a save's ice is melted into its water (see upgradeResources).
-      version: 22,
+      // Version 23 added uranium, found on long expeditions: upgradeResources gives an older save none.
+      version: 23,
       migrate: (stored) => {
         const old = stored as Saves
         return {

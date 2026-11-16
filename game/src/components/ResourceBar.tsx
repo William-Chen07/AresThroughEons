@@ -25,7 +25,7 @@ export function ResourceBar({ resources }: { resources: Resources }) {
   return (
     <ul
       aria-label="Resources"
-      className="pointer-events-auto flex flex-wrap items-center justify-end gap-x-3 gap-y-1 border border-white/15 bg-neutral-950/80 px-3 py-2 backdrop-blur-sm"
+      className="pointer-events-auto flex flex-wrap items-center justify-end gap-x-3 gap-y-1 holo-surface holo-frame border border-cyan-300/25 px-3 py-2 backdrop-blur-sm"
     >
       {BASE_RESOURCES.map((type, i) => (
         <li
@@ -36,7 +36,7 @@ export function ResourceBar({ resources }: { resources: Resources }) {
           onPointerLeave={() => close(type.id)}
           onFocus={() => setOpenId(type.id)}
           onBlur={() => close(type.id)}
-          className="relative flex cursor-help items-center gap-1.5 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-orange-400"
+          className="relative flex cursor-help items-center gap-1.5 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-cyan-300"
         >
           <ResourceIcon id={type.id} color={type.color} />
           <span
@@ -51,9 +51,9 @@ export function ResourceBar({ resources }: { resources: Resources }) {
           <div
             id={`resource-${type.id}-about`}
             role="tooltip"
-            className={`pointer-events-none absolute top-full z-20 mt-4 w-72 border border-white/15 bg-neutral-950/95 p-4 text-left ${openId === type.id ? "" : "hidden"} ${i < BASE_RESOURCES.length / 2 ? "left-0" : "right-0"}`}
+            className={`pointer-events-none absolute top-full z-20 mt-4 w-72 border border-cyan-300/25 holo-surface p-4 text-left ${openId === type.id ? "" : "hidden"} ${i < BASE_RESOURCES.length / 2 ? "left-0" : "right-0"}`}
           >
-            <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.25em] text-orange-300/90">
+            <p className="flex items-center gap-2 holo-text text-xs font-semibold uppercase tracking-[0.25em] text-cyan-300/90">
               <ResourceIcon id={type.id} color={type.color} />
               {type.name}
             </p>

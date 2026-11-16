@@ -1,10 +1,23 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react"
 import { EXPLORE_BASE, EXPLORE_PLACES, explorePlace } from "@/content/explore"
 import { exploreEvent } from "@/content/exploreEvents"
 import { ResourceIcon } from "@/components/ResourceIcon"
 import { RESOURCE_TYPES } from "@/content/resources"
+import { leavingAttr, prefersReducedMotion } from "@/lib/motion"
 import { exploreBackdrop } from "@/map/exploreBackdrop"
-import { describeFinds, tripHours, tripReach, type Trip, type TripReport } from "@/sim/explore"
+import {
+  carryLimit,
+  dangerOf,
+  describeFinds,
+  farness,
+  findStars,
+  tripFood,
+  tripHours,
+  tripReach,
+  type Trip,
+  type TripReport,
+} from "@/sim/explore"
+import { EXPLORE_RULES } from "@/content/explore"
 
 /*
  * The explore map, opened from Explore in the base map's Actions dropdown: the land
@@ -12,8 +25,69 @@ import { describeFinds, tripHours, tripReach, type Trip, type TripReport } from 
  * them; they are away for a while and come back with what they found. Things
  * can happen to them on the way (content/exploreEvents.ts), listed under the trip.
  * The places and the ground are placeholders (see content/explore.ts).
- * The look copies MenuDialogs.
+ *
+ * Each place shows how far it is, how good its finds are (stars: the further, the better) and
+ * how dangerous the trip is. The rare things a far trip can turn up are never named here, on
+ * purpose (see EXPLORE_RULES): players find out when the group comes back. Picking a group shows
+ * the food it packs from the base and how much it can carry back.
+ *
+ * The map is shown as a hologram (the fx-holo classes in index.css): it projects in when the
+ * map opens, and the sheet of light tilts to face the mouse pointer wherever it is on screen.
  */
+
+/** How far the hologram tilts, in degrees, when the pointer is at the edge of the map or beyond. */
+const TILT_DEGREES = 9
+/** How quickly the tilt catches up with the pointer, each frame (0 to 1; higher is snappier). */
+const TILT_FOLLOW = 0.1
+
+/**
+ * Turns the hologram to face the pointer: `stage` (not tilted) is measured, and `map` gets the tilt
+ * and the glare's spot as CSS variables (--tilt-x, --tilt-y, --glare-x, --glare-y). Eased every frame
+ * so it glides. Off for players who have asked for less motion.
+ */
+function useTiltTowardPointer(stage: RefObject<HTMLElement | null>, map: RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const stageEl = stage.current
+    const mapEl = map.current
+    if (!stageEl || !mapEl || prefersReducedMotion()) return
+    const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
+    // Where the tilt is heading, and where it is now. x/y are degrees; glare is % across the map.
+    const target = { x: 0, y: 0, glareX: 50, glareY: 50 }
+    const now = { ...target }
+    const onMove = (e: PointerEvent) => {
+      const box = stageEl.getBoundingClientRect()
+      // -1 to 1 from the middle of the map to its edge (and held at 1 beyond it).
+      const across = clamp((e.clientX - (box.left + box.width / 2)) / (box.width / 2), -1, 1)
+      const down = clamp((e.clientY - (box.top + box.height / 2)) / (box.height / 2), -1, 1)
+      // Facing the pointer: the side nearest it leans away, like a screen turning to look at it.
+      target.x = -down * TILT_DEGREES
+      target.y = across * TILT_DEGREES
+      target.glareX = clamp(((e.clientX - box.left) / box.width) * 100, 0, 100)
+      target.glareY = clamp(((e.clientY - box.top) / box.height) * 100, 0, 100)
+    }
+    // The pointer left the window: settle back flat.
+    const onLeave = () => Object.assign(target, { x: 0, y: 0, glareX: 50, glareY: 50 })
+    let frame = 0
+    const tick = () => {
+      for (const key of ["x", "y", "glareX", "glareY"] as const) now[key] += (target[key] - now[key]) * TILT_FOLLOW
+      mapEl.style.setProperty("--tilt-x", `${now.x.toFixed(2)}deg`)
+      mapEl.style.setProperty("--tilt-y", `${now.y.toFixed(2)}deg`)
+      mapEl.style.setProperty("--glare-x", `${now.glareX.toFixed(1)}%`)
+      mapEl.style.setProperty("--glare-y", `${now.glareY.toFixed(1)}%`)
+      frame = requestAnimationFrame(tick)
+    }
+    frame = requestAnimationFrame(tick)
+    window.addEventListener("pointermove", onMove)
+    document.documentElement.addEventListener("pointerleave", onLeave)
+    window.addEventListener("blur", onLeave)
+    return () => {
+      cancelAnimationFrame(frame)
+      window.removeEventListener("pointermove", onMove)
+      document.documentElement.removeEventListener("pointerleave", onLeave)
+      window.removeEventListener("blur", onLeave)
+    }
+  }, [stage, map])
+}
 
 /** One astronaut as the explore map needs them. `status` says why they can't be sent, if they can't. */
 export interface ExploreCrew {
@@ -25,21 +99,21 @@ export interface ExploreCrew {
   note?: string
 }
 
-const heading = "text-[11px] font-semibold uppercase tracking-[0.25em] text-white/50"
+const heading = "holo-text text-[11px] font-semibold uppercase tracking-[0.25em] text-cyan-300/80"
 const button =
-  "border px-5 py-2 text-xs font-semibold uppercase tracking-[0.25em] transition focus-visible:outline-2 focus-visible:outline-orange-400"
+  "border px-5 py-2 text-xs font-semibold uppercase tracking-[0.25em] transition focus-visible:outline-2 focus-visible:outline-cyan-300"
 
 /** The events a trip met, one per line: the name, and for a trip still out what happened as well. */
 function EventList({ ids, withText = false }: { ids: string[]; withText?: boolean }) {
   if (ids.length === 0) return null
   return (
-    <ul className="mt-1 space-y-1 border-l-2 border-orange-400/60 pl-2">
+    <ul className="mt-1 space-y-1 border-l-2 border-amber-300/60 pl-2">
       {ids.map((id, i) => {
         const event = exploreEvent(id)
         return (
           event && (
             <li key={i}>
-              <span className="font-semibold text-orange-200">{event.name}</span>
+              <span className="font-semibold text-amber-200">{event.name}</span>
               {withText && <span className="text-white/60">: {event.text}</span>}
             </li>
           )
@@ -48,6 +122,10 @@ function EventList({ ids, withText = false }: { ids: string[]; withText?: boolea
     </ul>
   )
 }
+
+/** How far a place is, in words. */
+const distanceWord = (far: number) => (far < 1 / 3 ? "Near" : far < 2 / 3 ? "Medium" : "Far")
+const dangerLook = { Low: "text-cyan-200", Medium: "text-amber-200", High: "text-orange-300" } as const
 
 /** Rounds a trip's length for showing: "about 9 hours". */
 const aboutHours = (hours: number) => `about ${Math.max(1, Math.round(hours))} ${Math.round(hours) <= 1 ? "hour" : "hours"}`
@@ -58,6 +136,9 @@ export function ExploreMap({
   tripLog,
   onSend,
   onClose,
+  era,
+  foodInStore,
+  leaving = false,
 }: {
   crew: ExploreCrew[]
   /** The groups out exploring right now. */
@@ -66,8 +147,17 @@ export function ExploreMap({
   tripLog: TripReport[]
   onSend: (placeId: string, crewIds: string[]) => void
   onClose: () => void
+  /** The era the expedition is in: later eras make far places' finds better. */
+  era: number
+  /** How much food the base has, for packing (see tripFood). */
+  foodInStore: number
+  /** The map has been closed and is playing its closing animation (see lib/motion.ts). */
+  leaving?: boolean
 }) {
   const backdrop = useMemo(() => exploreBackdrop(), [])
+  const stageRef = useRef<HTMLDivElement>(null)
+  const mapRef = useRef<HTMLDivElement>(null)
+  useTiltTowardPointer(stageRef, mapRef)
   const [placeId, setPlaceId] = useState<string | null>(null)
   const [picked, setPicked] = useState<string[]>([])
   const place = placeId ? explorePlace(placeId) : undefined
@@ -78,31 +168,34 @@ export function ExploreMap({
 
   return (
     <div
-      className="absolute inset-0 z-30 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      className="fx-backdrop absolute inset-0 z-30 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
       onClick={onClose}
+      {...leavingAttr(leaving)}
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="explore-title"
-        className="max-h-full w-full max-w-5xl overflow-y-auto border border-white/15 bg-neutral-950/90 p-6 sm:p-8"
+        className="fx-holo max-h-full w-full max-w-5xl overflow-y-auto border p-6 sm:p-8"
         onClick={(e) => e.stopPropagation()}
+        {...leavingAttr(leaving)}
       >
+        <span aria-hidden className="fx-holo-corners" />
         <div className="flex items-center justify-between gap-4">
-          <h2 id="explore-title" className="text-lg font-semibold uppercase tracking-[0.25em]">
+          <h2 id="explore-title" className="fx-holo-title text-lg font-semibold uppercase tracking-[0.25em]">
             Explore
           </h2>
-          <button type="button" onClick={onClose} className={`${button} border-white/15 hover:border-orange-400/70 hover:bg-orange-500/15`}>
+          <button type="button" onClick={onClose} className={`${button} border-cyan-300/25 hover:border-cyan-300/80 hover:bg-cyan-400/15`}>
             Close
           </button>
         </div>
 
         <div className="mt-5 grid gap-6 md:grid-cols-[minmax(0,1fr)_17rem]">
-          {/* The map: the base in the middle, places around it, and groups on their way. */}
-          <div
-            className="relative aspect-[16/10] w-full overflow-hidden border border-white/15"
-            style={{ backgroundImage: `url(${backdrop})`, backgroundSize: "100% 100%", imageRendering: "pixelated" }}
-          >
+          {/* The map, as a hologram that tilts to face the pointer: the base in the middle, places around
+              it, and groups on their way. */}
+          <div ref={stageRef} className="fx-holo-stage">
+          <div ref={mapRef} className="fx-holo-map relative aspect-[16/10] w-full overflow-hidden border">
+            <div aria-hidden className="fx-holo-ground" style={{ backgroundImage: `url(${backdrop})` }} />
             <svg aria-hidden className="absolute inset-0 size-full" viewBox="0 0 100 100" preserveAspectRatio="none">
               {EXPLORE_PLACES.map((spot) => {
                 const busy = trips.some((trip) => trip.placeId === spot.id)
@@ -118,7 +211,7 @@ export function ExploreMap({
                       strokeWidth={2}
                       strokeDasharray="6 5"
                       vectorEffect="non-scaling-stroke"
-                      className={busy ? "stroke-orange-300" : "stroke-white/70"}
+                      className={busy ? "stroke-amber-300" : "stroke-cyan-200/80"}
                     />
                   )
                 )
@@ -129,13 +222,13 @@ export function ExploreMap({
               className="absolute -translate-x-1/2 -translate-y-1/2 text-center"
               style={{ left: `${EXPLORE_BASE.x}%`, top: `${EXPLORE_BASE.y}%` }}
             >
-              <span className="mx-auto block size-4 border-2 border-black/70 bg-orange-400" />
-              <span className="mt-1 block bg-neutral-950/80 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.2em]">
+              <span className="mx-auto block size-4 border-2 border-black/70 bg-orange-400 shadow-[0_0_12px_rgb(251_146_60/0.9)]" />
+              <span className="mt-1 block border border-orange-300/50 bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-orange-100">
                 Base
               </span>
             </div>
 
-            {EXPLORE_PLACES.map((spot) => {
+            {EXPLORE_PLACES.map((spot, i) => {
               const selected = spot.id === placeId
               return (
                 <button
@@ -143,14 +236,14 @@ export function ExploreMap({
                   type="button"
                   aria-pressed={selected}
                   onClick={() => setPlaceId(spot.id)}
-                  className="group absolute -translate-x-1/2 -translate-y-1/2 text-center focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-orange-400"
-                  style={{ left: `${spot.x}%`, top: `${spot.y}%` }}
+                  className="fx-holo-pin group absolute -translate-x-1/2 -translate-y-1/2 text-center focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-cyan-300"
+                  style={{ left: `${spot.x}%`, top: `${spot.y}%`, "--i": i } as CSSProperties}
                 >
                   <span
-                    className={`mx-auto block size-3.5 rotate-45 border-2 border-black/70 transition ${selected ? "bg-orange-400" : "bg-white group-hover:bg-orange-200"}`}
+                    className={`mx-auto block size-3.5 rotate-45 border-2 border-black/70 transition ${selected ? "bg-amber-300 shadow-[0_0_12px_rgb(252_211_77/0.9)]" : "bg-cyan-200 shadow-[0_0_10px_rgb(103_232_249/0.8)] group-hover:bg-white"}`}
                   />
                   <span
-                    className={`mt-1.5 block border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.2em] transition ${selected ? "border-orange-400/70 bg-neutral-950/90 text-orange-100" : "border-transparent bg-neutral-950/80 text-white/90 group-hover:border-white/40"}`}
+                    className={`mt-1.5 block border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.2em] transition ${selected ? "border-amber-300/70 bg-black/80 text-amber-100" : "border-cyan-300/30 bg-black/70 text-cyan-50 group-hover:border-cyan-200/80"}`}
                   >
                     {spot.name}
                   </span>
@@ -182,12 +275,17 @@ export function ExploreMap({
                 </div>
               )
             })}
+
+            {/* Scanlines and the glare of the light, over everything (they don't catch clicks). */}
+            <div aria-hidden className="fx-holo-scan" />
+            <div aria-hidden className="fx-holo-glare" />
+          </div>
           </div>
 
           <div className="flex flex-col gap-5 text-sm">
             {place ? (
               <section aria-live="polite">
-                <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-orange-300">{place.name}</h3>
+                <h3 className="fx-holo-title text-sm font-semibold uppercase tracking-[0.2em]">{place.name}</h3>
                 <p className="mt-2 text-white/70">{place.text}</p>
                 <p className="mt-2 text-xs text-white/55">
                   The trip there and back takes {aboutHours(tripHours(place))}. Might bring back:{" "}
@@ -202,8 +300,33 @@ export function ExploreMap({
                       </span>
                     )
                   })}
-                  . Each astronaut carries a share, so a bigger group brings more.
+                  . Each astronaut can carry {EXPLORE_RULES.carryPerAstronaut} back, so a bigger group brings more, but it
+                  packs more food.
                 </p>
+
+                {/* How far, how good the finds are, how dangerous. Never which rare finds. */}
+                {(() => {
+                  const stars = findStars(place, era)
+                  const danger = dangerOf(place)
+                  return (
+                    <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border border-cyan-300/15 bg-cyan-300/5 px-3 py-2 text-xs">
+                      <dt className="text-white/55">Distance</dt>
+                      <dd>{distanceWord(farness(place))}</dd>
+                      <dt className="text-white/55">Finds</dt>
+                      <dd aria-label={`${stars} out of 4 stars`}>
+                        <span aria-hidden className="tracking-[0.15em] text-amber-300 [text-shadow:0_0_6px_rgb(252_211_77/0.6)]">
+                          {"★".repeat(stars)}
+                          <span className="text-white/25">{"★".repeat(4 - stars)}</span>
+                        </span>
+                      </dd>
+                      <dt className="text-white/55">Danger</dt>
+                      <dd className={dangerLook[danger]}>{danger}</dd>
+                      <dd className="col-span-2 mt-1 text-[11px] text-white/50">
+                        The further the trip, the better the finds, and the more likely someone gets hurt.
+                      </dd>
+                    </dl>
+                  )
+                })()}
 
                 <p className={`${heading} mt-4`}>Who goes?</p>
                 <ul className="mt-2 grid gap-1.5">
@@ -218,7 +341,7 @@ export function ExploreMap({
                           onClick={() =>
                             setPicked(chosen ? going.filter((id) => id !== member.id) : [...going, member.id])
                           }
-                          className={`flex w-full items-center gap-2 border px-3 py-1.5 text-left text-xs font-semibold transition focus-visible:outline-2 focus-visible:outline-orange-400 disabled:pointer-events-none disabled:opacity-40 ${chosen ? "border-orange-400/70 bg-orange-500/25 text-orange-100" : "border-white/15 bg-white/5 hover:border-orange-400/70 hover:bg-orange-500/15"}`}
+                          className={`flex w-full items-center gap-2 border px-3 py-1.5 text-left text-xs font-semibold transition focus-visible:outline-2 focus-visible:outline-cyan-300 disabled:pointer-events-none disabled:opacity-40 ${chosen ? "border-amber-300/80 bg-amber-400/20 text-amber-50" : "border-cyan-300/25 bg-cyan-300/5 hover:border-cyan-300/80 hover:bg-cyan-400/15"}`}
                         >
                           <span className="size-2.5 shrink-0 rounded-full" style={{ background: member.color }} />
                           {member.name}
@@ -236,14 +359,29 @@ export function ExploreMap({
                     )
                   })}
                 </ul>
+                {/* What this group needs and can do: the food it packs, and how much it can carry. */}
+                {(() => {
+                  const food = tripFood(place, going.length)
+                  const short = going.length > 0 && food > foodInStore
+                  return (
+                    going.length > 0 && (
+                      <p className="mt-2 text-xs text-white/65">
+                        Packs <span className={short ? "text-orange-300" : "text-white/90"}>{food} food</span> from the base
+                        ({Math.floor(foodInStore)} there). Can carry back up to{" "}
+                        <span className="text-white/90">{carryLimit(going.length)}</span>.
+                        {short && <span className="mt-1 block text-orange-300">Not enough food at the base for this group.</span>}
+                      </p>
+                    )
+                  )
+                })()}
                 <button
                   type="button"
-                  disabled={going.length === 0}
+                  disabled={going.length === 0 || tripFood(place, going.length) > foodInStore}
                   onClick={() => {
                     onSend(place.id, going)
                     setPicked([])
                   }}
-                  className={`${button} mt-3 w-full border-orange-400/70 bg-orange-500/15 hover:bg-orange-500/30 disabled:pointer-events-none disabled:border-white/15 disabled:bg-transparent disabled:text-white/35`}
+                  className={`${button} mt-3 w-full border-cyan-300/80 bg-cyan-400/15 hover:bg-cyan-400/30 disabled:pointer-events-none disabled:border-cyan-300/25 disabled:bg-transparent disabled:text-white/35`}
                 >
                   Send
                 </button>

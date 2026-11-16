@@ -1,4 +1,4 @@
-import { Apple, Cable, Droplet, FlaskConical, Gem, Hexagon, Layers, Mountain, Smile, Wind, Zap, type LucideIcon } from "lucide-react"
+import { Apple, Atom, Cable, Droplet, FlaskConical, Gem, Hexagon, Layers, Mountain, Smile, Wind, Zap, type LucideIcon } from "lucide-react"
 import type { ResourceId } from "@/content/resources"
 
 /*
@@ -18,6 +18,7 @@ const ICONS: Record<ResourceId, LucideIcon> = {
   titanium: Hexagon,
   gold: Gem,
   sulfur: FlaskConical, // a chemical
+  uranium: Atom, // nuclear power
 }
 
 const hex = (color: number) => `#${color.toString(16).padStart(6, "0")}`

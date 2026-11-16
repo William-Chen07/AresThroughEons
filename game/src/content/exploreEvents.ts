@@ -15,8 +15,9 @@ import type { ResourceId } from "@/content/resources"
  * - `findsFactor`: what they bring back from the place is multiplied by this
  *   (1.5 is half as much again, 0.6 is a bit over half).
  * - `bonus`: something extra the whole group brings back, a random amount from `min` to `max`.
- * - `healthLost`: health each astronaut in the group loses. It never takes anyone below 1,
- *   so a trip can't evacuate someone who isn't at the base.
+ * - `healthLost`: health each astronaut in the group loses, and they come back Injured. It never
+ *   takes anyone below 1, so a trip can't evacuate someone who isn't at the base. Events like
+ *   this get more likely the further the trip goes (injuryWeightAtFar in content/explore.ts).
  */
 export interface ExploreEventEffect {
   waitHours?: number
@@ -81,6 +82,13 @@ export const EXPLORE_EVENTS: ExploreEvent[] = [
     text: "The path crossed a field of sharp rocks. Climbing over them left everyone bruised and worn out.",
     weight: 1,
     effect: { healthLost: 10 },
+  },
+  {
+    id: "bad-fall",
+    name: "Bad fall",
+    text: "The ground on a steep, crumbly slope gave way, and the whole crew slid and tumbled down it. Everyone got bumps and bruises.",
+    weight: 1,
+    effect: { healthLost: 15, waitHours: 1 },
   },
   {
     id: "blue-sunset",

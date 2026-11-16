@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, type CSSProperties } from "react"
 import { X } from "lucide-react"
+import { leavingAttr } from "@/lib/motion"
 import { RESEARCH_ERAS, RESEARCH_PROJECTS, eraColor, researchProject, type ResearchProject } from "@/content/research"
 import { formatRealTime } from "@/sim/clock"
 import { hoursLeft, lockedByEra, researchState, type ResearchProgress, type ResearchState } from "@/sim/research"
@@ -19,7 +20,14 @@ import { hoursLeft, lockedByEra, researchState, type ResearchProgress, type Rese
  *
  * It fills the whole screen and is the same single tree in every era. When the tree is wider
  * (or taller) than the screen it scrolls. The ✕ in the top-right corner or Esc closes it.
+ *
+ * When it opens the tree grows (the fx-research classes in index.css): one column of projects
+ * after another, each line drawing itself out from the project it starts at.
  */
+
+/** Seconds between one column of the tree appearing and the next, as it opens. */
+const GROW_STEP = 0.25
+const growDelay = (tier: number, extra = 0) => ({ "--delay": `${(tier * GROW_STEP + extra).toFixed(2)}s` }) as CSSProperties
 
 // The tree is drawn on a grid so the lines can be worked out without measuring each project.
 // Projects are a fixed size; the gaps between them stretch to spread the tree over the screen,
@@ -72,9 +80,9 @@ const treeLines = (projects: ResearchProject[]) =>
   )
 
 const nodeLook: Record<ResearchState, string> = {
-  done: "border-orange-400/70 bg-orange-500/25 text-orange-100",
-  available: "border-white/40 bg-white/5 text-white hover:border-orange-400/70 hover:bg-orange-500/15",
-  locked: "border-white/10 bg-white/[0.02] text-white/35 hover:border-white/30",
+  done: "border-amber-300/80 bg-amber-400/20 text-amber-50",
+  available: "border-cyan-300/45 bg-cyan-300/5 text-white hover:border-cyan-300/80 hover:bg-cyan-400/15",
+  locked: "border-cyan-300/15 bg-cyan-300/[0.03] text-white/35 hover:border-cyan-300/40",
 }
 /** Not shown, but read out by screen readers, since the colours alone say nothing to them. */
 const stateLabel: Record<ResearchState, string> = {
@@ -92,6 +100,7 @@ export function ResearchPanel({
   claimedLabs,
   onStart,
   onClose,
+  leaving = false,
 }: {
   /** The era the expedition is in: projects from later eras are locked. */
   era: number
@@ -107,6 +116,8 @@ export function ResearchPanel({
   claimedLabs: number
   onStart: (projectId: string) => void
   onClose: () => void
+  /** The tree has been closed and is playing its closing animation (see lib/motion.ts). */
+  leaving?: boolean
 }) {
   /** The project the Research button would start, once one has been clicked. */
   const [selectedId, setSelectedId] = useState<string | null>(progress.active)
@@ -155,11 +166,12 @@ export function ResearchPanel({
       role="dialog"
       aria-modal="true"
       aria-label="Research"
-      className="absolute inset-0 z-30 flex flex-col bg-neutral-950/95 backdrop-blur-sm"
+      className="fx-research absolute inset-0 z-30 flex flex-col holo-surface backdrop-blur-sm"
+      {...leavingAttr(leaving)}
     >
-      <div className="flex shrink-0 items-center justify-between gap-4 border-b border-white/10 px-6 py-3">
+      <div className="flex shrink-0 items-center justify-between gap-4 border-b border-cyan-300/15 px-6 py-3">
         <div className="flex flex-wrap items-center gap-x-6 gap-y-1">
-          <h2 className="text-sm font-semibold uppercase tracking-[0.3em] text-orange-300/90">Research</h2>
+          <h2 className="holo-title text-sm font-semibold uppercase tracking-[0.3em]">Research</h2>
           {/* What each era colour means. */}
           <ul aria-label="Eras" className="flex gap-4 text-[11px] uppercase tracking-[0.2em] text-white/60">
             {RESEARCH_ERAS.map((era) => (
@@ -174,7 +186,7 @@ export function ResearchPanel({
           type="button"
           aria-label="Close research"
           onClick={onClose}
-          className="flex size-10 items-center justify-center border border-white/15 transition hover:border-orange-400/70 hover:bg-orange-500/15 focus-visible:outline-2 focus-visible:outline-orange-400"
+          className="flex size-10 items-center justify-center border border-cyan-300/25 transition hover:border-cyan-300/80 hover:bg-cyan-400/15 focus-visible:outline-2 focus-visible:outline-cyan-300"
         >
           <X className="size-5" aria-hidden />
         </button>
@@ -189,8 +201,10 @@ export function ResearchPanel({
                 <path
                   key={`${from.id}-${to.id}`}
                   d={linePath(from, to, layout)}
+                  pathLength={1}
                   strokeWidth={2.5}
-                  className={researched.includes(from.id) ? "stroke-orange-400/80" : "stroke-white/20"}
+                  style={growDelay(from.tier, 0.1)}
+                  className={`fx-research-line ${researched.includes(from.id) ? "stroke-amber-300/80" : "stroke-cyan-300/25"}`}
                 />
               ))}
             </svg>
@@ -205,13 +219,14 @@ export function ResearchPanel({
                   aria-pressed={project.id === selectedId}
                   aria-label={`${project.name}, era ${project.era}, ${active ? "being researched" : stateLabel[state]}`}
                   onClick={() => setSelectedId(project.id)}
-                  className={`absolute flex flex-col justify-center gap-1 overflow-hidden border border-l-[6px] px-4 text-left text-base leading-tight transition focus-visible:outline-2 focus-visible:outline-orange-400 ${nodeLook[state]} ${project.id === selectedId ? "outline-2 outline-offset-2 outline-white/70" : ""}`}
+                  className={`fx-research-node absolute flex flex-col justify-center gap-1 overflow-hidden border border-l-[6px] px-4 text-left text-base leading-tight transition focus-visible:outline-2 focus-visible:outline-cyan-300 ${nodeLook[state]} ${project.id === selectedId ? "outline-2 outline-offset-2 outline-white/70" : ""}`}
                   style={{
                     left: left(project, layout),
                     top: top(project, layout),
                     width: NODE_W,
                     height: NODE_H,
                     borderLeftColor: eraColor(project.era),
+                    ...growDelay(project.tier),
                   }}
                 >
                   <span className="font-semibold">{project.name}</span>
@@ -226,9 +241,9 @@ export function ResearchPanel({
                   </span>
                   {/* How far along: the one being researched, or one that was started and left for another. */}
                   {state !== "done" && done > 0 && (
-                    <span aria-hidden className="absolute inset-x-0 bottom-0 h-1.5 bg-white/10">
+                    <span aria-hidden className="absolute inset-x-0 bottom-0 h-1.5 bg-cyan-300/15">
                       <span
-                        className={`block h-full ${active ? "bg-orange-400" : "bg-white/40"}`}
+                        className={`block h-full ${active ? "bg-cyan-300 shadow-[0_0_8px_rgb(103_232_249/0.8)]" : "bg-cyan-200/40"}`}
                         style={{ width: `${(done / project.hours) * 100}%` }}
                       />
                     </span>
@@ -240,7 +255,7 @@ export function ResearchPanel({
         </div>
       </div>
 
-      <div className="flex shrink-0 flex-wrap items-center justify-center gap-x-6 gap-y-3 border-t border-white/10 px-6 py-4">
+      <div className="flex shrink-0 flex-wrap items-center justify-center gap-x-6 gap-y-3 border-t border-cyan-300/15 px-6 py-4">
         <p className="max-w-xl text-sm text-white/70" aria-live="polite">
           {note}
         </p>
@@ -248,7 +263,7 @@ export function ResearchPanel({
           type="button"
           disabled={!canStart}
           onClick={() => selected && onStart(selected.id)}
-          className="border border-orange-400/70 bg-orange-500/15 px-5 py-2 text-xs font-semibold uppercase tracking-[0.25em] transition hover:bg-orange-500/30 focus-visible:outline-2 focus-visible:outline-orange-400 disabled:pointer-events-none disabled:border-white/15 disabled:bg-transparent disabled:text-white/35"
+          className="border border-cyan-300/80 bg-cyan-400/15 px-5 py-2 text-xs font-semibold uppercase tracking-[0.25em] transition hover:bg-cyan-400/30 focus-visible:outline-2 focus-visible:outline-cyan-300 disabled:pointer-events-none disabled:border-cyan-300/25 disabled:bg-transparent disabled:text-white/35"
         >
           {isActive ? "Researching" : progress.active && selectedState === "available" ? "Research this instead" : "Research"}
         </button>

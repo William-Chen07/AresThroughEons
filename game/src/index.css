@@ -128,6 +128,75 @@
     @apply font-sans;
     }
 }
+/* ------------------------------------------------------------------------------------------------
+ * The hologram look, for the in-game panels and buttons (it started on the explore map). The main
+ * menu keeps its own look on purpose.
+ * Cyan is the hologram's light: borders, headings, hovering, progress. Amber marks what is picked
+ * or finished, and orange is kept for warnings and danger (storms, evacuations), so they stand out.
+ *
+ *   holo-surface  dark blue glass with faint scanlines and a soft glow, for any panel or button
+ *   holo-frame    adds sci-fi corner brackets, for the bigger panels
+ *   holo-alert    turns a panel's light orange, for warnings
+ *   holo-title    a heading that glows;  holo-text  a softer glow for small labels
+ *
+ * They sit in the components layer, so Tailwind classes on the same element (a hover colour, say)
+ * still win over them.
+ * ---------------------------------------------------------------------------------------------- */
+:root {
+  /* The hologram's light, as r g b, so it can be used with any opacity: rgb(var(--holo) / 0.5). */
+  --holo: 103 232 249; /* cyan-300 */
+}
+@layer components {
+  .holo-surface {
+    background-color: rgb(3 13 22 / 0.86);
+    background-image:
+      repeating-linear-gradient(to bottom, rgb(var(--holo) / 0.045) 0 1px, transparent 1px 3px),
+      linear-gradient(to bottom, rgb(var(--holo) / 0.08), transparent 45%);
+    box-shadow:
+      0 0 16px rgb(var(--holo) / 0.1),
+      inset 0 0 18px rgb(var(--holo) / 0.05);
+  }
+  .holo-frame {
+    position: relative;
+  }
+  .holo-frame::before {
+    content: "";
+    position: absolute;
+    inset: 3px;
+    pointer-events: none;
+    --c: rgb(var(--holo) / 0.85);
+    background:
+      linear-gradient(var(--c), var(--c)) top left / 12px 2px,
+      linear-gradient(var(--c), var(--c)) top left / 2px 12px,
+      linear-gradient(var(--c), var(--c)) top right / 12px 2px,
+      linear-gradient(var(--c), var(--c)) top right / 2px 12px,
+      linear-gradient(var(--c), var(--c)) bottom left / 12px 2px,
+      linear-gradient(var(--c), var(--c)) bottom left / 2px 12px,
+      linear-gradient(var(--c), var(--c)) bottom right / 12px 2px,
+      linear-gradient(var(--c), var(--c)) bottom right / 2px 12px;
+    background-repeat: no-repeat;
+  }
+  .holo-alert {
+    --holo: 251 146 60; /* orange-400 */
+  }
+  .holo-title {
+    color: rgb(207 250 254);
+    text-shadow:
+      0 0 8px rgb(var(--holo) / 0.75),
+      0 0 20px rgb(var(--holo) / 0.35);
+  }
+  .holo-text {
+    text-shadow: 0 0 6px rgb(var(--holo) / 0.55);
+  }
+  /* Anything that lights its border up cyan when pointed at also glows. */
+  :where([class*="hover:border-cyan"]):not(:disabled, [aria-disabled="true"]):hover {
+    box-shadow:
+      0 0 14px rgb(var(--holo) / 0.35),
+      inset 0 0 10px rgb(var(--holo) / 0.12);
+    text-shadow: 0 0 6px rgb(var(--holo) / 0.7);
+  }
+}
+
 /*
  * The radiation storm on the base map (see StormOverlay.tsx): a green glow
  * that pulses in from the edges of the screen, over blocky green clouds that
@@ -194,5 +263,520 @@
   .storm-glow,
   .storm-clouds {
     animation: none;
+  }
+}
+
+/* ------------------------------------------------------------------------------------------------
+ * Opening and closing animations (see lib/motion.ts). Each panel opens in a way that fits what it
+ * is: the explore map projects in as a hologram, the research tree grows, the Build bar rises like
+ * a machine, the crew screen opens like an airlock, and so on. A panel that is closing has
+ * `data-leaving` on it. Opening animations only apply while they run (fill-mode backwards), so
+ * nothing is left behind on the element afterwards.
+ * ---------------------------------------------------------------------------------------------- */
+
+/* --- The dark backdrop behind a dialog fades in and out. */
+.fx-backdrop {
+  animation: fx-fade-in 0.3s ease-out backwards;
+}
+.fx-backdrop[data-leaving] {
+  animation: fx-fade-out 0.3s ease-in forwards;
+  pointer-events: none;
+}
+@keyframes fx-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes fx-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+/* --- Explore: a hologram. It is projected in as a thin line of light that opens up and flickers
+ *     on; closing collapses it back to the line and switches it off. */
+.fx-holo {
+  --holo: 103 232 249; /* cyan-300 */
+  position: relative;
+  border-color: rgb(var(--holo) / 0.35);
+  background:
+    radial-gradient(ellipse at 50% 0%, rgb(var(--holo) / 0.1), transparent 60%),
+    rgb(4 12 20 / 0.92);
+  box-shadow:
+    0 0 0 1px rgb(var(--holo) / 0.08),
+    0 0 40px rgb(var(--holo) / 0.15),
+    inset 0 0 60px rgb(var(--holo) / 0.06);
+  animation: fx-holo-project 0.75s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+}
+.fx-holo[data-leaving] {
+  animation: fx-holo-off 0.38s cubic-bezier(0.6, 0, 0.8, 0.4) forwards;
+}
+@keyframes fx-holo-project {
+  0% {
+    transform: scale(0.2, 0.004);
+    opacity: 0;
+    filter: brightness(4);
+  }
+  25% {
+    transform: scale(1, 0.004);
+    opacity: 1;
+    filter: brightness(4);
+  }
+  60% {
+    transform: scale(1, 1.02);
+    filter: brightness(1.8);
+  }
+  68% {
+    opacity: 0.55;
+  }
+  74% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 0.75;
+    transform: none;
+  }
+  100% {
+    opacity: 1;
+    filter: none;
+  }
+}
+@keyframes fx-holo-off {
+  0% {
+    filter: brightness(1);
+  }
+  55% {
+    transform: scale(1, 0.004);
+    filter: brightness(4);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0, 0.004);
+    filter: brightness(4);
+    opacity: 0;
+  }
+}
+/* Corner brackets, like a sci-fi display. */
+.fx-holo-corners {
+  position: absolute;
+  inset: 6px;
+  pointer-events: none;
+  background:
+    linear-gradient(rgb(var(--holo)), rgb(var(--holo))) top left / 18px 2px,
+    linear-gradient(rgb(var(--holo)), rgb(var(--holo))) top left / 2px 18px,
+    linear-gradient(rgb(var(--holo)), rgb(var(--holo))) top right / 18px 2px,
+    linear-gradient(rgb(var(--holo)), rgb(var(--holo))) top right / 2px 18px,
+    linear-gradient(rgb(var(--holo)), rgb(var(--holo))) bottom left / 18px 2px,
+    linear-gradient(rgb(var(--holo)), rgb(var(--holo))) bottom left / 2px 18px,
+    linear-gradient(rgb(var(--holo)), rgb(var(--holo))) bottom right / 18px 2px,
+    linear-gradient(rgb(var(--holo)), rgb(var(--holo))) bottom right / 2px 18px;
+  background-repeat: no-repeat;
+  opacity: 0.7;
+}
+.fx-holo-title {
+  color: rgb(207 250 254);
+  text-shadow:
+    0 0 8px rgb(var(--holo) / 0.8),
+    0 0 20px rgb(var(--holo) / 0.4);
+}
+
+/* The map is a tilted sheet of light: perspective comes from the stage around it, and the tilt
+ * (--tilt-x, --tilt-y, set from the pointer in ExploreMap.tsx) turns it to face the pointer. */
+.fx-holo-stage {
+  position: relative;
+  perspective: 1100px;
+}
+.fx-holo-stage::after {
+  /* The projector's glow under the map. */
+  content: "";
+  position: absolute;
+  inset: auto 10% -18px;
+  height: 24px;
+  border-radius: 50%;
+  background: rgb(var(--holo) / 0.35);
+  filter: blur(14px);
+  pointer-events: none;
+}
+.fx-holo-map {
+  transform: rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg));
+  will-change: transform;
+  border-color: rgb(var(--holo) / 0.5);
+  box-shadow:
+    0 0 24px rgb(var(--holo) / 0.3),
+    inset 0 0 30px rgb(var(--holo) / 0.25);
+  animation: fx-holo-flicker 7s steps(1) infinite;
+}
+/* The ground, turned into blue-green light. */
+.fx-holo-ground {
+  position: absolute;
+  inset: 0;
+  background-size: 100% 100%;
+  image-rendering: pixelated;
+  filter: grayscale(1) sepia(1) hue-rotate(140deg) saturate(2.6) brightness(0.8) contrast(1.2);
+  opacity: 0.85;
+}
+/* Scanlines, a faint grid, and a bright band sweeping down, like an old projector. */
+.fx-holo-scan {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  background:
+    repeating-linear-gradient(to bottom, rgb(var(--holo) / 0.1) 0 1px, transparent 1px 3px),
+    linear-gradient(to right, rgb(var(--holo) / 0.12) 1px, transparent 1px) 0 0 / 10% 100%,
+    linear-gradient(to bottom, rgb(var(--holo) / 0.12) 1px, transparent 1px) 0 0 / 100% 10%;
+}
+.fx-holo-scan::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: -20%;
+  height: 20%;
+  background: linear-gradient(to bottom, transparent, rgb(var(--holo) / 0.18), transparent);
+  animation: fx-holo-sweep 4.5s linear infinite;
+}
+/* Light catching the sheet where the pointer is (--glare-x, --glare-y). */
+.fx-holo-glare {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  background: radial-gradient(circle at var(--glare-x, 50%) var(--glare-y, 50%), rgb(255 255 255 / 0.14), transparent 45%);
+}
+@keyframes fx-holo-sweep {
+  to {
+    top: 100%;
+  }
+}
+/* Now and then the signal stutters for a moment. */
+@keyframes fx-holo-flicker {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  91% {
+    opacity: 0.82;
+  }
+  92% {
+    opacity: 1;
+  }
+  93.5% {
+    opacity: 0.9;
+  }
+  94% {
+    opacity: 1;
+  }
+}
+/* Places appear one after another once the map is on (--i is each one's place in the list). */
+.fx-holo-pin {
+  animation: fx-holo-pin-in 0.45s cubic-bezier(0.3, 1.6, 0.5, 1) backwards;
+  animation-delay: calc(0.55s + var(--i, 0) * 0.07s);
+}
+@keyframes fx-holo-pin-in {
+  from {
+    opacity: 0;
+    scale: 0.3;
+    filter: brightness(3);
+  }
+}
+
+/* --- Research: the tree grows. The panel opens out from a line across the middle, the lines
+ *     draw themselves from left to right, then each project appears where its line arrives. */
+.fx-research {
+  animation: fx-research-open 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+}
+.fx-research[data-leaving] {
+  animation: fx-research-close 0.3s ease-in forwards;
+  pointer-events: none;
+}
+@keyframes fx-research-open {
+  from {
+    clip-path: inset(50% 0 50% 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+@keyframes fx-research-close {
+  from {
+    clip-path: inset(0 0 0 0);
+  }
+  to {
+    clip-path: inset(50% 0 50% 0);
+    opacity: 0.4;
+  }
+}
+/* Each line has pathLength 1, so drawing it is sliding a one-long dash along it. --delay comes
+ * from how far right the line starts. */
+.fx-research-line {
+  stroke-dasharray: 1;
+  animation: fx-draw 0.3s ease-out backwards;
+  animation-delay: calc(0.35s + var(--delay, 0s));
+}
+@keyframes fx-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+.fx-research-node {
+  animation: fx-node-in 0.4s cubic-bezier(0.3, 1.5, 0.5, 1) backwards;
+  animation-delay: calc(0.3s + var(--delay, 0s));
+}
+@keyframes fx-node-in {
+  from {
+    opacity: 0;
+    translate: -14px 0;
+    scale: 0.9;
+  }
+}
+
+/* --- Build: the bar rises like a machine coming up from the floor, overshoots a little and
+ *     settles; then the tray of modules unrolls from left to right. */
+.fx-build {
+  animation: fx-build-rise 0.5s cubic-bezier(0.3, 1.4, 0.5, 1) backwards;
+}
+.fx-build[data-leaving] {
+  animation: fx-build-sink 0.25s ease-in forwards;
+  pointer-events: none;
+}
+@keyframes fx-build-rise {
+  from {
+    transform: translateY(100%);
+  }
+}
+@keyframes fx-build-sink {
+  to {
+    transform: translateY(100%);
+  }
+}
+.fx-build-tray {
+  animation: fx-unroll 0.55s ease-out 0.2s backwards;
+}
+@keyframes fx-unroll {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+/* --- Crew: the screen opens like airlock doors parting from the middle, then the crew cards step
+ *     up one by one (--i). Closing shuts the doors again. */
+.fx-airlock {
+  animation: fx-airlock-open 0.6s cubic-bezier(0.7, 0, 0.2, 1) backwards;
+}
+.fx-airlock[data-leaving] {
+  animation: fx-airlock-close 0.35s cubic-bezier(0.7, 0, 0.9, 0.6) forwards;
+  pointer-events: none;
+}
+@keyframes fx-airlock-open {
+  0% {
+    clip-path: inset(0 50% 0 50%);
+  }
+  15% {
+    clip-path: inset(0 48% 0 48%);
+  }
+  100% {
+    clip-path: inset(0 0 0 0);
+  }
+}
+@keyframes fx-airlock-close {
+  from {
+    clip-path: inset(0 0 0 0);
+  }
+  to {
+    clip-path: inset(0 50% 0 50%);
+  }
+}
+.fx-crew-card {
+  animation: fx-step-up 0.45s cubic-bezier(0.2, 1.2, 0.4, 1) backwards;
+  animation-delay: calc(0.4s + var(--i, 0) * 0.09s);
+}
+@keyframes fx-step-up {
+  from {
+    opacity: 0;
+    translate: 0 24px;
+  }
+}
+
+/* --- Backpack: it unzips upwards from the button with a little bounce, the contents pop out one by
+ *     one, and the backpack picture wiggles as it opens. */
+.fx-backpack {
+  transform-origin: bottom right;
+  animation: fx-pop 0.4s cubic-bezier(0.3, 1.6, 0.5, 1) backwards;
+}
+.fx-backpack[data-leaving] {
+  animation: fx-unpop 0.18s ease-in forwards;
+}
+@keyframes fx-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.3) translateY(20px);
+  }
+}
+@keyframes fx-unpop {
+  to {
+    opacity: 0;
+    transform: scale(0.4) translateY(16px);
+  }
+}
+.fx-backpack-item {
+  animation: fx-slide-from-right 0.3s ease-out backwards;
+  animation-delay: calc(0.12s + var(--i, 0) * 0.05s);
+}
+@keyframes fx-slide-from-right {
+  from {
+    opacity: 0;
+    translate: 12px 0;
+  }
+}
+.fx-wiggle {
+  animation: fx-wiggle 0.5s ease-in-out;
+}
+@keyframes fx-wiggle {
+  20% {
+    rotate: -14deg;
+  }
+  40% {
+    rotate: 10deg;
+  }
+  60% {
+    rotate: -6deg;
+  }
+  80% {
+    rotate: 3deg;
+  }
+}
+
+/* --- The Actions dropdown drops down from its button and the choices slide in one after another.
+ *     Base UI waits for the closing animation before it removes the menu. */
+.fx-menu {
+  transform-origin: top right;
+}
+.fx-menu[data-open] {
+  animation: fx-menu-drop 0.22s cubic-bezier(0.2, 1.2, 0.4, 1);
+}
+.fx-menu[data-closed] {
+  animation: fx-menu-lift 0.14s ease-in forwards;
+}
+@keyframes fx-menu-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scaleY(0.6);
+  }
+}
+@keyframes fx-menu-lift {
+  to {
+    opacity: 0;
+    transform: translateY(-4px) scaleY(0.8);
+  }
+}
+.fx-menu[data-open] > * {
+  animation: fx-slide-from-right 0.25s ease-out backwards;
+}
+.fx-menu[data-open] > :nth-child(2) {
+  animation-delay: 0.04s;
+}
+.fx-menu[data-open] > :nth-child(3) {
+  animation-delay: 0.08s;
+}
+.fx-menu[data-open] > :nth-child(4) {
+  animation-delay: 0.12s;
+}
+.fx-menu[data-open] > :nth-child(5) {
+  animation-delay: 0.16s;
+}
+
+/* --- Small things: the crew list on the map unfolds row by row (--i), and the map credits roll up
+ *     like the end of a film. */
+.fx-unfold-item {
+  animation: fx-unfold 0.3s ease-out backwards;
+  animation-delay: calc(var(--i, 0) * 0.06s);
+}
+@keyframes fx-unfold {
+  from {
+    opacity: 0;
+    translate: 0 -8px;
+  }
+}
+.fx-credits {
+  animation: fx-roll-up 0.45s ease-out backwards;
+}
+@keyframes fx-roll-up {
+  from {
+    opacity: 0;
+    translate: 0 16px;
+    clip-path: inset(100% 0 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+/* --- A storm warning slams down from the top, shakes, and its border keeps pulsing like an alarm. */
+.fx-alarm {
+  animation:
+    fx-alarm-in 0.55s cubic-bezier(0.3, 1.5, 0.5, 1) backwards,
+    fx-alarm-pulse 1.6s ease-in-out 0.55s infinite;
+}
+@keyframes fx-alarm-in {
+  0% {
+    opacity: 0;
+    transform: translateY(-60px) scale(1.1);
+  }
+  55% {
+    opacity: 1;
+    transform: translateY(0) rotate(0);
+  }
+  65% {
+    transform: rotate(-1.5deg);
+  }
+  75% {
+    transform: rotate(1.5deg);
+  }
+  85% {
+    transform: rotate(-0.7deg);
+  }
+}
+@keyframes fx-alarm-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 rgb(251 146 60 / 0);
+  }
+  50% {
+    box-shadow: 0 0 24px rgb(251 146 60 / 0.55);
+  }
+}
+
+/* --- The end of an era: everything fades out slowly, then the summary drifts down into place. */
+.fx-gameover {
+  animation: fx-fade-in 1.2s ease-out backwards;
+}
+.fx-gameover-card {
+  animation: fx-drift-down 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) 0.6s backwards;
+}
+@keyframes fx-drift-down {
+  from {
+    opacity: 0;
+    translate: 0 -24px;
+  }
+}
+
+/* For people who have asked for less motion: panels just appear and disappear, and the explore
+ * map does not tilt (ExploreMap.tsx also stops following the pointer). */
+@media (prefers-reduced-motion: reduce) {
+  [class*="fx-"],
+  [class*="fx-"]::before,
+  [class*="fx-"]::after,
+  .fx-menu[data-open] > * {
+    animation: none !important;
+  }
+  .fx-holo-map {
+    transform: none;
   }
 }

@@ -1,5 +1,6 @@
 import { Menu } from "@base-ui/react/menu"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Lock } from "lucide-react"
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { BuildPanel, type BuildTool } from "@/components/BuildPanel"
 import { Bar } from "@/components/CrewPanel"
 import { ResourceIcon } from "@/components/ResourceIcon"
@@ -7,8 +8,9 @@ import { ExploreMap } from "@/components/ExploreMap"
 import { ResearchPanel } from "@/components/ResearchPanel"
 import { ResourceBar } from "@/components/ResourceBar"
 import { useSettings } from "@/lib/settings"
+import { leavingAttr, usePresence } from "@/lib/motion"
 import { StormOverlay } from "@/components/StormOverlay"
-import { explorePlace } from "@/content/explore"
+import { EXPLORE_UNLOCK_ERA, explorePlace, exploreUnlocked } from "@/content/explore"
 import { exploreEvent } from "@/content/exploreEvents"
 import { moduleType, type ModuleTypeId } from "@/content/modules"
 import { eraColor, researchProject } from "@/content/research"
@@ -187,10 +189,10 @@ function describeEvent(event: PathingEvent, nameOf: NameOf): string | null {
 /** A resource's colour from content/resources.ts, for the icons in the Crew list. */
 const resourceColor = (id: ResourceId) => RESOURCE_TYPES.find((type) => type.id === id)?.color ?? 0xffffff
 
-const kickerClass = "text-xs font-medium uppercase tracking-[0.4em] text-orange-300/80"
-const panelClass = "border border-white/15 bg-neutral-950/80 px-5 py-3 backdrop-blur-sm"
+const kickerClass = "holo-text text-xs font-medium uppercase tracking-[0.4em] text-cyan-300/90"
+const panelClass = "holo-surface holo-frame border border-cyan-300/25 px-5 py-3 backdrop-blur-sm"
 const buttonClass =
-  "pointer-events-auto border border-white/15 bg-neutral-950/80 px-5 py-2 text-xs font-semibold uppercase tracking-[0.25em] backdrop-blur-sm transition hover:border-orange-400/70 hover:bg-orange-950/85 hover:text-orange-100 focus-visible:outline-2 focus-visible:outline-orange-400"
+  "pointer-events-auto border border-cyan-300/25 holo-surface px-5 py-2 text-xs font-semibold uppercase tracking-[0.25em] backdrop-blur-sm transition hover:border-cyan-300/80 hover:bg-cyan-950/85 hover:text-cyan-100 focus-visible:outline-2 focus-visible:outline-cyan-300"
 
 type Loaded = { key: string; terrain: VoxelTerrain } | { key: string; error: string }
 
@@ -358,6 +360,11 @@ export function GameMap({
   const [labCrew, setLabCrew] = useState({ staffed: 0, claimed: 0 })
   /** Set when the last astronaut working in a lab leaves it while something is being researched. */
   const [researchStopped, setResearchStopped] = useState(false)
+  // The Build bar, research tree and explore map stay on screen a moment after closing, for their
+  // closing animations (lib/motion.ts, index.css).
+  const buildShown = usePresence(buildOpen, 250)
+  const researchShown = usePresence(researchOpen, 300)
+  const exploreShown = usePresence(exploreOpen, 380)
 
   // What's on screen belongs to this site and this try; anything else is still loading.
   const key = `${site.lat},${site.lon},${attempt}`
@@ -959,28 +966,28 @@ export function GameMap({
               <p className={kickerClass}>
                 {name} · Era {era}
               </p>
-              <p className="mt-1 text-2xl font-semibold uppercase tracking-[0.2em] tabular-nums">Day {day}</p>
+              <p className="holo-title mt-1 text-2xl font-semibold uppercase tracking-[0.2em] tabular-nums">Day {day}</p>
               {/* How far through today the clock is. */}
-              <div className="mt-2 h-1.5 w-full bg-white/10" aria-hidden>
-                <div className="h-full bg-orange-400/80" style={{ width: `${Math.round(dayProgress * 100)}%` }} />
+              <div className="mt-2 h-1.5 w-full bg-cyan-300/15" aria-hidden>
+                <div className="h-full bg-cyan-300 shadow-[0_0_8px_rgb(103_232_249/0.8)]" style={{ width: `${Math.round(dayProgress * 100)}%` }} />
               </div>
               {/* The latest real solar event on the calendar. */}
               {spaceNews && (
-                <p className="mt-2 text-xs leading-snug text-orange-200" aria-live="polite">
+                <p className="mt-2 text-xs leading-snug text-cyan-100" aria-live="polite">
                   <span className="text-white/50">Space news: </span>
                   {spaceNews}
                 </p>
               )}
             </section>
             {landed && terrain && !tool && (
-              <div className="pointer-events-auto w-48 border border-white/15 bg-neutral-950/80 px-2 py-1.5 backdrop-blur-sm" aria-live="polite">
+              <div className="holo-surface holo-frame pointer-events-auto w-48 border border-cyan-300/25 px-2 py-1.5 backdrop-blur-sm" aria-live="polite">
                 {/* The header folds the list away, so it doesn't always cover the map. */}
                 <button
                   type="button"
                   aria-expanded={crewOpen}
                   aria-controls="crew-list"
                   onClick={() => setCrewOpen((open) => !open)}
-                  className="-mx-1 flex w-[calc(100%+0.5rem)] items-center justify-between px-1 py-0.5 text-[10px] font-medium uppercase tracking-[0.35em] text-orange-300/80 transition hover:bg-orange-500/15 hover:text-orange-200 focus-visible:outline-2 focus-visible:outline-orange-400"
+                  className="-mx-1 flex w-[calc(100%+0.5rem)] items-center justify-between px-1 py-0.5 text-[10px] font-medium uppercase tracking-[0.35em] holo-text text-cyan-300/90 transition hover:bg-cyan-400/15 hover:text-cyan-200 focus-visible:outline-2 focus-visible:outline-cyan-300"
                 >
                   Crew
                   <svg aria-hidden viewBox="0 0 10 6" className={`size-2.5 fill-current transition ${crewOpen ? "" : "-rotate-90"}`}>
@@ -989,25 +996,25 @@ export function GameMap({
                 </button>
                 {crewOpen && (
                   <ul id="crew-list" className="mt-1 flex flex-col gap-1">
-                    {crew.map((member) => {
+                    {crew.map((member, i) => {
                       const isEvacuated = evacuated.includes(member.id) || !!member.evacuated
                       const isAway = away.includes(member.id)
                       const gone = isEvacuated || isAway
                       const selected = selectedCrew.includes(member.id) && !isAway
                       return (
-                        <li key={member.id}>
+                        <li key={member.id} className="fx-unfold-item" style={{ "--i": i } as CSSProperties}>
                           {/* One row per astronaut. Clicking it selects them, like clicking them on the map. */}
                           <button
                             type="button"
                             aria-pressed={selected}
                             disabled={gone}
                             onClick={(e) => selectFromPanel(member.id, e.shiftKey)}
-                            className={`pointer-events-auto flex w-full flex-col gap-1 border px-1.5 py-1 text-left transition focus-visible:outline-2 focus-visible:outline-orange-400 ${
+                            className={`pointer-events-auto flex w-full flex-col gap-1 border px-1.5 py-1 text-left transition focus-visible:outline-2 focus-visible:outline-cyan-300 ${
                               selected
-                                ? "border-orange-400/70 bg-orange-500/25"
+                                ? "border-amber-300/80 bg-amber-400/20"
                                 : gone
-                                  ? "border-white/5 bg-white/[0.02] text-white/35"
-                                  : "border-white/10 bg-white/5 hover:border-orange-400/70 hover:bg-orange-500/15"
+                                  ? "border-cyan-300/10 bg-cyan-300/[0.03] text-white/35"
+                                  : "border-cyan-300/15 bg-cyan-300/5 hover:border-cyan-300/80 hover:bg-cyan-400/15"
                             }`}
                           >
                             <span className="flex items-center gap-1.5 text-[11px] font-semibold">
@@ -1018,7 +1025,7 @@ export function GameMap({
                               ) : isAway ? (
                                 <span className="ml-auto text-[9px] uppercase tracking-[0.15em] text-white/50">Exploring</span>
                               ) : (
-                                selected && <span className="ml-auto text-[9px] uppercase tracking-[0.15em] text-orange-200">Selected</span>
+                                selected && <span className="ml-auto text-[9px] uppercase tracking-[0.15em] text-amber-200">Selected</span>
                               )}
                             </span>
                             {!gone && (
@@ -1035,7 +1042,7 @@ export function GameMap({
                     })}
                   </ul>
                 )}
-                {crewMessage && <p className="mt-1 text-[10px] leading-snug text-orange-200">{crewMessage}</p>}
+                {crewMessage && <p className="mt-1 text-[10px] leading-snug text-cyan-100">{crewMessage}</p>}
               </div>
             )}
           </div>
@@ -1045,7 +1052,7 @@ export function GameMap({
             {/* Build, Research and Explore, folded into one dropdown. The ` key still toggles Build. */}
             {terrain && (
               <Menu.Root>
-                <Menu.Trigger className={`${buttonClass} flex items-center gap-3 data-popup-open:border-orange-400/70 data-popup-open:bg-orange-950/85`}>
+                <Menu.Trigger className={`${buttonClass} flex items-center gap-3 data-popup-open:border-cyan-300/80 data-popup-open:bg-cyan-950/85`}>
                   Actions
                   <svg aria-hidden viewBox="0 0 10 6" className="size-2.5 fill-current text-white/60">
                     <path d="M0 0h10L5 6z" />
@@ -1053,26 +1060,49 @@ export function GameMap({
                 </Menu.Trigger>
                 <Menu.Portal>
                   <Menu.Positioner className="z-50 outline-hidden" side="bottom" align="end" sideOffset={4}>
-                    <Menu.Popup className="min-w-[var(--anchor-width)] border border-white/15 bg-neutral-950/95 py-1 text-white outline-hidden backdrop-blur-sm">
+                    <Menu.Popup className="fx-menu min-w-[var(--anchor-width)] border border-cyan-300/25 holo-surface py-1 text-white outline-hidden backdrop-blur-sm">
                       {[
                         { label: buildOpen ? "Close build" : "Build", onClick: () => (buildOpen ? closeBuild() : setBuildOpen(true)), show: true },
                         { label: "Research", onClick: () => setResearchOpen(true), show: true },
-                        { label: "Explore", onClick: () => setExploreOpen(true), show: landed },
+                        // Exploring needs the Rover, so it stays locked (but in sight) until its era.
+                        {
+                          label: "Explore",
+                          onClick: () => setExploreOpen(true),
+                          show: landed,
+                          locked: exploreUnlocked(era) ? null : `Unlocks in Era ${EXPLORE_UNLOCK_ERA}, with the Rover`,
+                        },
                       ]
                         .filter((item) => item.show)
-                        .map((item) => (
-                          <Menu.Item
-                            key={item.label}
-                            onClick={item.onClick}
-                            className="flex cursor-default items-center px-5 py-2 text-xs font-semibold uppercase tracking-[0.25em] outline-hidden select-none hover:bg-orange-500/25 hover:text-orange-100 data-highlighted:bg-orange-500/25 data-highlighted:text-orange-100"
-                          >
-                            {item.label}
-                          </Menu.Item>
-                        ))}
-                      <Menu.Separator className="my-1 h-px bg-white/15" />
+                        .map((item) =>
+                          item.locked ? (
+                            <Menu.Item
+                              key={item.label}
+                              disabled
+                              aria-label={`${item.label} (locked). ${item.locked}.`}
+                              className="flex cursor-not-allowed items-center justify-between gap-3 px-5 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-white/35 outline-hidden select-none"
+                            >
+                              <span>
+                                {item.label}
+                                <span className="mt-0.5 block text-[10px] font-normal normal-case tracking-normal text-white/45">
+                                  {item.locked}
+                                </span>
+                              </span>
+                              <Lock aria-hidden className="size-3.5 shrink-0" />
+                            </Menu.Item>
+                          ) : (
+                            <Menu.Item
+                              key={item.label}
+                              onClick={item.onClick}
+                              className="flex cursor-default items-center px-5 py-2 text-xs font-semibold uppercase tracking-[0.25em] outline-hidden select-none hover:bg-cyan-400/25 hover:text-cyan-100 data-highlighted:bg-cyan-400/25 data-highlighted:text-cyan-100"
+                            >
+                              {item.label}
+                            </Menu.Item>
+                          ),
+                        )}
+                      <Menu.Separator className="my-1 h-px bg-cyan-300/25" />
                       <Menu.Item
                         onClick={onExit}
-                        className="flex cursor-default items-center px-5 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-white/70 outline-hidden select-none hover:bg-orange-500/25 hover:text-orange-100 data-highlighted:bg-orange-500/25 data-highlighted:text-orange-100"
+                        className="flex cursor-default items-center px-5 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-white/70 outline-hidden select-none hover:bg-cyan-400/25 hover:text-cyan-100 data-highlighted:bg-cyan-400/25 data-highlighted:text-cyan-100"
                       >
                         Exit to menu
                       </Menu.Item>
@@ -1088,11 +1118,11 @@ export function GameMap({
                 onClick={() => setResearchOpen(true)}
                 role={researchStopped ? "alert" : "status"}
                 aria-label={`Research: ${activeProject.name}. Open the research tree.`}
-                className={`pointer-events-auto w-64 border bg-neutral-950/85 px-4 py-3 text-left backdrop-blur-sm transition hover:border-orange-400/70 focus-visible:outline-2 focus-visible:outline-orange-400 ${
-                  labCrew.staffed > 0 ? "border-white/15" : "border-orange-400/70"
+                className={`holo-surface holo-frame pointer-events-auto w-64 border px-4 py-3 text-left backdrop-blur-sm transition hover:border-cyan-300/80 focus-visible:outline-2 focus-visible:outline-cyan-300 ${
+                  labCrew.staffed > 0 ? "border-cyan-300/25" : "holo-alert border-orange-400/70"
                 }`}
               >
-                <span className="flex items-center justify-between gap-2 text-xs font-semibold uppercase tracking-[0.25em] text-orange-300/90">
+                <span className="flex items-center justify-between gap-2 holo-text text-xs font-semibold uppercase tracking-[0.25em] text-cyan-300/90">
                   Research
                   <span className="tracking-[0.15em] text-white/50">
                     {labCrew.staffed > 0
@@ -1106,9 +1136,9 @@ export function GameMap({
                   <span aria-hidden className="size-2.5 shrink-0" style={{ background: eraColor(activeProject.era) }} />
                   {activeProject.name}
                 </span>
-                <span aria-hidden className="mt-2 block h-1.5 w-full bg-white/10">
+                <span aria-hidden className="mt-2 block h-1.5 w-full bg-cyan-300/15">
                   <span
-                    className={`block h-full ${labCrew.staffed > 0 ? "bg-orange-400" : "bg-white/30"}`}
+                    className={`block h-full ${labCrew.staffed > 0 ? "bg-cyan-300 shadow-[0_0_8px_rgb(103_232_249/0.8)]" : "bg-cyan-200/30"}`}
                     style={{ width: `${(1 - researchLeft / activeProject.hours) * 100}%` }}
                   />
                 </span>
@@ -1138,7 +1168,7 @@ export function GameMap({
                 {(() => {
                   const deposit = hovered && deposits ? depositAt(deposits, hovered) : undefined
                   return deposit ? (
-                    <span className="ml-3 text-orange-200">
+                    <span className="ml-3 text-amber-200">
                       {mineralName(deposit.mineral)} deposit · {Math.ceil(deposit.amount)} left
                     </span>
                   ) : null
@@ -1151,7 +1181,7 @@ export function GameMap({
           {!creditsDismissed && (
             <div className="pointer-events-auto flex max-w-xl flex-col items-end gap-2">
               {creditsOpen && (
-                <p id="map-credits" className={`${panelClass} mr-28 py-2 text-[11px] text-white/50`}>
+                <p id="map-credits" className={`fx-credits ${panelClass} mr-28 py-2 text-[11px] text-white/50`}>
                   Drawn as pixel art from real Mars data, via NASA Mars Trek. Detail: Mars Odyssey THEMIS infrared
                   mosaic, NASA/JPL-Caltech/Arizona State University/USGS. Colour: Viking MDIM 2.1, NASA Ames/USGS.
                   Elevation: MGS MOLA, NASA GSFC/USGS. Mineral richness: MGS TES mineral maps (Bandfield 2002),
@@ -1189,8 +1219,8 @@ export function GameMap({
       </div>
 
       {/* The Build bar, along the bottom of the screen. */}
-      {buildOpen && terrain && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20">
+      {buildShown.mounted && terrain && (
+        <div className="fx-build pointer-events-none absolute inset-x-0 bottom-0 z-20" {...leavingAttr(buildShown.leaving)}>
           <BuildPanel
             tool={tool}
             researched={researched}
@@ -1223,8 +1253,8 @@ export function GameMap({
       {/* A weather event going on: what it is, what to do, and how long is left. */}
       {weather && terrain && (
         <div className="pointer-events-none absolute inset-x-0 top-20 z-10 flex justify-center px-4" role="alert">
-          <div className="max-w-md border border-orange-400/70 bg-neutral-950/90 px-5 py-3 backdrop-blur-sm">
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-300">
+          <div className="fx-alarm holo-surface holo-frame holo-alert max-w-md border border-orange-400/70 px-5 py-3 backdrop-blur-sm">
+            <p className="holo-text text-xs font-semibold uppercase tracking-[0.3em] text-orange-300">
               {weatherEvent(weather.id).name}
               <span className="ml-3 tracking-[0.15em] text-white/50">{Math.ceil(weather.hoursLeft)} h left</span>
             </p>
@@ -1234,8 +1264,11 @@ export function GameMap({
         </div>
       )}
 
-      {exploreOpen && (
+      {exploreShown.mounted && (
         <ExploreMap
+          leaving={exploreShown.leaving}
+          era={era}
+          foodInStore={resources.food}
           crew={crew.map((member) => {
             const unfit = cannotExplore(member)
             return {
@@ -1259,8 +1292,9 @@ export function GameMap({
         />
       )}
 
-      {researchOpen && (
+      {researchShown.mounted && (
         <ResearchPanel
+          leaving={researchShown.leaving}
           era={era}
           researched={researched}
           progress={researchProgress}
@@ -1276,11 +1310,11 @@ export function GameMap({
         <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center p-4">
           <div
             role={error ? "alert" : "status"}
-            className="pointer-events-auto w-full max-w-md border border-white/15 bg-neutral-950/90 p-8"
+            className="holo-surface holo-frame pointer-events-auto w-full max-w-md border border-cyan-300/25 p-8"
           >
             {error ? (
               <>
-                <h2 className="text-lg font-semibold uppercase tracking-[0.25em]">No signal from Mars</h2>
+                <h2 className="holo-title text-lg font-semibold uppercase tracking-[0.25em]">No signal from Mars</h2>
                 <p className="mt-4 text-sm text-white/70">
                   The map for this landing site is built from NASA’s Mars imagery, and it didn’t load. Check the
                   internet connection, then try again.
@@ -1290,14 +1324,14 @@ export function GameMap({
                   type="button"
                   autoFocus
                   onClick={() => setAttempt((n) => n + 1)}
-                  className={`${buttonClass} mt-6 border-orange-400/70`}
+                  className={`${buttonClass} mt-6 border-cyan-300/80`}
                 >
                   Try again
                 </button>
               </>
             ) : (
               <>
-                <h2 className="text-lg font-semibold uppercase tracking-[0.25em]">Scanning landing site</h2>
+                <h2 className="holo-title text-lg font-semibold uppercase tracking-[0.25em]">Scanning landing site</h2>
                 <p className="mt-4 text-sm text-white/70">Getting imagery and elevation for {formatSite(site)}.</p>
               </>
             )}
@@ -1307,9 +1341,9 @@ export function GameMap({
 
       {/* PLACEHOLDER game over: shows once every astronaut has been evacuated. */}
       {gameOver && (
-        <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-          <div role="alertdialog" aria-labelledby="game-over-title" className="max-w-md border border-white/15 bg-neutral-950/90 p-8 text-center">
-            <h2 id="game-over-title" className="text-lg font-semibold uppercase tracking-[0.25em]">
+        <div className="fx-gameover absolute inset-0 z-40 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+          <div role="alertdialog" aria-labelledby="game-over-title" className="fx-gameover-card holo-surface holo-frame max-w-md border border-cyan-300/25 p-8 text-center">
+            <h2 id="game-over-title" className="holo-title text-lg font-semibold uppercase tracking-[0.25em]">
               Era {era} over
             </h2>
             <p className="mt-4 text-sm text-white/70">
@@ -1317,8 +1351,8 @@ export function GameMap({
               land beside it and carry on.
             </p>
             {/* The calendar's secret: the real days this era was played on, and what NASA saw then. */}
-            <div className="mt-5 border-t border-white/10 pt-4 text-left">
-              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-orange-300/80">The real dates</p>
+            <div className="mt-5 border-t border-cyan-300/15 pt-4 text-left">
+              <p className="text-xs font-semibold uppercase tracking-[0.25em] holo-text text-cyan-300/90">The real dates</p>
               <p className="mt-2 text-sm text-white/80">
                 {eraHistory.from === eraHistory.to
                   ? `Day 1 of this era was really ${eraHistory.from}.`
@@ -1347,7 +1381,7 @@ export function GameMap({
                   resettingRef.current = true
                   onNextEra()
                 }}
-                className={`${buttonClass} border-orange-400/70`}
+                className={`${buttonClass} border-cyan-300/80`}
               >
                 Next era
               </button>

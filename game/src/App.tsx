@@ -8,6 +8,7 @@ import { useSpaceCalendar } from "@/data/useSpaceCalendar"
 import { HOURS_PER_DAY, dayOf, describeSpaceEvent, eventsSoFar, latestNews, realDateAt, type Calendar } from "@/sim/calendar"
 import { useSaves } from "@/sim/saves"
 import { useSettings } from "@/lib/settings"
+import { leavingAttr, usePresence } from "@/lib/motion"
 
 type Screen = "menu" | "game"
 
@@ -35,6 +36,8 @@ function eraHistoryOf(calendar: Calendar, clock: number) {
 function App() {
   const [screen, setScreen] = useState<Screen>("menu")
   const [showCrew, setShowCrew] = useState(false)
+  // The crew screen stays a moment after closing, while its airlock doors shut (index.css).
+  const crewShown = usePresence(showCrew, 350)
   // Goes up when the map is reset from the Build panel or a new era starts. It is the map screen's
   // key, so the screen is thrown away and built again from the changed save, landing and all.
   const [mapResets, setMapResets] = useState(0)
@@ -123,13 +126,16 @@ function App() {
           <button
             type="button"
             onClick={() => setShowCrew((v) => !v)}
-            className="pointer-events-auto border border-white/15 bg-black/70 px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-white backdrop-blur-sm transition hover:border-orange-400/70 hover:bg-orange-950/85 hover:text-orange-100 focus-visible:outline-2 focus-visible:outline-orange-400"
+            className="holo-surface pointer-events-auto border border-cyan-300/25 px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-white backdrop-blur-sm transition hover:border-cyan-300/80 hover:bg-cyan-950/85 hover:text-cyan-100 focus-visible:outline-2 focus-visible:outline-cyan-300"
           >
             {showCrew ? "Close crew" : "Crew"}
           </button>
         </div>
-        {showCrew && (
-          <div className="fixed inset-0 z-30 overflow-y-auto bg-[#020104]/95 pb-16 text-white">
+        {crewShown.mounted && (
+          <div
+            className="fx-airlock holo-surface fixed inset-0 z-30 overflow-y-auto bg-[#020a12]/95 pb-16 text-white"
+            {...leavingAttr(crewShown.leaving)}
+          >
             <CrewPanel
               crew={save.crew}
               crewLog={save.crewLog}
@@ -149,7 +155,7 @@ function App() {
       <button
         type="button"
         onClick={() => setScreen("menu")}
-        className="border border-white/15 px-5 py-2 text-xs font-semibold uppercase tracking-[0.25em] transition hover:border-orange-400/70 hover:bg-orange-500/15"
+        className="border border-cyan-300/25 px-5 py-2 text-xs font-semibold uppercase tracking-[0.25em] transition hover:border-cyan-300/80 hover:bg-cyan-400/15"
       >
         Back to menu
       </button>
