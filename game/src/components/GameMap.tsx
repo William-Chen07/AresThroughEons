@@ -187,7 +187,7 @@ function describeClick(world: World, result: ClickResult, nameOf: NameOf): strin
   const listNames = (ids: string[]) => ids.map(nameOf).join(", ")
   switch (result.kind) {
     case "selected":
-      return `${listNames(result.pawnIds)} selected. Click where to send them, a module to work in, or a mineral deposit to mine. Click an astronaut for their task list.`
+      return `${listNames(result.pawnIds)} selected. Click where to send them, a module to work in, or a mineral deposit to mine. Double-click an astronaut for their task list.`
     case "deselected":
       return "Nobody selected."
     case "nothing":
@@ -235,6 +235,8 @@ function describeEvent(event: PathingEvent, nameOf: NameOf, kindOf: (stationId: 
 const resourceColor = (id: ResourceId) => RESOURCE_TYPES.find((type) => type.id === id)?.color ?? 0xffffff
 
 const kickerClass = "holo-text text-xs font-medium uppercase tracking-[0.4em] text-cyan-300/90"
+/** Two clicks on the same astronaut this close together (ms) are a double-click: it opens their task list. */
+const DOUBLE_CLICK_MS = 400
 const panelClass = "holo-surface holo-frame border border-cyan-300/25 px-5 py-3 backdrop-blur-sm"
 const buttonClass =
   "pointer-events-auto border border-cyan-300/25 holo-surface px-5 py-2 text-xs font-semibold uppercase tracking-[0.25em] backdrop-blur-sm transition hover:border-cyan-300/80 hover:bg-cyan-950/85 hover:text-cyan-100 focus-visible:outline-2 focus-visible:outline-cyan-300"
@@ -426,7 +428,7 @@ export function GameMap({
   const [selectedCrew, setSelectedCrew] = useState<string[]>([])
   const [crewMessage, setCrewMessage] = useState<string | null>(null)
   /**
-   * The astronaut whose task list is open (right-click them), where on the screen it opens, and
+   * The astronaut whose task list is open (double-click them), where on the screen it opens, and
    * what it shows, read when it opened.
    */
   const [taskMenu, setTaskMenu] = useState<{
@@ -439,6 +441,8 @@ export function GameMap({
   } | null>(null)
   /** When the task list was last closed by a click outside it: that click only closes it. */
   const menuClosedAtRef = useRef(0)
+  /** The last click on an astronaut, to tell a double-click (which opens their task list) from a single one. */
+  const lastAstronautClickRef = useRef<{ pawnId: string; at: number } | null>(null)
   const closeTaskMenu = useCallback((how: "outside" | "escape") => {
     if (how === "outside") menuClosedAtRef.current = performance.now()
     setTaskMenu(null)
@@ -548,16 +552,26 @@ export function GameMap({
         setCrewMessage(describeClick(crew, orderGroup(crew, [movingFor], { kind: "move", target: here }, keys.shift), nameOf))
         return
       }
-      // Clicking an astronaut picks them and opens their task list. Shift-click picks several instead.
+      // Clicking an astronaut picks them; double-clicking them opens their task list too (a single click
+      // doesn't, so the list isn't in the way when just picking someone). Shift-click picks several instead.
       const [astronaut] = pawnsAt(crew, here)
       if (astronaut && !keys.shift) {
+        const now = performance.now()
+        const last = lastAstronautClickRef.current
+        const double = last?.pawnId === astronaut.pawnId && now - last.at < DOUBLE_CLICK_MS
+        lastAstronautClickRef.current = double ? null : { pawnId: astronaut.pawnId, at: now }
         selectPawns(crew, [astronaut.pawnId])
         setSelectedCrew([astronaut.pawnId])
-        const mining = deposits ? miningChoices(crew, deposits, astronaut.pawnId) : []
-        setTaskMenu({ pawnId: astronaut.pawnId, ...screen, ...taskList(crew, astronaut), mining })
-        setCrewMessage(`${nameOf(astronaut.pawnId)} selected. Pick a task, or click where to send them.`)
+        if (double) {
+          const mining = deposits ? miningChoices(crew, deposits, astronaut.pawnId) : []
+          setTaskMenu({ pawnId: astronaut.pawnId, ...screen, ...taskList(crew, astronaut), mining })
+          setCrewMessage(`${nameOf(astronaut.pawnId)}'s tasks. Pick one, or click where to send them.`)
+        } else {
+          setCrewMessage(`${nameOf(astronaut.pawnId)} selected. Click where to send them, or double-click them for their tasks.`)
+        }
         return
       }
+      lastAstronautClickRef.current = null
       if (closedMenu) return
       const tile = { x: cell.col, y: cell.row }
       // A Sonification Station with a "!": its card shows the nebula the music is playing.
@@ -1195,7 +1209,10 @@ export function GameMap({
         className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between p-4 sm:p-6"
         style={buildOpen ? { paddingBottom: "calc(var(--build-bar, 0px) + 1rem)" } : undefined}
       >
-        <div className="flex items-start justify-between gap-4">
+        {/* The top of the screen takes only the space that is left (min-h-0), so however tall the crew list grows it can't
+            push the bottom row (elevation, map credits) off the screen. A list too tall for the screen runs on past
+            the bottom on the left; its header folds it away. */}
+        <div className="flex min-h-0 flex-1 items-start justify-between gap-4">
           <div className="flex flex-col items-start gap-3">
             {/* The calendar: only the day number, never the real date (see sim/calendar.ts). */}
             <section aria-label="Calendar" className={`${panelClass} w-72`}>
@@ -1449,7 +1466,7 @@ export function GameMap({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
+        <div className="relative z-10 flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
           <p className={`${panelClass} text-sm ${terrain && hoveredIndex !== null ? "" : "invisible"}`} aria-live="off">
             {terrain && hoveredIndex !== null && (
               <>
