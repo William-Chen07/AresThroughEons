@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from "react"
+import { useRef, useState } from "react"
 import { Lock, Volume2, VolumeX } from "lucide-react"
 import { MarsGlobe, type MarsGlobeHandle } from "@/components/MarsGlobe"
 import { CodexDialog, CreditsDialog, HowToPlayDialog, SettingsDialog } from "@/components/MenuDialogs"
 import { SaveSelect } from "@/components/SaveSelect"
 import { MARS_FACTS } from "@/content/marsFacts"
 import { useSettings } from "@/lib/settings"
-import { playSfx, startMusic, stopMusic, unlockAudio } from "@/lib/sound"
+import { playSfx } from "@/lib/sound"
 import { useProgress } from "@/sim/progress"
 import { useSaves } from "@/sim/saves"
 
@@ -120,23 +120,6 @@ export function MainMenu({ onStart }: { onStart: () => void }) {
   const muted = useSettings((s) => s.muted)
   const setSettings = useSettings((s) => s.setSettings)
 
-  // Browsers block audio until the first click or key press, so start the music then.
-  useEffect(() => {
-    const unlock = () => {
-      unlockAudio()
-      startMusic()
-      window.removeEventListener("pointerdown", unlock)
-      window.removeEventListener("keydown", unlock)
-    }
-    window.addEventListener("pointerdown", unlock)
-    window.addEventListener("keydown", unlock)
-    return () => {
-      window.removeEventListener("pointerdown", unlock)
-      window.removeEventListener("keydown", unlock)
-      stopMusic(0.3)
-    }
-  }, [])
-
   // Where a moon picked for a fun fact must not end up: under the title, the menu or the fact
   // card. The card may still be the small Explore button, so allow for the full card's height.
   const keepClear = () => {
@@ -175,10 +158,6 @@ export function MainMenu({ onStart }: { onStart: () => void }) {
     setPanel(action)
   }
   const closePanel = () => setPanel(null)
-  const startGame = () => {
-    stopMusic(0.8)
-    onStart()
-  }
 
   return (
     <main className="relative h-dvh w-full overflow-hidden bg-[#020104] text-white">
@@ -261,7 +240,7 @@ export function MainMenu({ onStart }: { onStart: () => void }) {
         Mars as seen from Earth, time-lapse from now · Viking MDIM 2.1 via NASA Mars Trek · MGS MOLA via USGS Astrogeology · NASA/JPL NAIF
       </p>
 
-      {showSaves && <SaveSelect onStart={startGame} onClose={() => setShowSaves(false)} />}
+      {showSaves && <SaveSelect onStart={onStart} onClose={() => setShowSaves(false)} />}
 
       <HowToPlayDialog open={panel === "howto"} onClose={closePanel} />
       <CodexDialog open={panel === "codex"} onClose={closePanel} codexIds={codexIds} />

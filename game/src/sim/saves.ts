@@ -20,7 +20,7 @@ import {
   type TripReport,
 } from "@/sim/explore"
 import type { CrewMember } from "@/sim/lifeSupport"
-import { CREW_LOG_LENGTH, cannotExplore, cheerUp, hurtOnTrip, liveCrewThrough, newCrew } from "@/sim/crewLife"
+import { CREW_LOG_LENGTH, cannotExplore, cheerUp, hurtOnTrip, liveCrewThrough, newCrew, returningCrew } from "@/sim/crewLife"
 import { assignCrewRole } from "@/sim/step"
 import type { LogEntry, Pawn, RoleId } from "@/sim/types"
 import { NO_RESEARCH, addResearchWork, startResearch, type ResearchProgress } from "@/sim/research"
@@ -28,6 +28,7 @@ import { advanceSky, calmHours, quietFillHours, startWeather, type Weather } fro
 import { addWindow, newCalendar, testSpaceEvents, type Calendar, type SpaceEvent, type TestSpaceEvent } from "@/sim/calendar"
 import { depositIdOf, mine, type Deposit } from "@/sim/deposits"
 import { workSpeed } from "@/sim/pawn"
+import { OCCUPATIONS } from "@/sim/occupations"
 
 export const SAVE_SLOT_COUNT = 3
 
@@ -69,7 +70,8 @@ export interface SaveSlot {
   /**
    * Which era the expedition is in, from 1. When an era ends (everyone was evacuated, or later
    * when its goals are met) the next one begins on the same map: the modules stay where they are
-   * and wear down, the tubes are gone, and a new crew comes down in a newer lander (see `nextEra`).
+   * and wear down, the tubes are gone, and the crew comes back in a newer lander with one new
+   * astronaut on board (see `nextEra`).
    */
   era: number
   /** The base: its modules, and every cell with a piece of tube on it (see sim/base.ts). */
@@ -89,13 +91,16 @@ export interface SaveSlot {
    */
   hours: number
   /**
-   * This era's crew: who they are (occupation, traits), what they're assigned to (role), and
+   * This era's crew (everyone who came before, plus one new astronaut each era): who they are (occupation, traits), what they're assigned to (role), and
    * everything about them (needs, health, statuses, radiation, skills). See sim/crewLife.ts.
    */
   crew: Pawn[]
   /** What has happened to the crew lately, oldest first (at most CREW_LOG_LENGTH lines). */
   crewLog: LogEntry[]
-  /** Ids of the astronauts who were evacuated to Earth when their health ran out. They don't come back. */
+  /**
+   * Ids of the astronauts who were evacuated to Earth when their health ran out. They don't come
+   * back this era; when the next one begins they fly out again with the crew.
+   */
   evacuated: string[]
   /**
    * Where each astronaut at the base was when the clock last moved. Empty until the crew steps out
@@ -187,9 +192,10 @@ interface SavesActions {
   resetMap: (index: number) => void
   /**
    * Ends this era and starts the next one on the same map. Everything built stays where it is
-   * (and is drawn worn down from now on), research is kept, and a new crew comes down in a new
-   * lander beside the old one: the landing plays again, everyone is at full health, nobody is
-   * evacuated or out exploring, and the weather is calm. The new lander brings supplies, so each
+   * (and is drawn worn down from now on), research is kept, and the crew comes back in a new
+   * lander beside the old one, with one new astronaut joining them (see returningCrew in
+   * sim/crewLife.ts): the landing plays again, everyone is at full health, nobody is evacuated or
+   * out exploring, and the weather is calm. The new lander brings supplies, so each
    * resource goes back up to at least its starting amount.
    */
   nextEra: (index: number) => void
@@ -454,30 +460,43 @@ export const savesStore = createStore<Saves & SavesActions>()(
         const supplies = startingResources()
         const resources = { ...slot.resources }
         for (const id of Object.keys(supplies) as (keyof Resources)[]) resources[id] = Math.max(resources[id], supplies[id])
+        // Everyone flies back out, healed, and one new astronaut joins them.
+        const { crew, recruit } = returningCrew(slot.crew, era)
         const next: SaveSlot = {
           ...slot,
           era,
           landers,
           // The old modules stay, worn down, but their tubes don't last the years in between: the
-          // new crew lays tubes again.
+          // crew lays tubes again.
           tubes: [],
           landed: false,
           resources,
-          crew: newCrew(era),
-          crewLog: [],
+          crew,
+          crewLog: [
+            {
+              hour: slot.hours,
+              kind: "good",
+              text: `${recruit.name} the ${OCCUPATIONS[recruit.occupation].name.toLowerCase()} joined the crew for era ${era}.`,
+              pawnId: recruit.id,
+            },
+          ],
           evacuated: [],
           crewSpots: [],
           weather: null,
           nextWeatherAt: slot.hours + quietFillHours(Math.random()),
-          // The new crew lands in a new random year, at Day 1 again.
+          // The crew lands in a new random year, at Day 1 again.
           calendar: newCalendar(Math.random(), Date.now(), slot.hours),
           trips: [],
           tripNews: null,
         }
         set({ slots: withSlot(get().slots, index, next) })
-        // The menu shows the furthest era any expedition has reached (see sim/progress.ts).
+        // The menu shows the furthest era any expedition has reached, and the biggest crew (see sim/progress.ts).
         const progress = progressStore.getState()
-        progress.setProgress({ hasSave: true, era: Math.max(progress.era, era) })
+        progress.setProgress({
+          hasSave: true,
+          era: Math.max(progress.era, era),
+          crewCount: Math.max(progress.crewCount, crew.length),
+        })
       },
       addSpaceEvents: (index, start, events, endHours, source) => {
         const slot = get().slots[index]

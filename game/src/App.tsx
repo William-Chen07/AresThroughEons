@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Backpack } from "@/components/Backpack"
 import { CrewPanel } from "@/components/CrewPanel"
 import { GameMap } from "@/components/GameMap"
@@ -9,6 +9,7 @@ import { HOURS_PER_DAY, dayOf, describeSpaceEvent, eventsSoFar, latestNews, real
 import { stormWarning } from "@/sim/weather"
 import { useSaves } from "@/sim/saves"
 import { useSettings } from "@/lib/settings"
+import { startMusic, unlockAudio } from "@/lib/sound"
 
 type Screen = "menu" | "game"
 
@@ -60,6 +61,20 @@ function App() {
   const creditsDismissed = useSettings((s) => s.mapCreditsDismissed)
   // Real NASA events for the calendar are fetched while the expedition is being played.
   useSpaceCalendar(activeSlot, screen === "game")
+  // The background music plays on every screen. Browsers block audio until the player clicks or
+  // presses a key, so it starts then; later gestures retry in case the browser still said no.
+  useEffect(() => {
+    const unlock = () => {
+      unlockAudio()
+      startMusic()
+    }
+    window.addEventListener("pointerdown", unlock)
+    window.addEventListener("keydown", unlock)
+    return () => {
+      window.removeEventListener("pointerdown", unlock)
+      window.removeEventListener("keydown", unlock)
+    }
+  }, [])
 
   if (screen === "menu") {
     return <MainMenu onStart={() => setScreen("game")} />

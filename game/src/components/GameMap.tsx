@@ -40,19 +40,13 @@ import type { CrewMember } from "@/sim/lifeSupport"
 import { workSpeed } from "@/sim/pawn"
 import type { LogEntry, Pawn } from "@/sim/types"
 import { buildNavigation, pressurizedCells, syncNavigation } from "@/sim/navigation"
-import {
-  CLUMP,
-  depositAt,
-  depositIdOf,
-  depositStationId,
-  generateDeposits,
-  seedFrom,
-  type Deposit,
-} from "@/sim/deposits"
+import { depositAt, depositIdOf, generateDeposits, seedFrom, type Deposit, type MineralId } from "@/sim/deposits"
+import { miningChoices, sendToMine, syncDepositStations, type MiningChoice } from "@/sim/tasks"
+import { TaskMenu } from "@/components/TaskMenu"
 import {
   addPawn,
+  cancelOrder,
   clearSelection,
-  createStation,
   getZone,
   handleClick,
   isWalkable,
@@ -65,6 +59,8 @@ import {
   selectPawns,
   stepPathing,
   type ClickResult,
+  type Mover,
+  type Order,
   type PathingEvent,
   type Tile,
   type World,
@@ -72,6 +68,7 @@ import {
 import { claimedLabCount, isLab, keepHidersResearching, labOf, labSpeed, pickLabWorker, sendResearcher, shelterRule, staffedLabs } from "@/sim/labs"
 import type { CrewSpot } from "@/sim/saves"
 import { GAME_HOURS_PER_SECOND, formatRealTime } from "@/sim/clock"
+import { GAME_SPEEDS, gameSpeedStore, useGameSpeed } from "@/lib/gameSpeed"
 import { hoursLeft, type ResearchProgress } from "@/sim/research"
 import { playSfx } from "@/lib/sound"
 import type { Weather } from "@/sim/weather"
@@ -131,6 +128,29 @@ function workPlace(world: World, stationId: string) {
   return `to work in the ${placeName(world, stationId)}`
 }
 
+/** A task on an astronaut's task list, in a few words: "Mine Gold", "Work in the Habitat". */
+function taskName(world: World, order: Order) {
+  if (order.kind === "move") return "Walk to a spot"
+  if (depositIdOf(order.stationId)) {
+    const station = world.stations.find((s) => s.id === order.stationId)
+    return `Mine ${station ? mineralName(station.kind) : "a deposit"}`
+  }
+  return `Work in the ${placeName(world, order.stationId)}`
+}
+
+/** An astronaut's task list: what they're doing now and what comes after it, for the task menu. */
+function taskList(world: World, mover: Mover): { now: string; next: string[] } {
+  const next = mover.queue.map((order) => taskName(world, order))
+  // An urgent need (air, shelter from a storm…) comes first; the player's task waits for it.
+  if (mover.interrupt) {
+    const resume = mover.interrupt.resume
+    return { now: `Seeing to an urgent need (${mover.interrupt.need})`, next: resume ? [taskName(world, resume), ...next] : next }
+  }
+  if (!mover.order) return { now: "Nothing", next }
+  const task = taskName(world, mover.order)
+  return { now: mover.status === "working" ? task : `${task} (on the way)`, next }
+}
+
 /** Every cell of a rectangle. */
 const cellsOf = (rect: Rect): Cell[] =>
   Array.from({ length: rect.width * rect.height }, (_, i) => ({
@@ -149,7 +169,7 @@ function describeClick(world: World, result: ClickResult, nameOf: NameOf): strin
   const listNames = (ids: string[]) => ids.map(nameOf).join(", ")
   switch (result.kind) {
     case "selected":
-      return `${listNames(result.pawnIds)} selected. Click where to send them, a module to work in, or a mineral deposit to mine.`
+      return `${listNames(result.pawnIds)} selected. Click where to send them, a module to work in, or a mineral deposit to mine. Click an astronaut for their task list.`
     case "deselected":
       return "Nobody selected."
     case "nothing":
@@ -339,6 +359,8 @@ export function GameMap({
   const gameOver = crew.length > 0 && crew.every((member) => member.evacuated || evacuated.includes(member.id))
   /** The crew as of the last render, for the frame loop and callbacks (which outlive a render). */
   const rosterRef = useRef(crew)
+  /** How fast the clock runs (1×, 2× or 3×); the frame loop reads it from gameSpeedStore. */
+  const gameSpeed = useGameSpeed()
   // Both read the ref when called, so they never go stale and never need to change.
   const nameOf: NameOf = useCallback((id) => rosterRef.current.find((p) => p.id === id)?.name ?? id, [])
   const listNames = useCallback((ids: string[]) => ids.map(nameOf).join(", "), [nameOf])
@@ -368,6 +390,26 @@ export function GameMap({
   const crewRef = useRef<{ terrain: VoxelTerrain; world: World } | null>(null)
   const [selectedCrew, setSelectedCrew] = useState<string[]>([])
   const [crewMessage, setCrewMessage] = useState<string | null>(null)
+  /**
+   * The astronaut whose task list is open (right-click them), where on the screen it opens, and
+   * what it shows, read when it opened.
+   */
+  const [taskMenu, setTaskMenu] = useState<{
+    pawnId: string
+    x: number
+    y: number
+    now: string
+    next: string[]
+    mining: MiningChoice[]
+  } | null>(null)
+  /** When the task list was last closed by a click outside it: that click only closes it. */
+  const menuClosedAtRef = useRef(0)
+  const closeTaskMenu = useCallback((how: "outside" | "escape") => {
+    if (how === "outside") menuClosedAtRef.current = performance.now()
+    setTaskMenu(null)
+  }, [])
+  /** The astronaut picked to Move from their task list: the next click on the map is where they go. */
+  const [movingFor, setMovingFor] = useState<string | null>(null)
   /** Whether the Crew list on the left is unfolded. */
   const [crewOpen, setCrewOpen] = useState(true)
   /** True once the player has clicked a module to see inside the base: every module is see-through until the next click on one. */
@@ -423,12 +465,34 @@ export function GameMap({
     [deposits],
   )
 
-  const handleCellClick = (cell: Cell, keys: ClickKeys) => {
+  const handleCellClick = (cell: Cell, keys: ClickKeys, screen: { x: number; y: number }) => {
     if (!terrain || !grid) return
     // With no dev tool picked, clicks are for the crew: pick an astronaut, then where to send them.
     if (!tool) {
       const crew = crewRef.current?.world
       if (!crew) return
+      const here = { x: cell.col, y: cell.row }
+      // A click that closed the task list does nothing else, unless it was on another astronaut.
+      const closedMenu = performance.now() - menuClosedAtRef.current < 500
+      menuClosedAtRef.current = 0
+      // After Move in an astronaut's task list, this click is where they go (shift adds it to their list).
+      if (movingFor) {
+        setMovingFor(null)
+        if (!crew.movers[movingFor]) return setCrewMessage(null)
+        setCrewMessage(describeClick(crew, orderGroup(crew, [movingFor], { kind: "move", target: here }, keys.shift), nameOf))
+        return
+      }
+      // Clicking an astronaut picks them and opens their task list. Shift-click picks several instead.
+      const [astronaut] = pawnsAt(crew, here)
+      if (astronaut && !keys.shift) {
+        selectPawns(crew, [astronaut.pawnId])
+        setSelectedCrew([astronaut.pawnId])
+        const mining = deposits ? miningChoices(crew, deposits, astronaut.pawnId) : []
+        setTaskMenu({ pawnId: astronaut.pawnId, ...screen, ...taskList(crew, astronaut), mining })
+        setCrewMessage(`${nameOf(astronaut.pawnId)} selected. Pick a task, or click where to send them.`)
+        return
+      }
+      if (closedMenu) return
       // With nobody selected, clicking a module (not an astronaut in it) opens up every module to
       // see inside, or closes them all again.
       const tile = { x: cell.col, y: cell.row }
@@ -505,7 +569,28 @@ export function GameMap({
     onBaseChange({ modules: [...modules, check.module], tubes })
     setMessage(`Placed a ${moduleType(tool.type).name}. It isn't joined to anything until you lay a tube to it.`)
   }
-  // The map calls this through a ref, so it always gets the latest tool and modules without being rebuilt.
+  /** Move, from an astronaut's task list: the next click on the map is where they go. */
+  const moveFromMenu = (pawnId: string) => {
+    setTaskMenu(null)
+    setMovingFor(pawnId)
+    setCrewMessage(`Click where ${nameOf(pawnId)} should go. Shift-click adds it to their task list. Esc cancels.`)
+  }
+  /** Sends the astronaut whose task list is open to mine (one mineral, or the nearest deposit). */
+  const mineFromMenu = (pawnId: string, mineral: MineralId | null, queue: boolean) => {
+    const crew = crewRef.current?.world
+    setTaskMenu(null)
+    if (!crew || !deposits) return
+    setCrewMessage(describeClick(crew, sendToMine(crew, deposits, pawnId, mineral, queue), nameOf))
+  }
+  /** Stops the astronaut whose task list is open, and clears the list. */
+  const stopFromMenu = (pawnId: string) => {
+    const crew = crewRef.current?.world
+    setTaskMenu(null)
+    if (!crew) return
+    cancelOrder(crew, pawnId)
+    setCrewMessage(`${nameOf(pawnId)} stopped. Their task list is clear.`)
+  }
+  // The map calls these through refs, so they always get the latest tool and modules without being rebuilt.
   const onCellClickRef = useRef(handleCellClick)
   useEffect(() => {
     onCellClickRef.current = handleCellClick
@@ -520,7 +605,7 @@ export function GameMap({
       terrain,
       {
         onHover: setHovered,
-        onCellClick: (cell, keys) => onCellClickRef.current(cell, keys),
+        onCellClick: (cell, keys, screen) => onCellClickRef.current(cell, keys, screen),
         onLanded: showLanding ? () => onLandedRef.current() : null,
       },
       mapEra,
@@ -576,36 +661,19 @@ export function GameMap({
   }, [terrain, grid, deposits, site])
 
   // Each deposit is a place on the crew's map to work at (mine), standing beside it. A deposit
-  // that's mined out is taken off, which stops anyone mining it.
+  // that's mined out is taken off, which stops anyone mining it (see sim/tasks.ts).
   const minedOutRef = useRef<Set<string> | null>(null)
   useEffect(() => {
     const crew = crewRef.current
     if (!terrain || !crew || crew.terrain !== terrain || !deposits) return
-    const { world } = crew
-    const left = new Map(deposits.filter((d) => d.amount > 0).map((d) => [depositStationId(d.id), d]))
-    const gone = world.stations.filter((station) => depositIdOf(station.id) && !left.has(station.id))
-    world.stations = world.stations.filter((station) => !gone.includes(station))
-    for (const [id, deposit] of left) {
-      if (world.stations.some((station) => station.id === id)) continue
-      // The whole clump is the station; crew stand anywhere around its edge to mine it.
-      const half = Math.floor(CLUMP / 2)
-      world.stations.push(
-        createStation(world.grid, {
-          id,
-          kind: deposit.mineral,
-          x: deposit.col - half,
-          y: deposit.row - half,
-          width: CLUMP,
-          height: CLUMP,
-        }),
-      )
-    }
+    const gone = syncDepositStations(crew.world, deposits)
+    const left = new Set(crew.world.stations.filter((station) => depositIdOf(station.id)).map((station) => station.id))
     // Only deposits that run out while the map is open are news (not ones gone before it opened).
     if (minedOutRef.current) {
       const last = gone.find((station) => minedOutRef.current?.has(station.id))
       if (last) setCrewMessage(`The ${mineralName(last.kind)} deposit is mined out.`)
     }
-    minedOutRef.current = new Set(left.keys())
+    minedOutRef.current = left
   }, [terrain, base, deposits])
 
   useEffect(() => {
@@ -614,6 +682,8 @@ export function GameMap({
 
   /** Ids of the astronauts out exploring: they are off this map until they are back. */
   const away = useMemo(() => trips.flatMap((trip) => trip.crew), [trips])
+  // The astronaut whose task list is open. If they've left the map (out exploring, or evacuated), it closes.
+  const taskMember = taskMenu ? crew.find((m) => m.id === taskMenu.pawnId && !m.evacuated && !away.includes(m.id)) : undefined
 
   /** Where the crew were when the map was last open: used once, as they are put back on the map. */
   const savedSpotsRef = useRef(crewSpots)
@@ -785,15 +855,17 @@ export function GameMap({
         view.drawCrew(crew, suitColors(rosterRef.current))
         return
       }
-      // A long gap (the tab was hidden) shouldn't make everyone teleport.
-      const dtHours = (Math.min(deltaMs, 100) / 1000) * GAME_HOURS_PER_SECOND
+      // A long gap (the tab was hidden) shouldn't make everyone teleport. At 2× or 3× the clock
+      // runs that many times faster, so everything (walking, needs, research, weather) speeds up.
+      const speed = gameSpeedStore.getState().speed
+      const dtHours = (Math.min(deltaMs, 100) / 1000) * GAME_HOURS_PER_SECOND * speed
       // The crew rules decide what's urgent (sim/crewLife.ts): in a storm everyone needs shelter,
       // and so does anyone injured, short of oxygen or at the radiation limit. A Research Lab still
       // holds one astronaut, so nobody shelters in a lab someone else is using.
       const storm = stormRef.current
       const pawnOf = (id: string) => rosterRef.current.find((p) => p.id === id)
       const canFix = (need: string) => crew.stations.some((station) => station.provides.includes(need as never))
-      const events = stepPathing(crew, dtHours, {
+      const pathingOptions: Parameters<typeof stepPathing>[2] = {
         urgentNeed: (id) => urgentNeedOf(pawnOf(id), storm, canFix),
         workRate: (id) => {
           const pawn = pawnOf(id)
@@ -803,7 +875,11 @@ export function GameMap({
         walkSpeed: (id) =>
           pawnOf(id)?.activity === "sleeping" && !crew.movers[id]?.interrupt ? 0 : scaleFor(crew.grid).walkTilesPerHour,
         canShelterAt: storm ? shelterRule(crew) : undefined,
-      })
+      }
+      // Sped up, the crew walk in steps no bigger than at 1×, so they still turn corners and stop
+      // at doors exactly where they would have.
+      const events: ReturnType<typeof stepPathing> = []
+      for (let i = 0; i < speed; i++) events.push(...stepPathing(crew, dtHours / speed, pathingOptions))
       if (storm) keepHidersResearching(crew)
       // Each lab with its astronaut inside puts that astronaut's work into the research: a trained
       // Researcher does more than anyone else (see researchRate). In a storm, an astronaut hiding in
@@ -894,6 +970,12 @@ export function GameMap({
         }
         return
       }
+      // 1, 2 and 3 set how fast time runs.
+      const picked = GAME_SPEEDS.find((speed) => e.key === String(speed))
+      if (picked && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
+        gameSpeedStore.getState().setSpeed(picked)
+        return
+      }
       if (e.code === "Backquote") {
         setBuildOpen((open) => !open)
         setTool(null)
@@ -902,7 +984,10 @@ export function GameMap({
       }
       // Esc first lets go of a run of tube that has been started, then of the tool itself, then of the selected crew.
       if (e.key === "Escape") {
-        if (tubeStart) setTubeStart(null)
+        if (movingFor) {
+          setMovingFor(null)
+          setCrewMessage(null)
+        } else if (tubeStart) setTubeStart(null)
         else if (tool) setTool(null)
         else if (crewRef.current) {
           clearSelection(crewRef.current.world)
@@ -913,7 +998,7 @@ export function GameMap({
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [tubeStart, tool, researchOpen, exploreOpen])
+  }, [tubeStart, tool, researchOpen, exploreOpen, movingFor])
 
   /** Closes the Build panel and puts down whatever tool was in hand. */
   const closeBuild = () => {
@@ -982,6 +1067,21 @@ export function GameMap({
   return (
     <main className="relative h-dvh w-full overflow-hidden bg-[#020104] text-white">
       <div ref={hostRef} className="absolute inset-0 touch-none" />
+      {/* An astronaut's task list, opened by right-clicking them. */}
+      {taskMenu && taskMember && (
+        <TaskMenu
+          name={taskMember.name}
+          color={taskMember.color}
+          position={{ x: taskMenu.x, y: taskMenu.y }}
+          now={taskMenu.now}
+          next={taskMenu.next}
+          mining={taskMenu.mining}
+          onMove={() => moveFromMenu(taskMenu.pawnId)}
+          onMine={(mineral, queue) => mineFromMenu(taskMenu.pawnId, mineral, queue)}
+          onStop={() => stopFromMenu(taskMenu.pawnId)}
+          onClose={closeTaskMenu}
+        />
+      )}
       {/* The storm's glow and clouds over the map. */}
       {weather && terrain && <StormOverlay storm={weather.id} />}
 
@@ -998,7 +1098,28 @@ export function GameMap({
               <p className={kickerClass}>
                 {name} · Era {era}
               </p>
-              <p className="mt-1 text-2xl font-semibold uppercase tracking-[0.2em] tabular-nums">Day {day}</p>
+              <div className="mt-1 flex items-center justify-between gap-3">
+                <p className="text-2xl font-semibold uppercase tracking-[0.2em] tabular-nums">Day {day}</p>
+                {/* How fast time runs. The 1, 2 and 3 keys pick these too. */}
+                <div role="group" aria-label="Game speed" className="pointer-events-auto flex">
+                  {GAME_SPEEDS.map((speed) => (
+                    <button
+                      key={speed}
+                      type="button"
+                      aria-pressed={gameSpeed === speed}
+                      title={`${speed}× speed (key ${speed})`}
+                      onClick={() => gameSpeedStore.getState().setSpeed(speed)}
+                      className={`-ml-px border px-2 py-1 text-xs font-semibold tabular-nums transition first:ml-0 focus-visible:relative focus-visible:outline-2 focus-visible:outline-orange-400 ${
+                        gameSpeed === speed
+                          ? "relative border-orange-400/70 bg-orange-500/25 text-orange-100"
+                          : "border-white/15 bg-white/5 text-white/60 hover:border-orange-400/70 hover:bg-orange-500/15 hover:text-orange-100"
+                      }`}
+                    >
+                      {speed}×
+                    </button>
+                  ))}
+                </div>
+              </div>
               {/* How far through today the clock is. */}
               <div className="mt-2 h-1.5 w-full bg-white/10" aria-hidden>
                 <div className="h-full bg-orange-400/80" style={{ width: `${Math.round(dayProgress * 100)}%` }} />
@@ -1143,7 +1264,7 @@ export function GameMap({
                   Research
                   <span className="tracking-[0.15em] text-white/50">
                     {labCrew.staffed > 0
-                      ? `${formatRealTime(researchLeft)} left`
+                      ? `${formatRealTime(researchLeft, gameSpeed)} left`
                       : labCrew.claimed > 0
                         ? "On the way"
                         : "Stopped"}
@@ -1295,7 +1416,7 @@ export function GameMap({
               {weatherEvent(stormWarning.id).name} coming
               <span className="ml-3 tracking-[0.15em] text-white/60">
                 in {Math.ceil(stormWarning.hoursLeft)} h
-                <span className="ml-1.5 normal-case tracking-normal">(about {formatRealTime(stormWarning.hoursLeft)})</span>
+                <span className="ml-1.5 normal-case tracking-normal">(about {formatRealTime(stormWarning.hoursLeft, gameSpeed)})</span>
               </span>
             </p>
             <p className="mt-1 text-sm text-white/90">{weatherEvent(stormWarning.id).soon}</p>
@@ -1407,8 +1528,8 @@ export function GameMap({
               Era {era} over
             </h2>
             <p className="mt-4 text-sm text-white/70">
-              Every astronaut on {name} was evacuated to Earth. Nobody is left to run the base. A new crew can
-              land beside it and carry on.
+              Every astronaut on {name} was evacuated to Earth. Nobody is left to run the base. Once they are
+              well, they can fly back with a new crewmate, land beside it and carry on.
             </p>
             {/* The calendar's secret: the real days this era was played on, and what NASA saw then. */}
             <div className="mt-5 border-t border-white/10 pt-4 text-left">

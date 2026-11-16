@@ -57,8 +57,11 @@ export interface ClickKeys {
 
 export interface MapEvents {
   onHover: (cell: Cell | null) => void
-  /** A click or tap on a cell (not the end of a drag). */
-  onCellClick: (cell: Cell, keys: ClickKeys) => void
+  /**
+   * A click or tap on a cell (not the end of a drag), with where it was on the screen, in pixels
+   * from the map's top left.
+   */
+  onCellClick: (cell: Cell, keys: ClickKeys, screen: { x: number; y: number }) => void
   /** Null if the lander is already down. Otherwise the landing plays, and this is called at touchdown. */
   onLanded: (() => void) | null
 }
@@ -230,9 +233,11 @@ export async function createMapView(
   app.canvas.addEventListener("pointerleave", clearHover)
   // The camera reports a click only when the pointer didn't drag the map.
   viewport.on("clicked", (e) => {
+    // Only the main button (or a tap) clicks: the other buttons just drag the map.
+    if ("button" in e.event && e.event.button !== 0) return
     const cell = cellAt(e.world.x, e.world.y)
     // Taps have no shift key; mouse and pen clicks do.
-    if (cell) onCellClick(cell, { shift: "shiftKey" in e.event && Boolean(e.event.shiftKey) })
+    if (cell) onCellClick(cell, { shift: "shiftKey" in e.event && Boolean(e.event.shiftKey) }, { x: e.screen.x, y: e.screen.y })
   })
 
   return {
