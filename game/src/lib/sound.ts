@@ -1,26 +1,49 @@
 import { settingsStore } from "@/lib/settings"
+import { SILENCE, pickNext, silenceSeconds, type Track } from "@/lib/playlist"
 // Imported straight from the repo's root Audio/ folder: the build copies just these
 // files into the bundle, and vite.config.ts lets the dev server read that folder.
-import musicUrl from "../../../Audio/leberch-space-626368.mp3"
-import sfxSourceUrl from "../../../Audio/13999_BUBBLE_MP4.mp3"
 // "Discovery STS-131: Sound of Launch" from NASA's historical sounds
 // (https://www.nasa.gov/historical-sounds/), trimmed and reversed by the team to sound like a landing.
 import landingUrl from "../../../Audio/Launch.wav"
+// Background music: NASA sonifications of nebulae (space images turned into sound) ...
+// The Bubble Nebula one is also cut into the UI sounds below.
+import butterflyUrl from "../../../Audio/13998_Butterfly_MP4.mp3"
+import bubbleUrl from "../../../Audio/13999_BUBBLE_MP4.mp3"
+import pismisUrl from "../../../Audio/14246_PISMIS_VERT_MP4.mp3"
+import rsPuppisUrl from "../../../Audio/14260_RS_WIDE_MP4.mp3"
+import ngc2392Url from "../../../Audio/NGC 2392.mp3"
+import ngc1569Url from "../../../Audio/NGC_1569_VIDEO.mp3"
+// ... and two music tracks from Pixabay.
+import spaceMusicUrl from "../../../Audio/leberch-space-626368.mp3"
+import edmMusicUrl from "../../../Audio/jonasblakewood-edm-edm-music-350632.mp3"
 
 /**
- * Menu music and UI sounds, built only from the team's files in the root Audio/ folder.
+ * Background music and UI sounds, built only from the team's files in the root Audio/ folder.
  *
  * Browsers block audio until the player interacts, so nothing plays before
- * `unlockAudio()` runs from a click or key press.
+ * `unlockAudio()` and `startMusic()` run from a click or key press (see App.tsx).
  */
 
-const MUSIC_URL = musicUrl
+/** Everything the background music picks from; see lib/playlist.ts for how. */
+const TRACKS: Track[] = [
+  { id: "butterfly", kind: "nebula", url: butterflyUrl },
+  { id: "bubble", kind: "nebula", url: bubbleUrl },
+  { id: "pismis", kind: "nebula", url: pismisUrl },
+  { id: "rs-puppis", kind: "nebula", url: rsPuppisUrl },
+  { id: "ngc-2392", kind: "nebula", url: ngc2392Url },
+  { id: "ngc-1569", kind: "nebula", url: ngc1569Url },
+  { id: "space", kind: "music", url: spaceMusicUrl },
+  { id: "edm", kind: "music", url: edmMusicUrl },
+  SILENCE,
+]
 const MUSIC_LEVEL = 0.6 // music sits under the UI sounds even at full volume
+const FADE_IN_SECONDS = 2
+const FADE_OUT_SECONDS = 2
 
 // UI sounds are short slices of a NASA nebula sonification. `at` is roughly
 // where to cut (seconds); the loudest moment within `searchSeconds` of it is
 // used so a slice never lands on silence. Tune these by ear.
-const SFX_URL = sfxSourceUrl
+const SFX_URL = bubbleUrl
 const SFX = {
   hover: { at: 20, length: 0.09, rate: 1.6, gain: 0.25 },
   click: { at: 45, length: 0.16, rate: 1.2, gain: 0.55 },
@@ -33,6 +56,12 @@ export type SfxName = keyof typeof SFX
 
 let music: HTMLAudioElement | null = null
 let musicFade = 0
+let musicStarted = false
+let current: Track | null = null
+let lastHeard: Track | null = null // the last file played, remembered through quiet gaps
+let silenceTimer: ReturnType<typeof setTimeout> | undefined
+let fadingOut = false
+let failures = 0 // files in a row that would not play, so a broken build can't spin forever
 let context: AudioContext | null = null
 let slices: Partial<Record<SfxName, AudioBuffer>> = {}
 
@@ -103,22 +132,79 @@ export function unlockAudio() {
   if (context.state === "suspended") void context.resume()
 }
 
-export function startMusic() {
-  if (!music) {
-    music = new Audio(MUSIC_URL)
-    music.loop = true
-    music.volume = 0
-  }
-  if (music.paused) {
-    music.play().catch(() => {
-      /* still blocked; the next gesture retries */
-    })
-  }
-  fadeMusicTo(musicTarget(), 2)
+function musicElement() {
+  if (music) return music
+  const el = new Audio()
+  el.preload = "auto"
+  el.addEventListener("ended", playNextTrack)
+  el.addEventListener("error", skipBrokenTrack)
+  el.addEventListener("playing", () => {
+    failures = 0
+  })
+  // Fade out just before a track ends so it never stops dead.
+  el.addEventListener("timeupdate", () => {
+    if (!fadingOut && el.duration - el.currentTime < FADE_OUT_SECONDS) {
+      fadingOut = true
+      fadeMusicTo(0, FADE_OUT_SECONDS)
+    }
+  })
+  music = el
+  return el
 }
 
-export function stopMusic(fadeSeconds = 0.8) {
-  fadeMusicTo(0, fadeSeconds, () => music?.pause())
+function skipBrokenTrack() {
+  console.warn("[sound] could not play", current?.url)
+  if (++failures < TRACKS.length) playNextTrack()
+}
+
+function playTrack(track: Track) {
+  current = track
+  clearTimeout(silenceTimer)
+  cancelAnimationFrame(musicFade)
+  const el = musicElement()
+  if (track.kind === "silence" || !track.url) {
+    el.pause()
+    silenceTimer = setTimeout(playNextTrack, silenceSeconds() * 1000)
+    return
+  }
+  lastHeard = track
+  fadingOut = false
+  el.src = track.url
+  el.volume = 0
+  resumeTrack()
+}
+
+function resumeTrack() {
+  const el = musicElement()
+  el.play().then(
+    () => fadeMusicTo(musicTarget(), FADE_IN_SECONDS),
+    (error: unknown) => {
+      // Blocked until the player interacts: the next click or key press calls startMusic again.
+      if (error instanceof DOMException && error.name === "NotAllowedError") return
+      // A newer track replaced this one before it started: nothing went wrong.
+      if (error instanceof DOMException && error.name === "AbortError") return
+      skipBrokenTrack()
+    },
+  )
+}
+
+function playNextTrack() {
+  playTrack(pickNext(TRACKS, [current, lastHeard]))
+}
+
+/**
+ * Starts the background music, which then keeps going on every screen: a random nebula
+ * sonification, quiet gap or music track, one after another, never the same one twice in a row.
+ * Call from a user gesture. Safe to call repeatedly; it also retries a start the browser blocked.
+ */
+export function startMusic() {
+  if (!musicStarted) {
+    musicStarted = true
+    // Open with sound rather than a quiet gap, so the player can tell the music is on.
+    playTrack(pickNext(TRACKS, [SILENCE]))
+    return
+  }
+  if (current?.kind !== "silence" && music?.paused && !music.ended) resumeTrack()
 }
 
 export function playSfx(name: SfxName) {
@@ -184,5 +270,5 @@ export function playLanding(): () => void {
 
 // Follow volume and mute changes live.
 settingsStore.subscribe(() => {
-  if (music && !music.paused) fadeMusicTo(musicTarget(), 0.3)
+  if (music && !music.paused && !fadingOut) fadeMusicTo(musicTarget(), 0.3)
 })
