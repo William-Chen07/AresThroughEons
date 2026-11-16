@@ -85,12 +85,13 @@ def cylinder(material, center, radius, z_low, z_high, top_radius=None, sides=32,
     return _adopt(material, rotation)
 
 
-def sphere(material, center, radius, squash=1.0, stretch=None):
+def sphere(material, center, radius, squash=1.0, stretch=None, detail=16):
     """
     A ball at `center` (x, y, z). `squash` below 1 flattens it into a dome shape; `stretch`
-    (x, y, z) scales each direction on its own instead.
+    (x, y, z) scales each direction on its own instead. `detail` is how many sides it has round
+    the middle: use 8 or 12 for small or many balls, to keep the triangle count down.
     """
-    bpy.ops.mesh.primitive_uv_sphere_add(segments=16, ring_count=8, radius=radius, location=center)
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=detail, ring_count=detail // 2, radius=radius, location=center)
     obj = _adopt(material, None)
     obj.scale = stretch if stretch is not None else (1, 1, squash)
     return obj
