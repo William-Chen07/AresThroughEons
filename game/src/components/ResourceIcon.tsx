@@ -1,4 +1,4 @@
-import { Apple, Cable, Droplet, FlaskConical, Gem, Hexagon, Layers, Mountain, Smile, Snowflake, Wind, Zap, type LucideIcon } from "lucide-react"
+import { Apple, Cable, Droplet, FlaskConical, Gem, Hexagon, Layers, Mountain, Smile, Wind, Zap, type LucideIcon } from "lucide-react"
 import type { ResourceId } from "@/content/resources"
 
 /*
@@ -11,7 +11,6 @@ const ICONS: Record<ResourceId, LucideIcon> = {
   water: Droplet,
   food: Apple,
   power: Zap,
-  ice: Snowflake,
   regolith: Mountain, // the soil and rock of Mars
   morale: Smile,
   aluminum: Layers, // sheet metal

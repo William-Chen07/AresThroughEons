@@ -1,6 +1,6 @@
 import type { ModuleTypeId } from "@/content/modules"
 import type { VoxelTerrain } from "@/map/voxelTerrain"
-import { LANDER, MODULE, TUBE, cellsJoined, moduleDoorways, moduleRect, occupancy, type Base } from "@/sim/base"
+import { LANDER, MODULE, TUBE, cellsJoined, currentEra, decayedCells, isDecayed, moduleDoorways, moduleRect, occupancy, type Base } from "@/sim/base"
 import {
   BLOCKED,
   createStation,
@@ -19,7 +19,10 @@ import {
  *   map cell                     →  pathing tile
  *   open ground                  →  outside (the Martian surface), with its real height for slopes
  *   module or tube               →  inside, flat floor (tubes are the hallways between modules)
- *   the lander                   →  blocked
+ *   a lander                     →  blocked
+ *   a decayed module             →  blocked: one built in an earlier era, left worn down (see
+ *                                   decayedCells in sim/base.ts). It has no doorways, no air and
+ *                                   no station, so nobody goes inside, works or shelters there.
  *
  * Crew go in and out of a module only through its four doorways, one in the middle of each side
  * (see moduleDoorways in sim/base.ts): out onto open ground, or into a tube laid in front of one.
@@ -47,12 +50,14 @@ export const MODULE_PROVIDES: Partial<Record<ModuleTypeId, Exclude<UrgentNeed, "
 export const moduleStationId = (moduleId: string) => `module:${moduleId}`
 
 /**
- * Cells (index row * size + col) that are pressurized: every module and tube. Crew in them breathe
- * at the normal rate; out on the surface, on suit air, they use oxygen faster (see sim/lifeSupport.ts).
+ * Cells (index row * size + col) that are pressurized: every module and tube, except decayed
+ * modules. Crew in them breathe at the normal rate; out on the surface, on suit air, they use
+ * oxygen faster (see sim/lifeSupport.ts).
  */
 export function pressurizedCells(size: number, base: Base, built = occupancy(size, base)): Set<number> {
+  const decayed = decayedCells(size, base)
   const pressurized = new Set<number>()
-  for (let i = 0; i < size * size; i++) if (built[i] === MODULE || built[i] === TUBE) pressurized.add(i)
+  for (let i = 0; i < size * size; i++) if ((built[i] === MODULE || built[i] === TUBE) && !decayed.has(i)) pressurized.add(i)
   return pressurized
 }
 
@@ -72,23 +77,28 @@ export function syncNavigation(world: World, terrain: NavigationTerrain, base: B
   grid.airlocksRequired = false
 
   const built = occupancy(size, base)
+  const decayed = decayedCells(size, base)
   for (let i = 0; i < size * size; i++) {
     const what = built[i]
-    grid.zone[i] = what === MODULE || what === TUBE ? "inside" : "outside"
-    grid.cost[i] = what === LANDER ? BLOCKED : 1
+    const shut = decayed.has(i)
+    grid.zone[i] = (what === MODULE || what === TUBE) && !shut ? "inside" : "outside"
+    grid.cost[i] = what === LANDER || shut ? BLOCKED : 1
     grid.elevation[i] = terrain.metres[i]
   }
   const pressurized = pressurizedCells(size, base, built)
 
   // A doorway leads outside only if the cell in front of it is open ground (not another module,
-  // a tube, or off the edge of the map). One with a tube in front leads into the tube instead.
+  // a tube, a decayed module or off the edge of the map). One with a tube in front leads into the
+  // tube instead. Decayed modules have no doorways at all.
   const doors: number[] = []
   const onMap = (cell: { col: number; row: number }) => cell.col >= 0 && cell.row >= 0 && cell.col < size && cell.row < size
   for (const module of base.modules) {
     for (const { inside, outside } of moduleDoorways(moduleRect(module))) {
       if (!onMap(inside) || !onMap(outside)) continue
-      if (built[inside.row * size + inside.col] !== MODULE || grid.zone[outside.row * size + outside.col] !== "outside") continue
-      doors.push(inside.row * size + inside.col, outside.row * size + outside.col)
+      const from = inside.row * size + inside.col
+      const to = outside.row * size + outside.col
+      if (built[from] !== MODULE || decayed.has(from) || grid.zone[to] !== "outside" || grid.cost[to] === BLOCKED) continue
+      doors.push(from, to)
     }
   }
   grid.doors = doors
@@ -106,10 +116,12 @@ export function syncNavigation(world: World, terrain: NavigationTerrain, base: B
   }
   grid.walls = walls
 
-  // One walk-in station per module. Keep the Station object for modules that are still there,
-  // so any work done on them isn't lost; stations that aren't modules are left alone.
+  // One walk-in station per module that hasn't decayed. Keep the Station object for modules that
+  // are still there, so any work done on them isn't lost; stations that aren't modules are left alone.
   const existing = new Map(world.stations.map((s) => [s.id, s]))
-  const moduleStations: Station[] = base.modules.map((module) => {
+  const era = currentEra(base, size)
+  const working = base.modules.filter((module) => !isDecayed(module, era))
+  const moduleStations: Station[] = working.map((module) => {
     const id = moduleStationId(module.id)
     const rect = moduleRect(module)
     const provides = [...(MODULE_PROVIDES[module.type] ?? [])]

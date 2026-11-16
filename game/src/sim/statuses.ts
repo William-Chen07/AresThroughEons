@@ -63,7 +63,7 @@ export const STATUSES: Record<StatusId, StatusDef> = {
     id: "dehydrated",
     label: "Dehydrated",
     description: "No water left. Bodies can't last long without it.",
-    fix: "Melt ice that scouts find to make water.",
+    fix: "Send explorers to dig up ice: it melts into water.",
     severity: "serious",
     treatable: false,
     moralePenalty: 25,

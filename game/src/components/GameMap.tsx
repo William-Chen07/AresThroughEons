@@ -25,6 +25,7 @@ import {
   checkTubes,
   connectedGroups,
   landerFootprint,
+  isDecayed,
   moduleAt,
   occupancy,
   placementOrigin,
@@ -413,6 +414,12 @@ export function GameMap({
         setCrewMessage(
           baseOpen ? "Closed up the modules." : "You can see inside every module now. Click a module again to close them up.",
         )
+        return
+      }
+      // A module left from an earlier era has decayed: nobody can go inside it (see sim/navigation.ts).
+      const clicked = moduleAt(modules, cell)
+      if (clicked && isDecayed(clicked, era) && crew.selectedPawnIds.length > 0) {
+        setCrewMessage(`This ${moduleType(clicked.type).name} is from an earlier era and has fallen apart. Nobody can go inside.`)
         return
       }
       // A Research Lab holds one astronaut: send just one of the selected crew, and none if it's taken.
