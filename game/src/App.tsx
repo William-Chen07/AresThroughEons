@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { Backpack } from "@/components/Backpack"
 import { CrewPanel } from "@/components/CrewPanel"
 import { GameMap } from "@/components/GameMap"
 import { MainMenu } from "@/components/MainMenu"
@@ -6,6 +7,7 @@ import { devSiteOverride } from "@/map/marsSite"
 import { useSpaceCalendar } from "@/data/useSpaceCalendar"
 import { HOURS_PER_DAY, dayOf, describeSpaceEvent, eventsSoFar, latestNews, realDateAt, type Calendar } from "@/sim/calendar"
 import { useSaves } from "@/sim/saves"
+import { useSettings } from "@/lib/settings"
 
 type Screen = "menu" | "game"
 
@@ -48,6 +50,8 @@ function App() {
   const sendExploring = useSaves((s) => s.sendExploring)
   const nextEra = useSaves((s) => s.nextEra)
   const setCrewRole = useSaves((s) => s.setCrewRole)
+  // Once the map credits button is put away, the Backpack and Crew buttons drop down into its corner.
+  const creditsDismissed = useSettings((s) => s.mapCreditsDismissed)
   // Real NASA events for the calendar are fetched while the expedition is being played.
   useSpaceCalendar(activeSlot, screen === "game")
 
@@ -103,14 +107,21 @@ function App() {
           onExit={() => setScreen("menu")}
         />
 
-        {/* The crew system's details for this save (sim/crewLife.ts). Sits above the map credits button. */}
-        <button
-          type="button"
-          onClick={() => setShowCrew((v) => !v)}
-          className="fixed bottom-20 right-4 z-40 sm:bottom-24 sm:right-6 border border-white/15 bg-black/70 px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-white backdrop-blur-sm transition hover:border-orange-400/70 hover:bg-orange-950/85 hover:text-orange-100 focus-visible:outline-2 focus-visible:outline-orange-400"
+        {/* Bottom right, above the map credits button: the backpack (the ice and regolith dug up), then the
+            button for the crew system's details for this save (sim/crewLife.ts). Fixed above the crew
+            screen, so the Crew button can also close it. */}
+        <div
+          className={`pointer-events-none fixed right-4 z-40 flex flex-col items-end gap-2 sm:right-6 ${creditsDismissed ? "bottom-4 sm:bottom-6" : "bottom-20 sm:bottom-24"}`}
         >
-          {showCrew ? "Close crew" : "Crew"}
-        </button>
+          {!showCrew && <Backpack resources={save.resources} />}
+          <button
+            type="button"
+            onClick={() => setShowCrew((v) => !v)}
+            className="pointer-events-auto border border-white/15 bg-black/70 px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-white backdrop-blur-sm transition hover:border-orange-400/70 hover:bg-orange-950/85 hover:text-orange-100 focus-visible:outline-2 focus-visible:outline-orange-400"
+          >
+            {showCrew ? "Close crew" : "Crew"}
+          </button>
+        </div>
         {showCrew && (
           <div className="fixed inset-0 z-30 overflow-y-auto bg-[#020104]/95 pb-16 text-white">
             <CrewPanel

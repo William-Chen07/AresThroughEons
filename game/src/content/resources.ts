@@ -2,8 +2,10 @@
  * The base's resources. This is plain data on purpose: add a row to add a
  * resource, or change a starting amount or colour, without touching the game code.
  *
- * `start` is how much a new expedition lands with. `color` is the swatch shown
- * beside the name in the resource bar. `what` (what it is) and `why` (why it
+ * `start` is how much a new expedition lands with. `mined` marks the raw
+ * materials the crew dig out of Mars: those are carried in the backpack
+ * (bottom right of the map), the rest are shown in the resource bar along the
+ * top. `color` is the swatch shown beside the resource. `what` (what it is) and `why` (why it
  * matters on a NASA mission to Mars) are shown when the pointer rests on the
  * resource: kid-friendly, plain words, a science word explained where it is used.
  *
@@ -20,6 +22,7 @@
 export const RESOURCE_TYPES = [
   {
     id: "oxygen",
+    mined: false,
     name: "Oxygen",
     start: 100,
     color: 0x7fd4ff,
@@ -28,6 +31,7 @@ export const RESOURCE_TYPES = [
   },
   {
     id: "water",
+    mined: false,
     name: "Water",
     start: 100,
     color: 0x4f9fd9,
@@ -36,6 +40,7 @@ export const RESOURCE_TYPES = [
   },
   {
     id: "food",
+    mined: false,
     name: "Food",
     start: 100,
     color: 0x62b56c,
@@ -44,6 +49,7 @@ export const RESOURCE_TYPES = [
   },
   {
     id: "power",
+    mined: false,
     name: "Power",
     start: 100,
     color: 0xe0b040,
@@ -52,6 +58,7 @@ export const RESOURCE_TYPES = [
   },
   {
     id: "ice",
+    mined: true,
     name: "Ice",
     start: 100,
     color: 0xe6f2f8,
@@ -60,6 +67,7 @@ export const RESOURCE_TYPES = [
   },
   {
     id: "regolith",
+    mined: true,
     name: "Regolith",
     start: 100,
     color: 0xc8744a,
@@ -68,6 +76,7 @@ export const RESOURCE_TYPES = [
   },
   {
     id: "morale",
+    mined: false,
     name: "Morale",
     start: 100,
     color: 0xd98ad9,
@@ -77,6 +86,10 @@ export const RESOURCE_TYPES = [
 ] as const
 
 export type ResourceType = (typeof RESOURCE_TYPES)[number]
+/** The base's supplies, shown in the resource bar along the top. */
+export const BASE_RESOURCES = RESOURCE_TYPES.filter((type) => !type.mined)
+/** The raw materials dug out of Mars, carried in the backpack. */
+export const MINED_RESOURCES = RESOURCE_TYPES.filter((type) => type.mined)
 export type ResourceId = ResourceType["id"]
 /** How much of each resource a base has. */
 export type Resources = Record<ResourceId, number>

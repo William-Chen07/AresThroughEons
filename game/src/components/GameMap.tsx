@@ -6,6 +6,7 @@ import { ResourceIcon } from "@/components/ResourceIcon"
 import { ExploreMap } from "@/components/ExploreMap"
 import { ResearchPanel } from "@/components/ResearchPanel"
 import { ResourceBar } from "@/components/ResourceBar"
+import { useSettings } from "@/lib/settings"
 import { StormOverlay } from "@/components/StormOverlay"
 import { explorePlace } from "@/content/explore"
 import { exploreEvent } from "@/content/exploreEvents"
@@ -278,6 +279,11 @@ export function GameMap({
   const [exploreOpen, setExploreOpen] = useState(false)
   /** The map's data credits, bottom right. Folded away to start with. */
   const [creditsOpen, setCreditsOpen] = useState(false)
+  /** Whether the credits have been opened yet: only then can they be put away with the x. */
+  const [creditsSeen, setCreditsSeen] = useState(false)
+  /** Put away with the x for good (a setting kept in this browser), so the button stops covering the map. */
+  const creditsDismissed = useSettings((s) => s.mapCreditsDismissed)
+  const setSettings = useSettings((s) => s.setSettings)
   const [tool, setTool] = useState<BuildTool>(null)
   const [message, setMessage] = useState<string | null>(null)
   /** Where the run of tube being laid starts, once the first click of the tube tool has set it. */
@@ -868,26 +874,45 @@ export function GameMap({
               </>
             )}
           </p>
-          {/* The map's data credits: folded away until asked for, so they don't cover the map. */}
-          <div className="pointer-events-auto flex max-w-xl flex-col items-end gap-2">
-            {creditsOpen && (
-              <p id="map-credits" className={`${panelClass} py-2 text-[11px] text-white/50`}>
-                Drawn as pixel art from real Mars data, via NASA Mars Trek. Detail: Mars Odyssey THEMIS infrared mosaic,
-                NASA/JPL-Caltech/Arizona State University/USGS. Colour: Viking MDIM 2.1, NASA Ames/USGS. Elevation: MGS
-                MOLA, NASA GSFC/USGS. Colours are simplified and block heights exaggerated. Full credits are on the main
-                menu.
-              </p>
-            )}
-            <button
-              type="button"
-              aria-expanded={creditsOpen}
-              aria-controls="map-credits"
-              onClick={() => setCreditsOpen((open) => !open)}
-              className={buttonClass}
-            >
-              {creditsOpen ? "Hide map credits" : "Map credits"}
-            </button>
-          </div>
+          {/* The map's data credits: folded away until asked for, so they don't cover the map, and kept left of the
+              Backpack and Crew buttons (see App.tsx). Once they have been read, the x puts them away for good. */}
+          {!creditsDismissed && (
+            <div className="pointer-events-auto flex max-w-xl flex-col items-end gap-2">
+              {creditsOpen && (
+                <p id="map-credits" className={`${panelClass} mr-28 py-2 text-[11px] text-white/50`}>
+                  Drawn as pixel art from real Mars data, via NASA Mars Trek. Detail: Mars Odyssey THEMIS infrared
+                  mosaic, NASA/JPL-Caltech/Arizona State University/USGS. Colour: Viking MDIM 2.1, NASA Ames/USGS.
+                  Elevation: MGS MOLA, NASA GSFC/USGS. Colours are simplified and block heights exaggerated. Full
+                  credits are on the main menu.
+                </p>
+              )}
+              <div className="flex items-stretch gap-1">
+                <button
+                  type="button"
+                  aria-expanded={creditsOpen}
+                  aria-controls="map-credits"
+                  onClick={() => {
+                    setCreditsOpen((open) => !open)
+                    setCreditsSeen(true)
+                  }}
+                  className={buttonClass}
+                >
+                  {creditsOpen ? "Hide map credits" : "Map credits"}
+                </button>
+                {creditsSeen && (
+                  <button
+                    type="button"
+                    aria-label="Remove map credits"
+                    title="Remove map credits (they stay on the main menu)"
+                    onClick={() => setSettings({ mapCreditsDismissed: true })}
+                    className={buttonClass.replace("px-5", "px-3")}
+                  >
+                    <span aria-hidden>×</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
