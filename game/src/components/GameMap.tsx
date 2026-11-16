@@ -13,7 +13,7 @@ import { leavingAttr, usePresence } from "@/lib/motion"
 import { StormOverlay } from "@/components/StormOverlay"
 import { EXPLORE_UNLOCK_ERA, explorePlace, exploreUnlocked } from "@/content/explore"
 import { exploreEvent } from "@/content/exploreEvents"
-import { moduleType, type ModuleTypeId } from "@/content/modules"
+import { moduleType, type ModuleTypeId, moduleUnlockedBy } from "@/content/modules"
 import { eraColor, researchProject } from "@/content/research"
 import { RESOURCE_TYPES, type ResourceId, type Resources } from "@/content/resources"
 import { loadRichness } from "@/data/mineralMaps"
@@ -38,24 +38,18 @@ import {
   type Rect,
 } from "@/sim/base"
 import { describeFinds, type Trip, type TripNews, type TripReport } from "@/sim/explore"
-import { cannotExplore, urgentNeedOf } from "@/sim/crewLife"
+import { cannotExplore, researchRate, urgentNeedOf } from "@/sim/crewLife"
 import type { CrewMember } from "@/sim/lifeSupport"
 import { workSpeed } from "@/sim/pawn"
 import type { LogEntry, Pawn } from "@/sim/types"
 import { buildNavigation, pressurizedCells, syncNavigation } from "@/sim/navigation"
-import {
-  CLUMP,
-  depositAt,
-  depositIdOf,
-  depositStationId,
-  generateDeposits,
-  seedFrom,
-  type Deposit,
-} from "@/sim/deposits"
+import { depositAt, depositIdOf, generateDeposits, seedFrom, type Deposit, type MineralId } from "@/sim/deposits"
+import { miningChoices, sendToMine, syncDepositStations, type MiningChoice } from "@/sim/tasks"
+import { TaskMenu } from "@/components/TaskMenu"
 import {
   addPawn,
+  cancelOrder,
   clearSelection,
-  createStation,
   getZone,
   handleClick,
   isWalkable,
@@ -64,25 +58,32 @@ import {
   stationAt,
   pawnsAt,
   removePawn,
+  scaleFor,
   selectPawns,
   stepPathing,
   type ClickResult,
+  type Mover,
+  type Order,
   type PathingEvent,
   type Tile,
   type World,
 } from "@/sim/pathing"
-import { claimedLabCount, isLab, keepHidersResearching, labOf, pickLabWorker, sendResearcher, shelterRule, staffedLabs } from "@/sim/labs"
+import { claimedLabCount, isLab, keepHidersResearching, labOf, labSpeed, pickLabWorker, sendResearcher, shelterRule, staffedLabs } from "@/sim/labs"
 import type { CrewSpot } from "@/sim/saves"
 import { GAME_HOURS_PER_SECOND, formatRealTime } from "@/sim/clock"
+import { DAYLIGHT_HOURS, darkness, isNight } from "@/sim/dayNight"
+import { GAME_SPEEDS, gameSpeedStore, useGameSpeed } from "@/lib/gameSpeed"
 import { hoursLeft, type ResearchProgress } from "@/sim/research"
 import { playSfx } from "@/lib/sound"
 import type { Weather } from "@/sim/weather"
+import { HOURS_PER_DAY, TEST_ERUPTION_TRAVEL_HOURS, type TestSpaceEvent } from "@/sim/calendar"
 
 /*
  * The base map screen: the ground around the expedition's landing site, built
  * from NASA imagery and elevation (see map/), with the lander and the base on
  * it. For now the base (modules, and the tubes between them) is built by hand
- * from the Build bar (Build in the Actions dropdown, or the ` key).
+ * from the Build bar (Build in the Actions dropdown). The ` key opens the same bar as the dev
+ * console, where every module can be built whatever has been researched.
  * Modules and tubes turn see-through so the crew inside can be seen and clicked: only the module
  * someone is in, and the piece of tube someone is walking along. A click on a module opens up
  * every module to look inside (another click closes them up again).
@@ -103,6 +104,17 @@ type NameOf = (id: string) => string
 /** Suit colours for the map, by crewmate id (the crew system keeps them as "#rrggbb"). */
 const suitColors = (crew: readonly Pawn[]): Record<string, number> =>
   Object.fromEntries(crew.map((p) => [p.id, parseInt(p.color.slice(1), 16)]))
+
+/** How strong the night's shade over the map gets, from 0 to 1. Kept low enough that the map can still be read. */
+const NIGHT_SHADE = 0.6
+
+/** How full each astronaut's own oxygen tank is (0-100), by id, for the bars above them on the map. */
+const oxygenLevels = (crew: readonly Pawn[]): Record<string, number> =>
+  Object.fromEntries(crew.map((p) => [p.id, p.needs.oxygen]))
+
+/** Each astronaut's health (0-100), by id, for the bar that shows above them on the map once they're hurt. */
+const healthLevels = (crew: readonly Pawn[]): Record<string, number> =>
+  Object.fromEntries(crew.map((p) => [p.id, p.health]))
 
 /** Free open ground right round the lander, south side first, for the crew to step out onto. */
 function spotsBesideLander(world: World, footprint: Rect): Tile[] {
@@ -132,6 +144,29 @@ function workPlace(world: World, stationId: string) {
   return `to work in the ${placeName(world, stationId)}`
 }
 
+/** A task on an astronaut's task list, in a few words: "Mine Gold", "Work in the Habitat". */
+function taskName(world: World, order: Order) {
+  if (order.kind === "move") return "Walk to a spot"
+  if (depositIdOf(order.stationId)) {
+    const station = world.stations.find((s) => s.id === order.stationId)
+    return `Mine ${station ? mineralName(station.kind) : "a deposit"}`
+  }
+  return `Work in the ${placeName(world, order.stationId)}`
+}
+
+/** An astronaut's task list: what they're doing now and what comes after it, for the task menu. */
+function taskList(world: World, mover: Mover): { now: string; next: string[] } {
+  const next = mover.queue.map((order) => taskName(world, order))
+  // An urgent need (air, shelter from a storm…) comes first; the player's task waits for it.
+  if (mover.interrupt) {
+    const resume = mover.interrupt.resume
+    return { now: `Seeing to an urgent need (${mover.interrupt.need})`, next: resume ? [taskName(world, resume), ...next] : next }
+  }
+  if (!mover.order) return { now: "Nothing", next }
+  const task = taskName(world, mover.order)
+  return { now: mover.status === "working" ? task : `${task} (on the way)`, next }
+}
+
 /** Every cell of a rectangle. */
 const cellsOf = (rect: Rect): Cell[] =>
   Array.from({ length: rect.width * rect.height }, (_, i) => ({
@@ -150,7 +185,7 @@ function describeClick(world: World, result: ClickResult, nameOf: NameOf): strin
   const listNames = (ids: string[]) => ids.map(nameOf).join(", ")
   switch (result.kind) {
     case "selected":
-      return `${listNames(result.pawnIds)} selected. Click where to send them, a module to work in, or a mineral deposit to mine.`
+      return `${listNames(result.pawnIds)} selected. Click where to send them, a module to work in, or a mineral deposit to mine. Click an astronaut for their task list.`
     case "deselected":
       return "Nobody selected."
     case "nothing":
@@ -169,15 +204,22 @@ function describeClick(world: World, result: ClickResult, nameOf: NameOf): strin
   }
 }
 
-/** Crew events worth telling the player about, as plain words. */
-function describeEvent(event: PathingEvent, nameOf: NameOf): string | null {
+/** Crew events worth telling the player about, as plain words. `kindOf` is a station's kind (e.g. "research"). */
+function describeEvent(event: PathingEvent, nameOf: NameOf, kindOf: (stationId: string) => string | undefined): string | null {
   switch (event.type) {
     case "blocked":
     case "cancelled":
     case "needUnmet":
       return `${nameOf(event.pawnId)}: ${event.reason}`
+    case "workStarted":
+      return kindOf(event.stationId) === "research" || kindOf(event.stationId) === "research-pro"
+        ? `${nameOf(event.pawnId)} is doing research in the Research Lab.`
+        : null
     case "needInterrupt":
+      if (event.need === "rest") return `${nameOf(event.pawnId)} is sleepy and going to bed in the Habitat.`
       return event.need === "shelter" ? `${nameOf(event.pawnId)} is heading inside to shelter.` : null
+    case "needMet":
+      return event.need === "rest" ? `${nameOf(event.pawnId)} woke up, rested.` : null
     case "exposureChanged":
       return event.exposure === "outside"
         ? `${nameOf(event.pawnId)} stepped outside onto the surface.`
@@ -225,6 +267,10 @@ export function GameMap({
   onSendExploring,
   weather,
   onWeather,
+  stormWarning,
+  onStormSoon,
+  onSpaceEvent,
+  onTripEvent,
   onResetMap,
   era,
   landers,
@@ -236,6 +282,7 @@ export function GameMap({
   onTimePassed,
   deposits,
   onDepositsGenerated,
+  onResearchOpenChange,
   onExit,
 }: {
   name: string
@@ -273,6 +320,14 @@ export function GameMap({
   weather: Weather
   /** Starts a weather event now, or with null ends the one going on (from the Build panel). */
   onWeather: (id: WeatherId | null) => void
+  /** The storm coming soon and the game-hours until it starts (see stormWarning in sim/weather.ts), or null. */
+  stormWarning: { id: WeatherId; hoursLeft: number } | null
+  /** For testing from the Build panel: brings a radiation storm close, so its warning shows. */
+  onStormSoon: () => void
+  /** For testing from the Build panel: puts a test space event on the calendar now. */
+  onSpaceEvent: (kind: TestSpaceEvent) => void
+  /** For testing from the Build panel: makes an explore event happen to the first group out exploring. */
+  onTripEvent: (eventId: string) => void
   /**
    * Starts the expedition over at the same landing site, as if opened for the first time (from
    * the Build panel). This whole screen is then thrown away and built again, so the landing replays.
@@ -309,6 +364,8 @@ export function GameMap({
   deposits: Deposit[] | null
   /** Called once with the deposits generated for this map, to keep in the save. */
   onDepositsGenerated: (deposits: Deposit[]) => void
+  /** Told when the research screen opens or closes, so App can put its Backpack and Crew buttons away behind it. */
+  onResearchOpenChange: (open: boolean) => void
   onExit: () => void
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
@@ -318,9 +375,13 @@ export function GameMap({
   // The era and its landers only change when a new era starts, and the screen is built again then.
   const [mapEra] = useState({ era, landers })
   /** Every astronaut has been evacuated: the era is over and the game stands still until the player moves on. */
+  /** It is night at the base: the map is dark and the crew sleep (see sim/dayNight.ts). */
+  const night = isNight(dayProgress * HOURS_PER_DAY)
   const gameOver = crew.length > 0 && crew.every((member) => member.evacuated || evacuated.includes(member.id))
   /** The crew as of the last render, for the frame loop and callbacks (which outlive a render). */
   const rosterRef = useRef(crew)
+  /** How fast the clock runs (1×, 2× or 3×); the frame loop reads it from gameSpeedStore. */
+  const gameSpeed = useGameSpeed()
   // Both read the ref when called, so they never go stale and never need to change.
   const nameOf: NameOf = useCallback((id) => rosterRef.current.find((p) => p.id === id)?.name ?? id, [])
   const listNames = useCallback((ids: string[]) => ids.map(nameOf).join(", "), [nameOf])
@@ -333,7 +394,18 @@ export function GameMap({
   const [hovered, setHovered] = useState<Cell | null>(null)
   const [view, setView] = useState<MapView | null>(null)
   const [buildOpen, setBuildOpen] = useState(false)
+  /** The Build bar is open as the dev console (the ` key): everything in it is unlocked. */
+  const [devConsole, setDevConsole] = useState(false)
   const [researchOpen, setResearchOpen] = useState(false)
+  /** Evacuation shuttles in flight. The "era over" screen waits for the last one to leave. */
+  const [shuttles, setShuttles] = useState(0)
+  /** Ids of the astronauts a shuttle is on its way for, so nobody is sent two. */
+  const shuttleForRef = useRef(new Set<string>())
+  // App's Backpack and Crew buttons sit above everything, so tell it while research is open.
+  useEffect(() => {
+    onResearchOpenChange(researchOpen)
+    return () => onResearchOpenChange(false)
+  }, [researchOpen, onResearchOpenChange])
   const [exploreOpen, setExploreOpen] = useState(false)
   /** The map's data credits, bottom right. Folded away to start with. */
   const [creditsOpen, setCreditsOpen] = useState(false)
@@ -350,6 +422,26 @@ export function GameMap({
   const crewRef = useRef<{ terrain: VoxelTerrain; world: World } | null>(null)
   const [selectedCrew, setSelectedCrew] = useState<string[]>([])
   const [crewMessage, setCrewMessage] = useState<string | null>(null)
+  /**
+   * The astronaut whose task list is open (right-click them), where on the screen it opens, and
+   * what it shows, read when it opened.
+   */
+  const [taskMenu, setTaskMenu] = useState<{
+    pawnId: string
+    x: number
+    y: number
+    now: string
+    next: string[]
+    mining: MiningChoice[]
+  } | null>(null)
+  /** When the task list was last closed by a click outside it: that click only closes it. */
+  const menuClosedAtRef = useRef(0)
+  const closeTaskMenu = useCallback((how: "outside" | "escape") => {
+    if (how === "outside") menuClosedAtRef.current = performance.now()
+    setTaskMenu(null)
+  }, [])
+  /** The astronaut picked to Move from their task list: the next click on the map is where they go. */
+  const [movingFor, setMovingFor] = useState<string | null>(null)
   /** Whether the Crew list on the left is unfolded. */
   const [crewOpen, setCrewOpen] = useState(true)
   /** True once the player has clicked a module to see inside the base: every module is see-through until the next click on one. */
@@ -366,6 +458,8 @@ export function GameMap({
   const buildShown = usePresence(buildOpen, 250)
   const researchShown = usePresence(researchOpen, 300)
   const exploreShown = usePresence(exploreOpen, 380)
+  /** Ids of the astronauts in a Research Lab doing research right now, for the Crew list. */
+  const [researchers, setResearchers] = useState<string[]>([])
 
   // What's on screen belongs to this site and this try; anything else is still loading.
   const key = `${site.lat},${site.lon},${attempt}`
@@ -408,12 +502,34 @@ export function GameMap({
     [deposits],
   )
 
-  const handleCellClick = (cell: Cell, keys: ClickKeys) => {
+  const handleCellClick = (cell: Cell, keys: ClickKeys, screen: { x: number; y: number }) => {
     if (!terrain || !grid) return
     // With no dev tool picked, clicks are for the crew: pick an astronaut, then where to send them.
     if (!tool) {
       const crew = crewRef.current?.world
       if (!crew) return
+      const here = { x: cell.col, y: cell.row }
+      // A click that closed the task list does nothing else, unless it was on another astronaut.
+      const closedMenu = performance.now() - menuClosedAtRef.current < 500
+      menuClosedAtRef.current = 0
+      // After Move in an astronaut's task list, this click is where they go (shift adds it to their list).
+      if (movingFor) {
+        setMovingFor(null)
+        if (!crew.movers[movingFor]) return setCrewMessage(null)
+        setCrewMessage(describeClick(crew, orderGroup(crew, [movingFor], { kind: "move", target: here }, keys.shift), nameOf))
+        return
+      }
+      // Clicking an astronaut picks them and opens their task list. Shift-click picks several instead.
+      const [astronaut] = pawnsAt(crew, here)
+      if (astronaut && !keys.shift) {
+        selectPawns(crew, [astronaut.pawnId])
+        setSelectedCrew([astronaut.pawnId])
+        const mining = deposits ? miningChoices(crew, deposits, astronaut.pawnId) : []
+        setTaskMenu({ pawnId: astronaut.pawnId, ...screen, ...taskList(crew, astronaut), mining })
+        setCrewMessage(`${nameOf(astronaut.pawnId)} selected. Pick a task, or click where to send them.`)
+        return
+      }
+      if (closedMenu) return
       // With nobody selected, clicking a module (not an astronaut in it) opens up every module to
       // see inside, or closes them all again.
       const tile = { x: cell.col, y: cell.row }
@@ -490,7 +606,28 @@ export function GameMap({
     onBaseChange({ modules: [...modules, check.module], tubes })
     setMessage(`Placed a ${moduleType(tool.type).name}. It isn't joined to anything until you lay a tube to it.`)
   }
-  // The map calls this through a ref, so it always gets the latest tool and modules without being rebuilt.
+  /** Move, from an astronaut's task list: the next click on the map is where they go. */
+  const moveFromMenu = (pawnId: string) => {
+    setTaskMenu(null)
+    setMovingFor(pawnId)
+    setCrewMessage(`Click where ${nameOf(pawnId)} should go. Shift-click adds it to their task list. Esc cancels.`)
+  }
+  /** Sends the astronaut whose task list is open to mine (one mineral, or the nearest deposit). */
+  const mineFromMenu = (pawnId: string, mineral: MineralId | null, queue: boolean) => {
+    const crew = crewRef.current?.world
+    setTaskMenu(null)
+    if (!crew || !deposits) return
+    setCrewMessage(describeClick(crew, sendToMine(crew, deposits, pawnId, mineral, queue), nameOf))
+  }
+  /** Stops the astronaut whose task list is open, and clears the list. */
+  const stopFromMenu = (pawnId: string) => {
+    const crew = crewRef.current?.world
+    setTaskMenu(null)
+    if (!crew) return
+    cancelOrder(crew, pawnId)
+    setCrewMessage(`${nameOf(pawnId)} stopped. Their task list is clear.`)
+  }
+  // The map calls these through refs, so they always get the latest tool and modules without being rebuilt.
   const onCellClickRef = useRef(handleCellClick)
   useEffect(() => {
     onCellClickRef.current = handleCellClick
@@ -505,7 +642,7 @@ export function GameMap({
       terrain,
       {
         onHover: setHovered,
-        onCellClick: (cell, keys) => onCellClickRef.current(cell, keys),
+        onCellClick: (cell, keys, screen) => onCellClickRef.current(cell, keys, screen),
         onLanded: showLanding ? () => onLandedRef.current() : null,
       },
       mapEra,
@@ -561,36 +698,19 @@ export function GameMap({
   }, [terrain, grid, deposits, site])
 
   // Each deposit is a place on the crew's map to work at (mine), standing beside it. A deposit
-  // that's mined out is taken off, which stops anyone mining it.
+  // that's mined out is taken off, which stops anyone mining it (see sim/tasks.ts).
   const minedOutRef = useRef<Set<string> | null>(null)
   useEffect(() => {
     const crew = crewRef.current
     if (!terrain || !crew || crew.terrain !== terrain || !deposits) return
-    const { world } = crew
-    const left = new Map(deposits.filter((d) => d.amount > 0).map((d) => [depositStationId(d.id), d]))
-    const gone = world.stations.filter((station) => depositIdOf(station.id) && !left.has(station.id))
-    world.stations = world.stations.filter((station) => !gone.includes(station))
-    for (const [id, deposit] of left) {
-      if (world.stations.some((station) => station.id === id)) continue
-      // The whole clump is the station; crew stand anywhere around its edge to mine it.
-      const half = Math.floor(CLUMP / 2)
-      world.stations.push(
-        createStation(world.grid, {
-          id,
-          kind: deposit.mineral,
-          x: deposit.col - half,
-          y: deposit.row - half,
-          width: CLUMP,
-          height: CLUMP,
-        }),
-      )
-    }
+    const gone = syncDepositStations(crew.world, deposits)
+    const left = new Set(crew.world.stations.filter((station) => depositIdOf(station.id)).map((station) => station.id))
     // Only deposits that run out while the map is open are news (not ones gone before it opened).
     if (minedOutRef.current) {
       const last = gone.find((station) => minedOutRef.current?.has(station.id))
       if (last) setCrewMessage(`The ${mineralName(last.kind)} deposit is mined out.`)
     }
-    minedOutRef.current = new Set(left.keys())
+    minedOutRef.current = left
   }, [terrain, base, deposits])
 
   useEffect(() => {
@@ -599,6 +719,8 @@ export function GameMap({
 
   /** Ids of the astronauts out exploring: they are off this map until they are back. */
   const away = useMemo(() => trips.flatMap((trip) => trip.crew), [trips])
+  // The astronaut whose task list is open. If they've left the map (out exploring, or evacuated), it closes.
+  const taskMember = taskMenu ? crew.find((m) => m.id === taskMenu.pawnId && !m.evacuated && !away.includes(m.id)) : undefined
 
   /** Where the crew were when the map was last open: used once, as they are put back on the map. */
   const savedSpotsRef = useRef(crewSpots)
@@ -672,22 +794,43 @@ export function GameMap({
     if (newest && newest.kind !== "info") queueMicrotask(() => setCrewMessage(newest.text))
   }, [crewLog])
 
-  // An astronaut who has just been evacuated leaves the map.
+  // An astronaut who has just been evacuated stops where they are, and the shuttle (the craft the
+  // crew landed in) comes down to pick them up: they leave the map when it does.
   useEffect(() => {
     const crew = crewRef.current?.world
     if (!crew) return
-    const leaving = evacuated.filter((id) => crew.movers[id])
+    const leaving = evacuated.filter((id) => crew.movers[id] && !shuttleForRef.current.has(id))
     if (leaving.length === 0) return
-    for (const id of leaving) removePawn(crew, id)
+    for (const id of leaving) {
+      const board = () => {
+        const world = crewRef.current?.world
+        if (!world?.movers[id]) return
+        removePawn(world, id)
+        setSelectedCrew([...world.selectedPawnIds])
+        // Drawn here too, because once the era is over the frame loop no longer draws the crew.
+        view?.drawCrew(world, suitColors(rosterRef.current), oxygenLevels(rosterRef.current), healthLevels(rosterRef.current))
+      }
+      if (!view) {
+        board()
+        continue
+      }
+      cancelOrder(crew, id)
+      shuttleForRef.current.add(id)
+      view.flyShuttleTo(crew.movers[id].pos, board, () => {
+        shuttleForRef.current.delete(id)
+        setShuttles(shuttleForRef.current.size)
+      })
+    }
     // Out of an effect's own run, as the other map callbacks do, so the panel updates after the map has.
     queueMicrotask(() => {
+      setShuttles(shuttleForRef.current.size)
       setSelectedCrew([...crew.selectedPawnIds])
       const why = leaving.map((id) => rosterRef.current.find((p) => p.id === id)?.evacuated?.reason).find(Boolean)
       setCrewMessage(
         `${listNames(leaving)} ${leaving.length === 1 ? "was" : "were"} evacuated to Earth to get well${why ? ` (${why})` : ""}.`,
       )
     })
-  }, [evacuated, listNames])
+  }, [evacuated, listNames, view])
 
   const onTimePassedRef = useRef(onTimePassed)
   /** Set when the map is being reset: game time not handed to the save yet belongs to the old game and is dropped. */
@@ -716,6 +859,8 @@ export function GameMap({
     const unsaved = { hours: 0, ms: 0, labHours: 0 }
     /** Labs staffed and claimed as last told to React, so it only re-renders when they change. */
     let shownLabs = { staffed: 0, claimed: 0 }
+    /** Who was last shown as researching, as sorted ids joined by commas. */
+    let shownResearchers = ""
     /** What was last made see-through for the crew inside, so the map is only told when it changes. */
     let shownInside = ""
     /** Fades only the modules someone is in, and only the pieces of tube someone is walking along. */
@@ -765,29 +910,46 @@ export function GameMap({
       if (!crew) return
       // Once the era is over everything stands still: no clock, no weather, nobody moves.
       if (gameOverRef.current) {
-        view.drawCrew(crew, suitColors(rosterRef.current))
+        view.drawCrew(crew, suitColors(rosterRef.current), oxygenLevels(rosterRef.current), healthLevels(rosterRef.current))
         return
       }
-      // A long gap (the tab was hidden) shouldn't make everyone teleport.
-      const dtHours = (Math.min(deltaMs, 100) / 1000) * GAME_HOURS_PER_SECOND
+      // A long gap (the tab was hidden) shouldn't make everyone teleport. At 2× or 3× the clock
+      // runs that many times faster, so everything (walking, needs, research, weather) speeds up.
+      const speed = gameSpeedStore.getState().speed
+      const dtHours = (Math.min(deltaMs, 100) / 1000) * GAME_HOURS_PER_SECOND * speed
       // The crew rules decide what's urgent (sim/crewLife.ts): in a storm everyone needs shelter,
       // and so does anyone injured, short of oxygen or at the radiation limit. A Research Lab still
       // holds one astronaut, so nobody shelters in a lab someone else is using.
       const storm = stormRef.current
       const pawnOf = (id: string) => rosterRef.current.find((p) => p.id === id)
       const canFix = (need: string) => crew.stations.some((station) => station.provides.includes(need as never))
-      const events = stepPathing(crew, dtHours, {
+      const pathingOptions: Parameters<typeof stepPathing>[2] = {
         urgentNeed: (id) => urgentNeedOf(pawnOf(id), storm, canFix),
         workRate: (id) => {
           const pawn = pawnOf(id)
           return pawn ? workSpeed(pawn) : 1
         },
+        // Someone asleep doesn't move, except to get to a bed (or indoors) once they've dozed off.
+        walkSpeed: (id) =>
+          pawnOf(id)?.activity === "sleeping" && !crew.movers[id]?.interrupt ? 0 : scaleFor(crew.grid).walkTilesPerHour,
         canShelterAt: storm ? shelterRule(crew) : undefined,
-      })
+      }
+      // Sped up, the crew walk in steps no bigger than at 1×, so they still turn corners and stop
+      // at doors exactly where they would have.
+      const events: ReturnType<typeof stepPathing> = []
+      for (let i = 0; i < speed; i++) events.push(...stepPathing(crew, dtHours / speed, pathingOptions))
       if (storm) keepHidersResearching(crew)
-      // Each lab with its astronaut inside puts one astronaut's work into the research. In a storm,
-      // an astronaut hiding in a lab nobody was sent to counts as working in it.
-      const staffed = staffedLabs(crew, storm).length
+      // Each lab with its astronaut inside puts that astronaut's work into the research: a trained
+      // Researcher does more than anyone else (see researchRate). In a storm, an astronaut hiding in
+      // a lab nobody was sent to counts as working in it.
+      const inLabs = staffedLabs(crew, storm)
+      const staffed = inLabs.length
+      const labWork = inLabs.reduce((sum, lab) => sum + researchRate(pawnOf(lab.pawnId)) * labSpeed(crew, lab.stationId), 0)
+      const researcherIds = inLabs.map((lab) => lab.pawnId).sort().join(",")
+      if (researcherIds !== shownResearchers) {
+        shownResearchers = researcherIds
+        setResearchers(researcherIds ? researcherIds.split(",") : [])
+      }
       const claimed = claimedLabCount(crew, storm)
       if (staffed !== shownLabs.staffed || claimed !== shownLabs.claimed) {
         // The last astronaut working in a lab just left it: research stops, and the player is told.
@@ -803,13 +965,14 @@ export function GameMap({
       // at the base or out exploring.
       if (Object.keys(crew.movers).length > 0 || someoneAwayRef.current) {
         unsaved.hours += dtHours
-        unsaved.labHours += dtHours * staffed
+        unsaved.labHours += dtHours * labWork
         unsaved.ms += deltaMs
         if (unsaved.ms >= 1000) handOver()
       }
-      view.drawCrew(crew, suitColors(rosterRef.current))
+      view.drawCrew(crew, suitColors(rosterRef.current), oxygenLevels(rosterRef.current), healthLevels(rosterRef.current))
       showCrewInside(crew)
-      const said = events.map((event) => describeEvent(event, nameOf)).filter((line) => line !== null)
+      const kindOf = (stationId: string) => crew.stations.find((station) => station.id === stationId)?.kind
+      const said = events.map((event) => describeEvent(event, nameOf, kindOf)).filter((line) => line !== null)
       if (said.length > 0) setCrewMessage(said[said.length - 1])
     })
     return () => {
@@ -865,15 +1028,27 @@ export function GameMap({
         }
         return
       }
+      // 1, 2 and 3 set how fast time runs.
+      const picked = GAME_SPEEDS.find((speed) => e.key === String(speed))
+      if (picked && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
+        gameSpeedStore.getState().setSpeed(picked)
+        return
+      }
+      // The ` key opens the dev console, or closes it. Over the Build bar, it turns that into the dev console.
       if (e.code === "Backquote") {
-        setBuildOpen((open) => !open)
+        const closing = buildOpen && devConsole
+        setBuildOpen(!closing)
+        setDevConsole(!closing)
         setTool(null)
         setTubeStart(null)
         setMessage(null)
       }
       // Esc first lets go of a run of tube that has been started, then of the tool itself, then of the selected crew.
       if (e.key === "Escape") {
-        if (tubeStart) setTubeStart(null)
+        if (movingFor) {
+          setMovingFor(null)
+          setCrewMessage(null)
+        } else if (tubeStart) setTubeStart(null)
         else if (tool) setTool(null)
         else if (crewRef.current) {
           clearSelection(crewRef.current.world)
@@ -884,11 +1059,12 @@ export function GameMap({
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [tubeStart, tool, researchOpen, exploreOpen])
+  }, [tubeStart, tool, researchOpen, exploreOpen, buildOpen, devConsole, movingFor])
 
-  /** Closes the Build panel and puts down whatever tool was in hand. */
+  /** Closes the Build panel (or the dev console) and puts down whatever tool was in hand. */
   const closeBuild = () => {
     setBuildOpen(false)
+    setDevConsole(false)
     pickTool(null)
   }
 
@@ -907,7 +1083,7 @@ export function GameMap({
     )
   }
 
-  const labCount = modules.filter((module) => module.type === "research").length
+  const labCount = modules.filter((module) => module.type === "research" || module.type === "research-pro").length
 
   /**
    * The Research button in the research tree: the project becomes the one being researched. If no
@@ -936,7 +1112,9 @@ export function GameMap({
     researchedRef.current = researched
     const finished = researched.find((id) => !before.includes(id))
     const project = finished ? researchProject(finished) : undefined
-    if (project) queueMicrotask(() => setCrewMessage(`Research finished: ${project.name}.`))
+    const unlocks = finished ? moduleUnlockedBy(finished) : undefined
+    const built = unlocks ? ` The ${unlocks.name} can now be built: find it in the Build bar.` : ""
+    if (project) queueMicrotask(() => setCrewMessage(`Research finished: ${project.name}.${built}`))
   }, [researched])
 
   const activeProject = researchProgress.active ? researchProject(researchProgress.active) : undefined
@@ -951,8 +1129,30 @@ export function GameMap({
   return (
     <main className="relative h-dvh w-full overflow-hidden bg-[#020104] text-white">
       <div ref={hostRef} className="absolute inset-0 touch-none" />
+      {/* Night: a blue shade over the map, under the storm and the panels. It lets clicks through, and
+          fades slowly because the clock only reaches here about once a second. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 bg-[#2a3470] mix-blend-multiply transition-opacity duration-1000 ease-linear"
+        style={{ opacity: darkness(dayProgress * HOURS_PER_DAY) * NIGHT_SHADE }}
+      />
+      {/* An astronaut's task list, opened by right-clicking them. */}
+      {taskMenu && taskMember && (
+        <TaskMenu
+          name={taskMember.name}
+          color={taskMember.color}
+          position={{ x: taskMenu.x, y: taskMenu.y }}
+          now={taskMenu.now}
+          next={taskMenu.next}
+          mining={taskMenu.mining}
+          onMove={() => moveFromMenu(taskMenu.pawnId)}
+          onMine={(mineral, queue) => mineFromMenu(taskMenu.pawnId, mineral, queue)}
+          onStop={() => stopFromMenu(taskMenu.pawnId)}
+          onClose={closeTaskMenu}
+        />
+      )}
       {/* The storm's glow and clouds over the map. */}
-      {weather && terrain && <StormOverlay />}
+      {weather && terrain && <StormOverlay storm={weather.id} />}
 
       {/* Panels sit over the map but let drags and clicks through to it. */}
       {/* While the Build bar is open, what sits along the bottom moves up above it (see BuildPanel). */}
@@ -967,11 +1167,40 @@ export function GameMap({
               <p className={kickerClass}>
                 {name} · Era {era}
               </p>
-              <p className="holo-title mt-1 text-2xl font-semibold uppercase tracking-[0.2em] tabular-nums">Day {day}</p>
-              {/* How far through today the clock is. */}
-              <div className="mt-2 h-1.5 w-full bg-cyan-300/15" aria-hidden>
-                <div className="h-full bg-cyan-300 shadow-[0_0_8px_rgb(103_232_249/0.8)]" style={{ width: `${Math.round(dayProgress * 100)}%` }} />
+              <div className="mt-1 flex items-center justify-between gap-3">
+                <p className="holo-title text-2xl font-semibold uppercase tracking-[0.2em] tabular-nums">Day {day}</p>
+                {/* How fast time runs. The 1, 2 and 3 keys pick these too. */}
+                <div role="group" aria-label="Game speed" className="pointer-events-auto flex">
+                  {GAME_SPEEDS.map((speed) => (
+                    <button
+                      key={speed}
+                      type="button"
+                      aria-pressed={gameSpeed === speed}
+                      title={`${speed}× speed (key ${speed})`}
+                      onClick={() => gameSpeedStore.getState().setSpeed(speed)}
+                      className={`-ml-px border px-2 py-1 text-xs font-semibold tabular-nums transition first:ml-0 focus-visible:relative focus-visible:outline-2 focus-visible:outline-cyan-300 ${
+                        gameSpeed === speed
+                          ? "relative border-amber-300/80 bg-amber-400/20 text-amber-50"
+                          : "border-cyan-300/25 bg-cyan-300/5 text-white/60 hover:border-cyan-300/80 hover:bg-cyan-400/15 hover:text-cyan-100"
+                      }`}
+                    >
+                      {speed}×
+                    </button>
+                  ))}
+                </div>
               </div>
+              {/* How far through today the clock is. The blue end of the bar is the night. */}
+              <div
+                className="relative mt-2 h-1.5 w-full bg-cyan-300/15"
+                title={night ? "Night: the crew sleep" : "Daytime"}
+                aria-hidden
+              >
+                <div className="absolute inset-y-0 right-0 bg-indigo-400/30" style={{ width: `${(1 - DAYLIGHT_HOURS / HOURS_PER_DAY) * 100}%` }} />
+                <div className={`relative h-full ${night ? "bg-indigo-300/90" : "bg-cyan-300 shadow-[0_0_8px_rgb(103_232_249/0.8)]"}`} style={{ width: `${Math.round(dayProgress * 100)}%` }} />
+              </div>
+              <p className="sr-only" aria-live="polite">
+                {night ? "Night" : "Daytime"}
+              </p>
               {/* The latest real solar event on the calendar. */}
               {spaceNews && (
                 <p className="mt-2 text-xs leading-snug text-cyan-100" aria-live="polite">
@@ -1002,6 +1231,18 @@ export function GameMap({
                       const isAway = away.includes(member.id)
                       const gone = isEvacuated || isAway
                       const selected = selectedCrew.includes(member.id) && !isAway
+                      // What they're up to, shown at the end of the row.
+                      const doing = isEvacuated
+                        ? { label: "Evacuated", className: "text-orange-300/80" }
+                        : isAway
+                          ? { label: "Exploring", className: "text-emerald-300/80" }
+                          : member.activity === "sleeping"
+                            ? { label: "Sleeping", className: "text-indigo-200/80" }
+                            : researchers.includes(member.id)
+                              ? { label: "Researching", className: "text-sky-300/90" }
+                              : selected
+                                ? { label: "Selected", className: "text-amber-200" }
+                                : null
                       return (
                         <li key={member.id} className="fx-unfold-item" style={{ "--i": i } as CSSProperties}>
                           {/* One row per astronaut. Clicking it selects them, like clicking them on the map. */}
@@ -1021,12 +1262,8 @@ export function GameMap({
                             <span className="flex items-center gap-1.5 text-[11px] font-semibold">
                               <span className="size-2 shrink-0 rounded-full" style={{ background: member.color }} />
                               <span className="truncate">{member.name}</span>
-                              {isEvacuated ? (
-                                <span className="ml-auto text-[9px] uppercase tracking-[0.15em] text-orange-300/80">Evacuated</span>
-                              ) : isAway ? (
-                                <span className="ml-auto text-[9px] uppercase tracking-[0.15em] text-white/50">Exploring</span>
-                              ) : (
-                                selected && <span className="ml-auto text-[9px] uppercase tracking-[0.15em] text-amber-200">Selected</span>
+                              {doing && (
+                                <span className={`ml-auto text-[9px] uppercase tracking-[0.15em] ${doing.className}`}>{doing.label}</span>
                               )}
                             </span>
                             {!gone && (
@@ -1059,7 +1296,7 @@ export function GameMap({
           <div className="flex flex-col items-end gap-3">
             {/* The resources run along the top. */}
             <ResourceBar resources={resources} />
-            {/* Build, Research and Explore, folded into one dropdown. The ` key still toggles Build. */}
+            {/* Build, Research and Explore, folded into one dropdown. The ` key opens the dev console. */}
             {terrain && (
               <Menu.Root>
                 <Menu.Trigger className={`${buttonClass} flex items-center gap-3 data-popup-open:border-cyan-300/80 data-popup-open:bg-cyan-950/85`}>
@@ -1072,7 +1309,15 @@ export function GameMap({
                   <Menu.Positioner className="z-50 outline-hidden" side="bottom" align="end" sideOffset={4}>
                     <Menu.Popup className="fx-menu min-w-[var(--anchor-width)] border border-cyan-300/25 holo-surface py-1 text-white outline-hidden backdrop-blur-sm">
                       {[
-                        { label: buildOpen ? "Close build" : "Build", onClick: () => (buildOpen ? closeBuild() : setBuildOpen(true)), show: true },
+                        {
+                          label: buildOpen && !devConsole ? "Close build" : "Build",
+                          // From the dev console, Build goes back to the player's Build bar, with its locks.
+                          onClick: () => {
+                            closeBuild()
+                            if (!buildOpen || devConsole) setBuildOpen(true)
+                          },
+                          show: true,
+                        },
                         { label: "Research", onClick: () => setResearchOpen(true), show: true },
                         // Exploring needs the Rover, so it stays locked (but in sight) until its era.
                         {
@@ -1136,7 +1381,7 @@ export function GameMap({
                   Research
                   <span className="tracking-[0.15em] text-white/50">
                     {labCrew.staffed > 0
-                      ? `${formatRealTime(researchLeft)} left`
+                      ? `${formatRealTime(researchLeft, gameSpeed)} left`
                       : labCrew.claimed > 0
                         ? "On the way"
                         : "Stopped"}
@@ -1232,6 +1477,7 @@ export function GameMap({
       {buildShown.mounted && terrain && (
         <div className="fx-build pointer-events-none absolute inset-x-0 bottom-0 z-20" {...leavingAttr(buildShown.leaving)}>
           <BuildPanel
+            dev={devConsole}
             tool={tool}
             researched={researched}
             onTool={pickTool}
@@ -1240,8 +1486,28 @@ export function GameMap({
             tubeCells={tubes.length}
             groupCount={groupCount}
             message={message}
-            stormActive={weather !== null}
-            onStorm={() => onWeather(weather ? null : "radiation-storm")}
+            weather={weather?.id ?? null}
+            onWeather={(id) => {
+              onWeather(id)
+              setMessage(id ? `Started a ${weatherEvent(id).name.toLowerCase()}.` : "Ended the storm.")
+            }}
+            onStormSoon={() => {
+              onStormSoon()
+              setMessage(`A radiation storm is coming in ${weatherEvent("radiation-storm").warnHours} h: watch for the warning.`)
+            }}
+            onSpaceEvent={(kind) => {
+              onSpaceEvent(kind)
+              setMessage(
+                kind === "eruptionToMars"
+                  ? `Test eruption sent towards Mars: its storm hits in ${TEST_ERUPTION_TRAVEL_HOURS} h.`
+                  : "Test space event added: see the Space news under the day.",
+              )
+            }}
+            tripsOut={trips.length}
+            onTripEvent={(id) => {
+              onTripEvent(id)
+              setMessage(`${exploreEvent(id)?.name ?? "The event"} will happen to the group out exploring.`)
+            }}
             onResetMap={() => {
               resettingRef.current = true
               onResetMap()
@@ -1260,11 +1526,34 @@ export function GameMap({
         </div>
       )}
 
+      {/* A storm coming soon: which one, how long until it hits, and to get the crew in. */}
+      {!weather && stormWarning && terrain && (
+        <div className="pointer-events-none absolute inset-x-0 top-20 z-10 flex justify-center px-4" role="alert">
+          <div className="fx-alarm holo-surface holo-frame max-w-md border border-amber-300/70 px-5 py-3 backdrop-blur-sm [--holo:252_211_77]">
+            <p className="holo-text text-xs font-semibold uppercase tracking-[0.3em] text-amber-200">
+              {weatherEvent(stormWarning.id).name} coming
+              <span className="ml-3 tracking-[0.15em] text-white/60">
+                in {Math.ceil(stormWarning.hoursLeft)} h
+                <span className="ml-1.5 normal-case tracking-normal">(about {formatRealTime(stormWarning.hoursLeft, gameSpeed)})</span>
+              </span>
+            </p>
+            <p className="mt-1 text-sm text-white/90">{weatherEvent(stormWarning.id).soon}</p>
+          </div>
+        </div>
+      )}
+
       {/* A weather event going on: what it is, what to do, and how long is left. */}
       {weather && terrain && (
         <div className="pointer-events-none absolute inset-x-0 top-20 z-10 flex justify-center px-4" role="alert">
-          <div className="fx-alarm holo-surface holo-frame holo-alert max-w-md border border-orange-400/70 px-5 py-3 backdrop-blur-sm">
-            <p className="holo-text text-xs font-semibold uppercase tracking-[0.3em] text-orange-300">
+          {/* A solar storm's banner is yellow and orange, like its glow on the map. */}
+          <div
+            className={`fx-alarm holo-surface holo-frame holo-alert max-w-md border px-5 py-3 backdrop-blur-sm ${
+              weather.id === "solar-storm"
+                ? "border-yellow-400/80 bg-linear-to-br from-orange-950/95 to-neutral-950/90"
+                : "border-orange-400/70"
+            }`}
+          >
+            <p className={`holo-text text-xs font-semibold uppercase tracking-[0.3em] ${weather.id === "solar-storm" ? "text-yellow-300" : "text-orange-300"}`}>
               {weatherEvent(weather.id).name}
               <span className="ml-3 tracking-[0.15em] text-white/50">{Math.ceil(weather.hoursLeft)} h left</span>
             </p>
@@ -1297,7 +1586,11 @@ export function GameMap({
           })}
           trips={trips}
           tripLog={tripLog}
-          onSend={onSendExploring}
+          onSend={(placeId, crewIds) => {
+            onSendExploring(placeId, crewIds)
+            const place = explorePlace(placeId)?.name ?? "somewhere new"
+            setCrewMessage(`${listNames(crewIds)} set off to explore the ${place}.`)
+          }}
           onClose={() => setExploreOpen(false)}
         />
       )}
@@ -1350,15 +1643,15 @@ export function GameMap({
       )}
 
       {/* PLACEHOLDER game over: shows once every astronaut has been evacuated. */}
-      {gameOver && (
+      {gameOver && shuttles === 0 && (
         <div className="fx-gameover absolute inset-0 z-40 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
           <div role="alertdialog" aria-labelledby="game-over-title" className="fx-gameover-card holo-surface holo-frame max-w-md border border-cyan-300/25 p-8 text-center">
             <h2 id="game-over-title" className="holo-title text-lg font-semibold uppercase tracking-[0.25em]">
               Era {era} over
             </h2>
             <p className="mt-4 text-sm text-white/70">
-              Every astronaut on {name} was evacuated to Earth. Nobody is left to run the base. A new crew can
-              land beside it and carry on.
+              Every astronaut on {name} was evacuated to Earth. Nobody is left to run the base. Once they are
+              well, they can fly back with a new crewmate, land beside it and carry on.
             </p>
             {/* The calendar's secret: the real days this era was played on, and what NASA saw then. */}
             <div className="mt-5 border-t border-cyan-300/15 pt-4 text-left">

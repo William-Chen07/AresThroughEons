@@ -198,9 +198,10 @@
 }
 
 /*
- * The radiation storm on the base map (see StormOverlay.tsx): a green glow
- * that pulses in from the edges of the screen, over blocky green clouds that
- * drift across. The middle of the glow stays clear so the map stays bright.
+ * A storm on the base map (see StormOverlay.tsx): a glow that pulses in from
+ * the edges of the screen, over blocky clouds that drift across. The middle of
+ * the glow stays clear so the map stays bright. Green for a radiation storm,
+ * yellow and orange for a solar storm (the clouds' colours are in map/stormClouds.ts).
  */
 .storm-overlay {
   position: absolute;
@@ -222,6 +223,10 @@
   inset: 0;
   background: radial-gradient(ellipse at center, rgb(70 255 90 / 0.04) 35%, rgb(60 230 80 / 0.4) 100%);
   animation: storm-pulse 2.4s ease-in-out infinite;
+}
+/* A solar storm glows like the Sun: yellow towards the middle, deep orange at the edges. */
+.storm-overlay[data-storm="solar-storm"] .storm-glow {
+  background: radial-gradient(ellipse at center, rgb(255 220 80 / 0.06) 30%, rgb(255 170 40 / 0.22) 65%, rgb(240 100 20 / 0.45) 100%);
 }
 /*
  * One layer of cloud. The cloud picture repeats every --storm-tile; the layer

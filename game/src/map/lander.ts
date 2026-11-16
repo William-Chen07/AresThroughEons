@@ -1,15 +1,20 @@
 import { CanvasSource, Container, Graphics, Sprite, Texture, type Ticker } from "pixi.js"
 import { CELL_PX, cellTopLeft, type Cell, type VoxelTerrain } from "@/map/voxelTerrain"
 import { LANDER_CELLS } from "@/sim/base"
+import { createStackSprite, loadLanderStack } from "@/map/spriteStack"
 
 /*
  * The expedition's landers: pixel-art sprites that cover 3 × 3 cells, and the
- * animation of this era's lander coming down when the map opens. The first era
- * has the classic gold-foil lander; later eras come down in a newer, more
- * advanced one. Landers from earlier eras stay on the map, worn down.
+ * animation of this era's lander coming down when the map opens. Each era comes
+ * down in its own lander, a sprite stack made from assets/blender/eraN.blend
+ * (see map/spriteStack.ts); until that has loaded, or if it can't be, the drawing
+ * below stands in: the classic gold-foil lander for era 1 and a newer one after.
+ * Landers from earlier eras stay on the map, worn down.
  */
 
 const SIZE_PX = LANDER_CELLS * CELL_PX
+/** What a lander from an earlier era is tinted: dusty and dim, like the old modules (see map/baseView.ts). */
+const WORN_TINT = 0xb39a86
 
 /*
  * The sprite, one character per pixel. It is drawn the way the terrain is:
@@ -109,6 +114,11 @@ const ART_PX = SIZE_PX / ART.length
 /** Where the engine nozzle ends and where the lander meets the ground, in the sprite's own map pixels. */
 const NOZZLE = { x: SIZE_PX / 2, y: 21 * ART_PX }
 const FEET_Y = SIZE_PX - ART_PX
+/**
+ * With the era's art (a sprite stack), the lander stands in the middle of its 3 × 3 footprint, not
+ * at the bottom edge the way the drawing does: its feet, shadow, dust and flame go there instead.
+ */
+const STACK_FEET_Y = SIZE_PX / 2 + 4
 
 /** How high above its landing spot the lander starts, in map pixels, and how long it takes to come down. */
 const DROP_PX = 680
@@ -218,7 +228,7 @@ export interface Lander {
  * A lander standing (or about to come down) on `cell`, the middle of its 3 × 3 footprint. A worn
  * one is from an earlier era: it is only ever placed, never landed.
  */
-export function createLander(terrain: VoxelTerrain, cell: Cell, model: LanderModel, worn = false): Lander {
+export function createLander(terrain: VoxelTerrain, cell: Cell, era: number, worn = false): Lander {
   // The 3 × 3 footprint is centred on the landing cell and sits at that cell's height.
   // (The cells around it may be a block higher or lower; levelling the pad comes later.)
   const middle = cellTopLeft(terrain, cell)
@@ -228,19 +238,19 @@ export function createLander(terrain: VoxelTerrain, cell: Cell, model: LanderMod
   view.position.copyFrom(origin)
 
   const shadow = new Graphics().ellipse(0, 0, SIZE_PX * 0.44, SIZE_PX * 0.14).fill({ color: 0x1a0c08, alpha: 1 })
-  shadow.position.set(SIZE_PX / 2, FEET_Y - 2)
+  /** Where the feet meet the ground, in the craft's own pixels; moved up once the art has loaded. */
+  let feetY = FEET_Y
+  let nozzle = { ...NOZZLE }
 
   // Smoke and dust behind the craft, and a second layer in front of it so the cloud wraps around it.
   const smokeBehind = new Container()
   const smokeInFront = new Container()
   const ring = new Graphics().ellipse(0, 0, SIZE_PX * 0.5, SIZE_PX * 0.17).stroke({ width: 3, color: 0xf3d2b0 })
-  ring.position.set(SIZE_PX / 2, FEET_Y - 2)
   ring.visible = false
 
   // The craft moves as one piece. Its origin is where the feet meet the ground,
   // so it scales and bounces about that point.
   const craft = new Container()
-  craft.pivot.set(SIZE_PX / 2, FEET_Y)
   const flame = new Graphics()
     .rect(-7, 0, 14, 6)
     .fill({ color: 0xf08a3c, alpha: 0.55 })
@@ -250,16 +260,37 @@ export function createLander(terrain: VoxelTerrain, cell: Cell, model: LanderMod
     .fill(0xf8b84a)
     .rect(-1, 14, 2, 10)
     .fill(0xfff0b0)
-  flame.position.copyFrom(NOZZLE)
-  const body = new Sprite(landerTexture(model, worn))
-  body.setSize(SIZE_PX, SIZE_PX)
+  /** Puts the shadow, the dust ring, the flame and the point the craft scales about at the feet. */
+  const standAt = (y: number, flameY: number) => {
+    feetY = y
+    nozzle = { x: SIZE_PX / 2, y: flameY }
+    shadow.position.set(SIZE_PX / 2, feetY - 2)
+    ring.position.set(SIZE_PX / 2, feetY - 2)
+    craft.pivot.set(SIZE_PX / 2, feetY)
+    flame.position.copyFrom(nozzle)
+  }
+  standAt(FEET_Y, NOZZLE.y)
+  // The drawn lander until this era's art has loaded, then the art in its place.
+  const body = new Container()
+  const drawn = new Sprite(landerTexture(landerModelFor(era), worn))
+  drawn.setSize(SIZE_PX, SIZE_PX)
+  body.addChild(drawn)
+  void loadLanderStack(era).then((stack) => {
+    if (!stack || body.destroyed) return
+    body.removeChildren().forEach((child) => child.destroy())
+    body.addChild(createStackSprite(stack, worn ? WORN_TINT : 0xffffff))
+    // The feet stand on the ground in the middle of the footprint, so it doesn't look as if it floats.
+    const landed = craft.y === feetY
+    standAt(STACK_FEET_Y, STACK_FEET_Y - 2)
+    if (landed) craft.y = feetY
+  })
   craft.addChild(flame, body)
 
   view.addChild(shadow, ring, smokeBehind, craft, smokeInFront)
 
   /** Places everything for a given height above the ground. `progress` runs 0 to 1 over the descent. */
   const pose = (height: number, progress: number, sway: number) => {
-    craft.position.set(SIZE_PX / 2 + sway, FEET_Y - height)
+    craft.position.set(SIZE_PX / 2 + sway, feetY - height)
     // Seen from above, something higher up is nearer the viewer, so a little bigger.
     craft.scale.set(1 + 0.35 * (height / DROP_PX))
     // The shadow starts wide and faint and tightens as the lander nears the ground.
@@ -289,7 +320,7 @@ export function createLander(terrain: VoxelTerrain, cell: Cell, model: LanderMod
     let exhaustOwed = 0
     let blastOwed = 0
     let smolderOwed = 0
-    const ground = { x: SIZE_PX / 2, y: FEET_Y - 2 }
+    const ground = { x: SIZE_PX / 2, y: feetY - 2 }
 
     const puff = (
       layer: Container,
@@ -358,16 +389,16 @@ export function createLander(terrain: VoxelTerrain, cell: Cell, model: LanderMod
 
         // Exhaust: hot at the nozzle, cooling to grey smoke as it is left behind.
         const scale = craft.scale.x
-        const nozzle = {
-          x: craft.x + (NOZZLE.x - SIZE_PX / 2) * scale,
-          y: craft.y + (NOZZLE.y - FEET_Y + 14) * scale,
+        const exhaust = {
+          x: craft.x + (nozzle.x - SIZE_PX / 2) * scale,
+          y: craft.y + (nozzle.y - feetY + 14) * scale,
         }
         exhaustOwed += (40 + 70 * progress) * (deltaMs / 1000)
         for (; exhaustOwed >= 1; exhaustOwed--) {
           puff(
             smokeBehind,
-            nozzle.x + between(-4, 4),
-            nozzle.y + between(0, 8),
+            exhaust.x + between(-4, 4),
+            exhaust.y + between(0, 8),
             between(-45, 45),
             between(140, 300),
             between(450, 1100),
@@ -472,4 +503,169 @@ export function createLander(terrain: VoxelTerrain, cell: Cell, model: LanderMod
   }
 
   return { view, center: { x: origin.x + SIZE_PX / 2, y: origin.y + SIZE_PX / 2 }, land, place: rest }
+}
+
+/** The evacuation shuttle: how high it comes in from, in map pixels, and how long each part of the pickup takes. */
+const SHUTTLE_DROP_PX = 460
+const SHUTTLE_DOWN_MS = 1900
+const SHUTTLE_WAIT_MS = 900
+const SHUTTLE_UP_MS = 1900
+
+/**
+ * The evacuation shuttle: the same craft the crew landed in comes down on `at` (the spot on the
+ * ground where the astronaut is standing, in map pixels), waits a moment while they climb in,
+ * and flies off again. `onPickup` is called while it is on the ground, when the astronaut is on
+ * board, and `onGone` once it has left. Add `view` to the map above the crew; it removes itself.
+ * `cancel` stops it early (when the map is closed).
+ */
+export function flyEvacuationShuttle(
+  at: { x: number; y: number },
+  era: number,
+  ticker: Ticker,
+  onPickup: () => void,
+  onGone: () => void,
+): { view: Container; cancel: () => void } {
+  const view = new Container()
+  view.position.set(Math.round(at.x), Math.round(at.y))
+  const shadow = new Graphics().ellipse(0, 0, SIZE_PX * 0.44, SIZE_PX * 0.14).fill({ color: 0x1a0c08, alpha: 1 })
+  const smoke = new Container()
+  // The craft's origin is where its feet meet the ground, as in createLander.
+  const craft = new Container()
+  craft.pivot.set(SIZE_PX / 2, FEET_Y)
+  const flame = new Graphics()
+    .rect(-5, 0, 10, 7)
+    .fill(0xf08a3c)
+    .rect(-3, 6, 6, 9)
+    .fill(0xf8b84a)
+    .rect(-1, 14, 2, 10)
+    .fill(0xfff0b0)
+  flame.position.copyFrom(NOZZLE)
+  // Looks like this era's lander: the drawn one until the era's art has loaded, as in createLander.
+  const body = new Container()
+  const drawn = new Sprite(landerTexture(landerModelFor(era), false))
+  drawn.setSize(SIZE_PX, SIZE_PX)
+  body.addChild(drawn)
+  void loadLanderStack(era).then((stack) => {
+    if (!stack || body.destroyed) return
+    body.removeChildren().forEach((child) => child.destroy())
+    body.addChild(createStackSprite(stack))
+    craft.pivot.set(SIZE_PX / 2, STACK_FEET_Y)
+    flame.position.set(SIZE_PX / 2, STACK_FEET_Y - 2)
+  })
+  craft.addChild(flame, body)
+  view.addChild(shadow, smoke, craft)
+
+  const puffs: Puff[] = []
+  let owed = 0
+  /** Exhaust from the nozzle while flying, and dust off the ground when it is close. */
+  const blow = (deltaMs: number, height: number) => {
+    owed += 60 * (deltaMs / 1000)
+    for (; owed >= 1; owed--) {
+      const nearGround = height < 120 && Math.random() < 0.6
+      const side = Math.random() < 0.5 ? -1 : 1
+      const sprite = new Sprite(Texture.WHITE)
+      sprite.anchor.set(0.5)
+      sprite.tint = nearGround ? pick(DUST_COLORS) : pick(EXHAUST_COLORS)
+      sprite.position.set(nearGround ? side * between(0, 8) : between(-4, 4), nearGround ? between(-3, 4) : -height + between(-2, 6))
+      smoke.addChild(sprite)
+      puffs.push({
+        sprite,
+        vx: nearGround ? side * between(90, 260) : between(-40, 40),
+        vy: nearGround ? between(-120, 20) : between(120, 260),
+        ageMs: 0,
+        lifeMs: between(500, 1300),
+        size: between(4, 8),
+        growth: between(10, 26),
+        alpha: 0.75,
+      })
+    }
+  }
+  const movePuffs = (deltaMs: number) => {
+    const seconds = deltaMs / 1000
+    for (let i = puffs.length - 1; i >= 0; i--) {
+      const p = puffs[i]
+      p.ageMs += deltaMs
+      if (p.ageMs >= p.lifeMs) {
+        p.sprite.destroy()
+        puffs.splice(i, 1)
+        continue
+      }
+      const life = p.ageMs / p.lifeMs
+      const drag = 0.04 ** seconds
+      p.vx *= drag
+      p.vy *= drag
+      p.sprite.x += p.vx * seconds
+      p.sprite.y += p.vy * seconds
+      const size = Math.round((p.size + p.growth * life) / 2) * 2
+      p.sprite.setSize(size, size)
+      p.sprite.alpha = p.alpha * (1 - life) ** 1.5
+    }
+  }
+  /** Places the craft `height` map pixels above the ground. */
+  const pose = (height: number) => {
+    const high = height / SHUTTLE_DROP_PX
+    craft.position.set(0, -height)
+    craft.scale.set(1 + 0.35 * high)
+    craft.alpha = Math.min(1, (1 - high) * 5)
+    shadow.scale.set(1 + 0.7 * high)
+    shadow.alpha = 0.4 * (1 - high)
+  }
+
+  let elapsed = 0
+  let pickedUp = false
+  let over = false
+  const finish = () => {
+    if (over) return
+    over = true
+    ticker.remove(step)
+    if (!view.destroyed) view.destroy({ children: true })
+  }
+  function step(time: Ticker) {
+    const deltaMs = time.deltaMS
+    elapsed += deltaMs
+    movePuffs(deltaMs)
+    if (elapsed < SHUTTLE_DOWN_MS) {
+      // Comes in fast, and the engine brakes it to a gentle touchdown.
+      const height = SHUTTLE_DROP_PX * (1 - elapsed / SHUTTLE_DOWN_MS) ** 2
+      pose(height)
+      flame.visible = true
+      flame.scale.set(1, 1.2 + 0.25 * Math.sin(elapsed / 37))
+      blow(deltaMs, height)
+      return
+    }
+    const waited = elapsed - SHUTTLE_DOWN_MS
+    if (waited < SHUTTLE_WAIT_MS) {
+      pose(0)
+      flame.visible = false
+      // Halfway through the wait the astronaut is on board.
+      if (!pickedUp && waited >= SHUTTLE_WAIT_MS / 2) {
+        pickedUp = true
+        onPickup()
+      }
+      return
+    }
+    if (!pickedUp) {
+      pickedUp = true
+      onPickup()
+    }
+    const rising = (waited - SHUTTLE_WAIT_MS) / SHUTTLE_UP_MS
+    if (rising < 1) {
+      // Lifts off slowly, then climbs away faster and faster.
+      const height = SHUTTLE_DROP_PX * rising ** 2
+      pose(height)
+      flame.visible = true
+      flame.scale.set(1, 1.5 + 0.25 * Math.sin(elapsed / 37))
+      blow(deltaMs, height)
+      return
+    }
+    craft.visible = false
+    shadow.visible = false
+    if (puffs.length === 0) {
+      finish()
+      onGone()
+    }
+  }
+  pose(SHUTTLE_DROP_PX)
+  ticker.add(step)
+  return { view, cancel: finish }
 }

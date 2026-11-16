@@ -16,6 +16,9 @@ import {
  * rule, so that a tap opens it on a touch screen too. The look copies the
  * other map panels.
  */
+/** Oxygen is left off the bar: the base still has it and the crew still breathe it, it just isn't shown here. */
+const SHOWN = BASE_RESOURCES.filter((type) => type.id !== "oxygen");
+
 export function ResourceBar({ resources }: { resources: Resources }) {
   /** The resource whose card is open. */
   const [openId, setOpenId] = useState<ResourceId | null>(null);
@@ -27,7 +30,7 @@ export function ResourceBar({ resources }: { resources: Resources }) {
       aria-label="Resources"
       className="pointer-events-auto flex flex-wrap items-center justify-end gap-x-3 gap-y-1 holo-surface holo-frame border border-cyan-300/25 px-3 py-2 backdrop-blur-sm"
     >
-      {BASE_RESOURCES.map((type, i) => (
+      {SHOWN.map((type, i) => (
         <li
           key={type.id}
           tabIndex={0}
@@ -51,7 +54,7 @@ export function ResourceBar({ resources }: { resources: Resources }) {
           <div
             id={`resource-${type.id}-about`}
             role="tooltip"
-            className={`pointer-events-none absolute top-full z-20 mt-4 w-72 border border-cyan-300/25 holo-surface p-4 text-left ${openId === type.id ? "" : "hidden"} ${i < BASE_RESOURCES.length / 2 ? "left-0" : "right-0"}`}
+            className={`pointer-events-none absolute top-full z-20 mt-4 w-72 border border-cyan-300/25 holo-surface p-4 text-left ${openId === type.id ? "" : "hidden"} ${i < SHOWN.length / 2 ? "left-0" : "right-0"}`}
           >
             <p className="flex items-center gap-2 holo-text text-xs font-semibold uppercase tracking-[0.25em] text-cyan-300/90">
               <ResourceIcon id={type.id} color={type.color} />

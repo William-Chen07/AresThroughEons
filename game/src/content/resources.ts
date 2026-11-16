@@ -59,7 +59,7 @@ export const RESOURCE_TYPES = [
     id: "power",
     mined: false,
     name: "Power",
-    start: 100,
+    start: 0,
     color: 0xe0b040,
     what: "Electricity that runs the base.",
     why: "Everything that keeps a crew alive needs it: heat, lights, and the machines that make air and water. NASA's Mars missions get theirs from solar panels or nuclear power.",

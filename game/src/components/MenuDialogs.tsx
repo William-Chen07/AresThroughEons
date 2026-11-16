@@ -358,9 +358,17 @@ const SOFTWARE_CREDITS: Credit[] = [
   },
 ]
 
-// TODO(team): confirm the exact credit lines for the two audio files.
+// TODO(team): confirm the exact credit lines for the audio files.
 const AUDIO_CREDITS: Credit[] = [
-  { use: "Menu music", what: "“space” by leberch, from Pixabay (Audio/leberch-space-626368.mp3).", links: [] },
+  {
+    use: "Background music",
+    what:
+      "Picked at random, with quiet gaps in between: “space” by leberch and an EDM track by jonasblakewood, " +
+      "both from Pixabay (Audio/leberch-space-626368.mp3, Audio/jonasblakewood-edm-edm-music-350632.mp3), " +
+      "and NASA sonifications, which turn real space images into sound, of the Butterfly Nebula, the Bubble " +
+      "Nebula, Pismis 24, RS Puppis, NGC 2392 and NGC 1569 (the other files in Audio/).",
+    links: [],
+  },
   {
     use: "Button sounds",
     what: "Short slices of a NASA sonification, which turns real space images into sound (Audio/13999_BUBBLE_MP4.mp3).",

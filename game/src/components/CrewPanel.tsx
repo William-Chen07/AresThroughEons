@@ -15,7 +15,8 @@ import { StatusChip, TraitChip } from "@/components/CrewChips"
 
 /**
  * Crew panel: one card per crewmate in the expedition's save, with needs, health, radiation,
- * traits, statuses and their role (current task). Shown over the base map from the Crew button.
+ * traits, statuses and their role (current task), which can be changed here. Shown over the base map
+ * from the Crew button.
  */
 
 const NEED_LABELS: Record<NeedId, string> = {
@@ -74,10 +75,11 @@ function PawnCard({ pawn, onRole }: { pawn: Pawn; onRole: (role: RoleId) => void
       </header>
 
       <div className="flex flex-wrap items-center gap-2 text-[11px]">
+        {/* Their role (current task). ★ marks the one their occupation trained them for. */}
         <label className="flex items-center gap-1 text-white/60">
           Task
           <select
-            className="bg-black/40 px-1 text-white"
+            className="border border-cyan-300/25 bg-black/40 px-1 text-white focus-visible:outline-2 focus-visible:outline-cyan-300"
             value={pawn.role}
             disabled={!!pawn.evacuated}
             onChange={(e) => onRole(e.target.value as RoleId)}

@@ -72,7 +72,7 @@ test("every module and tube is pressurized and provides oxygen; open ground isn'
   assert.ok(!cells.has(12 * SIZE + 12), "the lander")
   const w = buildNavigation(flat(), base)
   const provides = (id: string) => w.stations.find((s) => s.id === moduleStationId(id))!.provides
-  assert.deepEqual(provides("hab"), ["oxygen"])
+  assert.deepEqual(provides("hab"), ["rest", "oxygen"], "a Habitat has the beds")
   assert.deepEqual(provides("lab"), ["oxygen"])
   assert.deepEqual(provides("mb"), ["oxygen"])
 })
@@ -370,5 +370,21 @@ test("when a new era starts, crew inside a module that has decayed are put outsi
   syncNavigation(w, flat(), decayedBase())
   const { x, y } = w.movers.a.pos
   assert.ok(!(x >= 2 && x <= 4 && y >= 2 && y <= 4), "moved out of the old habitat")
+  assert.equal(w.movers.a.exposure, "outside")
+})
+
+test("a machine such as a Solar Panel is walked around, not into, and worked from beside it", () => {
+  const w = buildNavigation(flat(), { modules: [mod("hab", "habitat", 2, 2), mod("sun", "solar", 10, 2)], tubes: [] })
+  assert.equal(at(w, 10, 2), "outside")
+  assert.equal(getCost(w.grid, 10, 2), BLOCKED, "nobody walks onto it")
+  const station = w.stations.find((s) => s.id === moduleStationId("sun"))!
+  assert.equal(station.walkIn, false)
+  assert.deepEqual(station.provides, [], "no air inside a machine")
+  assert.ok(!pressurizedCells(SIZE, { modules: [mod("sun", "solar", 10, 2)], tubes: [] }).has(2 * SIZE + 10))
+  addPawn(w, "a", { x: 3, y: 3 })
+  assert.ok(issueOrder(w, "a", { kind: "work", stationId: moduleStationId("sun") }).ok)
+  runUntil(w, (ev) => ev.some((e) => e.type === "workStarted"))
+  const { x, y } = w.movers.a.pos
+  assert.ok(!(x >= 10 && x <= 11 && y >= 2 && y <= 3), "working from beside it, not inside")
   assert.equal(w.movers.a.exposure, "outside")
 })

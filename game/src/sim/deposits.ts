@@ -56,11 +56,11 @@ export interface DepositTerrain {
 /** Cells around the landing site with no deposits at all (about 2.6 km). */
 export const CLEAR_RADIUS = 16
 /** The middle ring, in cells from the landing site: aluminum and copper. */
-export const MIDDLE_RING = { min: CLEAR_RADIUS, max: 44 }
+export const MIDDLE_RING = { min: CLEAR_RADIUS, max: 7 }
 /** The outer ring starts here and runs to the edge of the map: titanium and gold. */
-export const OUTER_RING_MIN = 52
+export const OUTER_RING_MIN = 2
 /** A deposit is a clump this many cells a side, around its middle cell. */
-export const CLUMP = 7
+export const CLUMP = 4
 const HALF = Math.floor(CLUMP / 2)
 /** A clump's middle stays this many cells in from the map's edge, so there's room to stand beside it. */
 const EDGE_MARGIN = HALF + 2
@@ -99,36 +99,36 @@ interface CellFeatures {
 export const MINERAL_RULES: Record<MineralId, MineralRule> = {
   aluminum: {
     zone: "middle",
-    count: 6,
-    amount: { min: 30, max: 60 },
+    count: 3,
+    amount: { min: 1, max: 5 },
     perHour: 3,
     suits: ({ slope }) => 1 - Math.min(1, slope / 8),
   },
   copper: {
     zone: "middle",
-    count: 5,
-    amount: { min: 20, max: 45 },
+    count: 3,
+    amount: { min: 2, max: 4 },
     perHour: 2,
     suits: ({ slope }) => Math.min(1, slope / 15),
   },
   titanium: {
     zone: "outer",
-    count: 5,
-    amount: { min: 20, max: 40 },
+    count: 2,
+    amount: { min: 3, max: 5 },
     perHour: 1.5,
     suits: ({ brightness }) => 1 - brightness,
   },
   gold: {
     zone: "outer",
-    count: 3,
-    amount: { min: 8, max: 16 },
+    count: 1,
+    amount: { min: 3, max: 4 },
     perHour: 0.5,
     suits: ({ slope }) => Math.min(1, slope / 15),
   },
   sulfur: {
     zone: "anywhere",
-    count: 7,
-    amount: { min: 25, max: 50 },
+    count: 2,
+    amount: { min: 7, max: 9 },
     perHour: 3,
     suits: ({ brightness }) => brightness,
   },
@@ -141,7 +141,7 @@ export const MINERALS: MineralId[] = ["aluminum", "copper", "titanium", "gold", 
 
 /** How rich a site is in each mineral, from 0.5 to 1.5; 1 is normal. */
 export type Richness = Record<MineralId, number>
-export const NORMAL_RICHNESS: Richness = { aluminum: 1, copper: 1, titanium: 1, gold: 1, sulfur: 1 }
+export const NORMAL_RICHNESS: Richness = { aluminum: 0.5, copper: 0.5, titanium: 0.5, gold: 0.5, sulfur: 0.5 }
 
 /** A whole-number seed from any text, e.g. the landing site, so a site always gets the same deposits. */
 export function seedFrom(text: string) {

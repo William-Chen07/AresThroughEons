@@ -2,7 +2,9 @@ import { useEffect, useRef, useState, type CSSProperties } from "react"
 import { X } from "lucide-react"
 import { leavingAttr } from "@/lib/motion"
 import { RESEARCH_ERAS, RESEARCH_PROJECTS, eraColor, researchProject, type ResearchProject } from "@/content/research"
+import { moduleUnlockedBy } from "@/content/modules"
 import { formatRealTime } from "@/sim/clock"
+import { useGameSpeed } from "@/lib/gameSpeed"
 import { hoursLeft, lockedByEra, researchState, type ResearchProgress, type ResearchState } from "@/sim/research"
 
 /*
@@ -122,6 +124,8 @@ export function ResearchPanel({
   /** The project the Research button would start, once one has been clicked. */
   const [selectedId, setSelectedId] = useState<string | null>(progress.active)
   const selected = selectedId ? researchProject(selectedId) : undefined
+  /** Countdowns show real time, which is shorter while the game is sped up. */
+  const speed = useGameSpeed()
   const projects = RESEARCH_PROJECTS
   /** The size of the scrolling area, so the tree can spread out to fill it. */
   const areaRef = useRef<HTMLDivElement>(null)
@@ -142,6 +146,8 @@ export function ResearchPanel({
 
   /** One line beside the Research button about the picked project: what it takes, or why it can't start. */
   let note = "Pick a project to research."
+  /** The module the picked project adds to the Build bar, said at the end of the note. */
+  const unlocks = selected ? moduleUnlockedBy(selected.id) : undefined
   if (selected && selectedState === "done") note = `${selected.name} is researched.`
   else if (selected && lockedByEra(selected, era)) note = `${selected.name} unlocks in Era ${selected.era}.`
   else if (selected && selectedState === "locked") note = `${selected.name} needs the projects joined to it on the left first.`
@@ -149,16 +155,19 @@ export function ResearchPanel({
     const remaining = hoursLeft(progress, selected)
     const time =
       remaining < selected.hours
-        ? `${formatRealTime(remaining)} left of ${formatRealTime(selected.hours)}`
-        : `takes ${formatRealTime(selected.hours)}`
+        ? `${formatRealTime(remaining, speed)} left of ${formatRealTime(selected.hours, speed)}`
+        : `takes ${formatRealTime(selected.hours, speed)}`
     if (labCount === 0) note = `${selected.name}: ${time}. Build a Research Lab first: research only happens in one.`
     else if (isActive && staffedLabs > 0) {
       note = `Researching ${selected.name}: ${time}. ${staffedLabs} ${staffedLabs === 1 ? "lab is" : "labs are"} working on it.`
     } else if (isActive && claimedLabs > 0) note = `Researching ${selected.name}: ${time}. An astronaut is walking to the Research Lab.`
     else if (isActive) note = `Researching ${selected.name}: ${time}. Nobody is in a Research Lab, so it has stopped.`
     else {
-      note = `${selected.name}: ${time} with one astronaut in a Research Lab. Each extra lab with an astronaut in it makes the time count down faster.`
+      note = `${selected.name}: ${time} with one astronaut in a Research Lab. A Researcher works 1.5× as fast, and each extra lab with an astronaut in it makes the time count down faster.`
     }
+  }
+  if (unlocks) {
+    note += selectedState === "done" ? ` The ${unlocks.name} is in the Build bar.` : ` Unlocks the ${unlocks.name} in the Build bar.`
   }
 
   return (
@@ -236,8 +245,8 @@ export function ResearchPanel({
                       : lockedByEra(project, era)
                         ? `Unlocks in Era ${project.era}`
                         : active
-                          ? `Researching · ${formatRealTime(project.hours - done)} left`
-                          : formatRealTime(project.hours)}
+                          ? `Researching · ${formatRealTime(project.hours - done, speed)} left`
+                          : formatRealTime(project.hours, speed)}
                   </span>
                   {/* How far along: the one being researched, or one that was started and left for another. */}
                   {state !== "done" && done > 0 && (

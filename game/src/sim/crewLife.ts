@@ -1,14 +1,14 @@
 import type { Resources } from "@/content/resources"
 import { TUNING } from "./constants"
 import { OCCUPATION_IDS } from "./occupations"
-import { addStatus, canGoOnEva, clamp, gainXp, hasStatus, isActive, traitMultiplier, workSpeed } from "./pawn"
+import { canGoOnEva, clamp, gainXp, hasStatus, injure, isActive, traitMultiplier, workSpeed } from "./pawn"
 import type { UrgentNeed } from "./pathing"
-import { OXYGEN_PER_ASTRONAUT_HOUR, UNPRESSURIZED_OXYGEN_FACTOR, type CrewMember } from "./lifeSupport"
+import { OXYGEN_PER_ASTRONAUT_HOUR, SUIT_OXYGEN_FACTOR, type CrewMember } from "./lifeSupport"
 import { createRng } from "./rng"
 import { ROLES, treatNextPatient } from "./roles"
-import { createCrew } from "./spawn"
+import { createCrew, createPawn, createRecruit } from "./spawn"
 import { decideActivity, updateBody, updateFriction, type BodyEnv, type Consumable, type Log } from "./step"
-import type { LogEntry, Pawn, RoleId } from "./types"
+import type { LogEntry, OccupationId, Pawn, RoleId } from "./types"
 
 /*
  * The crew system running inside the real game. The base map (sim/pathing) owns where everyone
@@ -36,6 +36,49 @@ export function newCrew(era: number, random: () => number = Math.random): Pawn[]
   return createCrew(createRng(Math.floor(random() * 2 ** 31)), OCCUPATION_IDS, `era${era}-`)
 }
 
+/**
+ * The crew that lands when era `era` begins: everyone from the era before comes back, healed on
+ * Earth, and one new astronaut joins them, so the crew grows by one each era.
+ *
+ * A returning astronaut keeps who they are and what they learned: name, occupation, role, traits,
+ * skills, standing orders and their career radiation. Everything about the last mission is
+ * left behind: health and needs are full, statuses are gone, the mission's radiation starts
+ * at zero and nobody is evacuated any more.
+ *
+ * The recruit is trained in whichever occupation the crew has fewest of (a random one of
+ * those if several tie), with a name nobody on the crew has. Their id is `era{era}-0`, which no
+ * one from an earlier era can have. Pure.
+ */
+export function returningCrew(previous: readonly Pawn[], era: number, random: () => number = Math.random): {
+  crew: Pawn[]
+  recruit: Pawn
+} {
+  const rng = createRng(Math.floor(random() * 2 ** 31))
+  const veterans = previous.map((pawn): Pawn => {
+    const fresh = createPawn(rng, pawn.occupation, pawn.name, pawn.id)
+    return {
+      ...fresh,
+      role: pawn.role,
+      color: pawn.color,
+      traits: [...pawn.traits],
+      skills: structuredClone(pawn.skills),
+      careerDoseMsv: pawn.careerDoseMsv,
+      orders: { ...pawn.orders },
+      task: "Back on Mars",
+    }
+  })
+  const count = (occupation: OccupationId) => veterans.filter((p) => p.occupation === occupation).length
+  const fewest = Math.min(...OCCUPATION_IDS.map(count))
+  const occupation = rng.pick(OCCUPATION_IDS.filter((o) => count(o) === fewest))
+  const recruit = createRecruit(
+    rng,
+    occupation,
+    `era${era}-0`,
+    veterans.map((p) => p.name),
+  )
+  return { crew: [...veterans, recruit], recruit }
+}
+
 export interface LiveCrewInput {
   crew: readonly Pawn[]
   resources: Resources
@@ -47,14 +90,21 @@ export interface LiveCrewInput {
   atBase: readonly CrewMember[]
   /** Ids of astronauts out exploring: off the map, on their own supplies, untouched by base weather. */
   away: readonly string[]
-  /** A radiation storm at the base: how many of the hours it lasted, and the health it costs per hour outside. */
-  storm: { hours: number; healthLostPerHourOutside: number; name: string } | null
+  /**
+   * A radiation storm at the base: how many of the hours it lasted, the health it costs per hour
+   * outside, and how many times faster the crew at the base get thirsty while it lasts (1 or left
+   * out: no faster).
+   */
+  storm: { hours: number; healthLostPerHourOutside: number; name: string; waterUseMultiplier?: number } | null
+  /** It is night at the base (see sim/dayNight.ts): the only time the crew sleep. Leave out for them to sleep whenever they're worn out. */
+  night?: boolean
   random?: () => number
 }
 
 /**
  * What `hours` of game time do to the crew: needs drain and refill from the base's resources,
- * radiation adds up (much faster outside, and in a storm), statuses come and go, morale drifts,
+ * radiation adds up (much faster outside, and in a storm), a storm makes everyone at the base
+ * thirsty faster, statuses come and go, morale drifts,
  * crewmates who dislike who they're with get annoyed, the medic treats people, skills grow, and
  * anyone whose health runs out is evacuated. Pure: returns new crew and resources.
  */
@@ -79,7 +129,7 @@ export function liveCrewThrough(input: LiveCrewInput): {
 
   // 1. What everyone is doing: asleep, or whatever the map says.
   for (const pawn of present) {
-    decideActivity(pawn)
+    decideActivity(pawn, input.night)
     if (pawn.activity === "sleeping") continue
     const spot = where.get(pawn.id)
     if (!spot) {
@@ -139,18 +189,31 @@ export function liveCrewThrough(input: LiveCrewInput): {
     const isAway = !spot
     const outside = isAway || spot.outside
     const inStorm = !isAway && stormShare > 0
-    // Walking around outside can go wrong (traits make it more or less likely).
-    if (spot?.outside && pawn.activity !== "sleeping") {
-      const chance = TUNING.injuryChancePerHour * traitMultiplier(pawn, (m) => m.injuryChance) * hours
-      if (random() < chance && addStatus(pawn, "injured", clock)) {
-        say("warning", `${pawn.name} slipped on the rocks and got hurt.`, pawn.id)
+    // Accidents happen while awake at the base: often out on the rocks, less often inside. Traits
+    // make them more or less likely (a Clumsy crewmate slips far more than a Tough one), and getting
+    // hurt costs health at once.
+    if (spot && pawn.activity !== "sleeping") {
+      const where = spot.outside ? 1 : TUNING.indoorInjuryFactor
+      const chance = TUNING.injuryChancePerHour * where * traitMultiplier(pawn, (m) => m.injuryChance) * hours
+      if (random() < chance && injure(pawn, clock)) {
+        const clumsy = pawn.traits.includes("clumsy") ? "Being clumsy, " : ""
+        const how = spot.outside ? "slipped on the rocks" : "tripped inside the base"
+        say(
+          "warning",
+          `${clumsy}${pawn.name} ${how} and got hurt (−${TUNING.injuryHealthLoss} health).`,
+          pawn.id,
+        )
       }
     }
     const env: BodyEnv = {
       hour: clock,
       supplies,
       supplyPerDay: SUPPLY_PER_ASTRONAUT_DAY,
-      oxygenFactor: spot && spot.pressurized === false ? UNPRESSURIZED_OXYGEN_FACTOR : 1,
+      oxygenFactor: SUIT_OXYGEN_FACTOR,
+      // Each astronaut has their own tank: it runs down outside and is filled up in any module or tube.
+      suitAir: spot && spot.pressurized === false ? "drain" : "refill",
+      // Inside or out: only for the part of the time the storm was on.
+      waterFactor: inStorm && storm ? 1 + ((storm.waterUseMultiplier ?? 1) - 1) * stormShare : 1,
       outside,
       suppliesCarried: isAway,
       shielding: TUNING.habitatShielding,
@@ -195,9 +258,10 @@ export function hurtOnTrip(
   const log: LogEntry[] = []
   for (const pawn of next) {
     if (!ids.includes(pawn.id) || !isActive(pawn)) continue
-    pawn.health = Math.max(1, pawn.health - amount)
-    if (addStatus(pawn, "injured", clock)) {
-      log.push({ hour: clock, kind: "warning", text: `${pawn.name} got hurt while exploring.`, pawnId: pawn.id })
+    if (injure(pawn, clock, amount)) {
+      log.push({ hour: clock, kind: "warning", text: `${pawn.name} got hurt while exploring (−${amount} health).`, pawnId: pawn.id })
+    } else {
+      pawn.health = Math.max(1, pawn.health - amount)
     }
   }
   return { crew: next, log }
@@ -208,6 +272,18 @@ export function cheerUp(crew: readonly Pawn[], amount: number): Pawn[] {
   const next = structuredClone(crew) as Pawn[]
   for (const pawn of next) if (isActive(pawn)) pawn.needs.morale = clamp(pawn.needs.morale + amount, 0, 100)
   return next
+}
+
+/** How much faster a Researcher (by occupation) moves research on than anyone else. */
+export const RESEARCHER_SPEED = 1.5
+
+/**
+ * How much research one astronaut in a Research Lab does, compared with an ordinary crewmate:
+ * a trained Researcher does RESEARCHER_SPEED as much, and nobody researches in their sleep.
+ */
+export function researchRate(pawn: Pawn | undefined): number {
+  if (!pawn || pawn.activity === "sleeping") return pawn ? 0 : 1
+  return pawn.occupation === "researcher" ? RESEARCHER_SPEED : 1
 }
 
 /** Why this crewmate can't go out exploring right now, or null if they can. */
@@ -229,8 +305,12 @@ export function urgentNeedOf(
 ): UrgentNeed | null {
   if (!pawn || pawn.evacuated) return null
   if (hasStatus(pawn, "hypoxic") && canFix("oxygen")) return "oxygen"
-  // Storms, injuries, low oxygen and the radiation limit all mean: get (and stay) inside.
-  if (storm || !canGoOnEva(pawn)) return "shelter"
-  if (pawn.activity === "sleeping" && canFix("rest")) return "rest"
+  // Asleep: off to bed in a Habitat and stay there, not moving, until they wake up. Beds are
+  // indoors, so that's sheltered too.
+  const asleep = pawn.activity === "sleeping"
+  if (asleep && canFix("rest")) return "rest"
+  // Storms, injuries, low oxygen and the radiation limit all mean: get (and stay) inside. So does
+  // sleeping when there's no Habitat to sleep in.
+  if (storm || !canGoOnEva(pawn) || asleep) return "shelter"
   return null
 }

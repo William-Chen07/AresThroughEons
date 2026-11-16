@@ -1,4 +1,4 @@
-import { moduleType, type ModuleTypeId } from "@/content/modules"
+import { canEnter, moduleType, type ModuleTypeId } from "@/content/modules"
 import type { Cell } from "@/map/voxelTerrain"
 
 /*
@@ -86,6 +86,22 @@ export function decayedCells(size: number, base: Base): Set<number> {
   const cells = new Set<number>()
   for (const module of base.modules) {
     if (!isDecayed(module, era)) continue
+    const rect = moduleRect(module)
+    for (let row = Math.max(0, rect.row); row < Math.min(size, rect.row + rect.height); row++) {
+      for (let col = Math.max(0, rect.col); col < Math.min(size, rect.col + rect.width); col++) cells.add(row * size + col)
+    }
+  }
+  return cells
+}
+
+/**
+ * Cells the crew can't walk into: modules from an earlier era (see decayedCells), and machines no
+ * one goes inside, such as Solar Panels (see CLOSED_MODULES in content/modules.ts).
+ */
+export function shutCells(size: number, base: Base): Set<number> {
+  const cells = decayedCells(size, base)
+  for (const module of base.modules) {
+    if (canEnter(module.type)) continue
     const rect = moduleRect(module)
     for (let row = Math.max(0, rect.row); row < Math.min(size, rect.row + rect.height); row++) {
       for (let col = Math.max(0, rect.col); col < Math.min(size, rect.col + rect.width); col++) cells.add(row * size + col)

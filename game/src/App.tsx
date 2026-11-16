@@ -1,14 +1,16 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Backpack } from "@/components/Backpack"
 import { CrewPanel } from "@/components/CrewPanel"
 import { GameMap } from "@/components/GameMap"
 import { MainMenu } from "@/components/MainMenu"
 import { devSiteOverride } from "@/map/marsSite"
 import { useSpaceCalendar } from "@/data/useSpaceCalendar"
-import { HOURS_PER_DAY, dayOf, describeSpaceEvent, eventsSoFar, latestNews, realDateAt, type Calendar } from "@/sim/calendar"
+import { HOURS_PER_DAY, dayOf, describeSpaceEvent, eventsSoFar, latestNews, realDateAt, realEvents, type Calendar } from "@/sim/calendar"
+import { stormWarning } from "@/sim/weather"
 import { useSaves } from "@/sim/saves"
 import { useSettings } from "@/lib/settings"
 import { leavingAttr, usePresence } from "@/lib/motion"
+import { startMusic, unlockAudio } from "@/lib/sound"
 
 type Screen = "menu" | "game"
 
@@ -21,7 +23,8 @@ const readableDate = (day: string) =>
  * mattered to Mars, each with the day it happened. Eruptions that headed elsewhere are only counted.
  */
 function eraHistoryOf(calendar: Calendar, clock: number) {
-  const past = eventsSoFar(calendar, clock)
+  // Test events started from the Build panel aren't NASA's records, so they're left out.
+  const past = realEvents(eventsSoFar(calendar, clock))
   const quiet = past.filter((event) => event.kind === "eruption" && !event.towardMars)
   return {
     from: readableDate(calendar.start),
@@ -38,6 +41,8 @@ function App() {
   const [showCrew, setShowCrew] = useState(false)
   // The crew screen stays a moment after closing, while its airlock doors shut (index.css).
   const crewShown = usePresence(showCrew, 350)
+  // The research screen is open on the map: the Backpack and Crew buttons are hidden behind it.
+  const [researchOpen, setResearchOpen] = useState(false)
   // Goes up when the map is reset from the Build panel or a new era starts. It is the map screen's
   // key, so the screen is thrown away and built again from the changed save, landing and all.
   const [mapResets, setMapResets] = useState(0)
@@ -49,6 +54,9 @@ function App() {
   const startResearch = useSaves((s) => s.startResearch)
   const passTime = useSaves((s) => s.passTime)
   const setWeather = useSaves((s) => s.setWeather)
+  const stormSoon = useSaves((s) => s.stormSoon)
+  const addTestSpaceEvent = useSaves((s) => s.addTestSpaceEvent)
+  const forceTripEvent = useSaves((s) => s.forceTripEvent)
   const resetMap = useSaves((s) => s.resetMap)
   const sendExploring = useSaves((s) => s.sendExploring)
   const nextEra = useSaves((s) => s.nextEra)
@@ -58,6 +66,20 @@ function App() {
   const creditsDismissed = useSettings((s) => s.mapCreditsDismissed)
   // Real NASA events for the calendar are fetched while the expedition is being played.
   useSpaceCalendar(activeSlot, screen === "game")
+  // The background music plays on every screen. Browsers block audio until the player clicks or
+  // presses a key, so it starts then; later gestures retry in case the browser still said no.
+  useEffect(() => {
+    const unlock = () => {
+      unlockAudio()
+      startMusic()
+    }
+    window.addEventListener("pointerdown", unlock)
+    window.addEventListener("keydown", unlock)
+    return () => {
+      window.removeEventListener("pointerdown", unlock)
+      window.removeEventListener("keydown", unlock)
+    }
+  }, [])
 
   if (screen === "menu") {
     return <MainMenu onStart={() => setScreen("game")} />
@@ -89,6 +111,10 @@ function App() {
           onSendExploring={(placeId, crewIds) => activeSlot !== null && sendExploring(activeSlot, placeId, crewIds)}
           weather={save.weather}
           onWeather={(id) => activeSlot !== null && setWeather(activeSlot, id)}
+          stormWarning={stormWarning(save.weather, save.nextWeatherAt, save.calendar, save.hours)}
+          onStormSoon={() => activeSlot !== null && stormSoon(activeSlot)}
+          onSpaceEvent={(kind) => activeSlot !== null && addTestSpaceEvent(activeSlot, kind)}
+          onTripEvent={(id) => activeSlot !== null && forceTripEvent(activeSlot, id)}
           onResetMap={() => {
             if (activeSlot === null) return
             resetMap(activeSlot)
@@ -112,6 +138,7 @@ function App() {
           deposits={save.deposits}
           onDepositsGenerated={(deposits) => activeSlot !== null && setDeposits(activeSlot, deposits)}
           onStartResearch={(projectId) => activeSlot !== null && startResearch(activeSlot, projectId)}
+          onResearchOpenChange={setResearchOpen}
           onExit={() => setScreen("menu")}
         />
 
@@ -119,6 +146,7 @@ function App() {
             button for the crew system's details for this save (sim/crewLife.ts). Fixed above the crew
             screen, so the Crew button can also close it. While the Build bar is open it all sits above it
             (--build-bar is the bar's height, see BuildPanel). */}
+        {!researchOpen && (
         <div
           className={`pointer-events-none fixed right-4 z-40 flex flex-col items-end gap-2 sm:right-6 ${creditsDismissed ? "bottom-[calc(var(--build-bar,0px)+1rem)] sm:bottom-[calc(var(--build-bar,0px)+1.5rem)]" : "bottom-[calc(var(--build-bar,0px)+5rem)] sm:bottom-[calc(var(--build-bar,0px)+6rem)]"}`}
         >
@@ -131,6 +159,7 @@ function App() {
             {showCrew ? "Close crew" : "Crew"}
           </button>
         </div>
+        )}
         {crewShown.mounted && (
           <div
             className="fx-airlock holo-surface fixed inset-0 z-30 overflow-y-auto bg-[#020a12]/95 pb-16 text-white"
