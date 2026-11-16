@@ -49,6 +49,7 @@ function App() {
   const resetMap = useSaves((s) => s.resetMap)
   const sendExploring = useSaves((s) => s.sendExploring)
   const nextEra = useSaves((s) => s.nextEra)
+  const setDeposits = useSaves((s) => s.setDeposits)
   const setCrewRole = useSaves((s) => s.setCrewRole)
   // Once the map credits button is put away, the Backpack and Crew buttons drop down into its corner.
   const creditsDismissed = useSettings((s) => s.mapCreditsDismissed)
@@ -105,6 +106,8 @@ function App() {
             setMapResets((count) => count + 1)
           }}
           onTimePassed={(hours, crew, labHours, spots) => activeSlot !== null && passTime(activeSlot, hours, crew, labHours, spots)}
+          deposits={save.deposits}
+          onDepositsGenerated={(deposits) => activeSlot !== null && setDeposits(activeSlot, deposits)}
           onStartResearch={(projectId) => activeSlot !== null && startResearch(activeSlot, projectId)}
           onExit={() => setScreen("menu")}
         />

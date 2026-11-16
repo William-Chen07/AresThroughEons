@@ -240,6 +240,16 @@ const DATA_CREDITS: Credit[] = [
     ],
   },
   {
+    use: "Mineral richness of each landing site",
+    what:
+      "Mars Global Surveyor TES global mineral maps: plagioclase abundance, high-calcium pyroxene abundance " +
+      "and thermal inertia (TES_Plagioclase, TES_Clinopyroxene, TES_Thermal_Inertia; J. L. Bandfield, 2002, " +
+      "JGR 107, E6), NASA/JPL/Arizona State University, via NASA Mars Trek. Read back approximately from the " +
+      "maps' colours. Where each deposit sits is a game rule based on the base map's terrain; no spacecraft has " +
+      "mapped copper, gold or sulfur deposits on Mars.",
+    links: [{ label: "NASA Mars Trek", href: "https://trek.nasa.gov/mars/" }],
+  },
+  {
     use: "Moon positions (globe)",
     what:
       "Orbits of Phobos and Deimos from the NASA/JPL Horizons system (satellite ephemeris mar099). On the " +
