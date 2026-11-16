@@ -36,7 +36,7 @@ export interface MapView {
   /** Starts or stops showing the placement ghost under the pointer. */
   setPlacement: (placement: Placement | null) => void
   /** Redraws the crew where they are now (see map/crewView.ts). */
-  drawCrew: (world: World, colors: Record<string, number>) => void
+  drawCrew: (world: World, colors: Record<string, number>, oxygen?: Record<string, number>) => void
   /** Fades the base so crew inside the modules can be seen (see map/baseView.ts). */
   setSeeThrough: (on: boolean) => void
   /** Fades just these modules (by id) so what's inside them shows. */
@@ -272,7 +272,7 @@ export async function createMapView(
       placement = next
       showPointer()
     },
-    drawCrew: (world, colors) => crew.draw(world, colors),
+    drawCrew: (world, colors, oxygen) => crew.draw(world, colors, oxygen),
     setSeeThrough: (on) => base.setSeeThrough(on),
     setOpenModules: (ids) => base.setOpenModules(ids),
     setOpenTubes: (cells) => base.setOpenTubes(cells),

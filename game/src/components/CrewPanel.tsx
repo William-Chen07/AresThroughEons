@@ -16,7 +16,7 @@ import {
 
 /**
  * Crew panel: one card per crewmate in the expedition's save, with needs, health, radiation,
- * traits, statuses and their role (current task). Shown over the base map from the Crew button.
+ * traits, statuses and the job they are best at (Stat). Shown over the base map from the Crew button.
  */
 
 const NEED_LABELS: Record<NeedId, string> = {
@@ -59,9 +59,16 @@ export function Bar({ label, value, icon }: { label: string; value: number; icon
   )
 }
 
-function PawnCard({ pawn, onRole }: { pawn: Pawn; onRole: (role: RoleId) => void }) {
+/** The job an astronaut is best at: their highest skill, and the job they trained for when it's a tie. */
+function bestRole(pawn: Pawn): RoleId {
+  const trainedRole = OCCUPATIONS[pawn.occupation].role
+  return ROLE_IDS.reduce((best, r) => (pawn.skills[r].level > pawn.skills[best].level ? r : best), trainedRole)
+}
+
+function PawnCard({ pawn }: { pawn: Pawn }) {
   const occupation = OCCUPATIONS[pawn.occupation]
-  const trained = isTrainedFor(pawn)
+  const best = bestRole(pawn)
+  const trained = isTrainedFor(pawn, best)
   const bonusPct = Math.round((TUNING.occupationMatchBonus - 1) * 100)
 
   return (
@@ -75,31 +82,19 @@ function PawnCard({ pawn, onRole }: { pawn: Pawn; onRole: (role: RoleId) => void
       </header>
 
       <div className="flex flex-wrap items-center gap-2 text-[11px]">
-        <label className="flex items-center gap-1 text-white/60">
-          Task
-          <select
-            className="bg-black/40 px-1 text-white"
-            value={pawn.role}
-            disabled={!!pawn.evacuated}
-            onChange={(e) => onRole(e.target.value as RoleId)}
-          >
-            {ROLE_IDS.map((r) => (
-              <option key={r} value={r}>
-                {ROLES[r].name} (skill {pawn.skills[r].level}){isTrainedFor(pawn, r) ? " ★" : ""}
-              </option>
-            ))}
-          </select>
-        </label>
-        {trained ? (
+        {/* What this astronaut is best at. It only shows it: nothing here can be changed. */}
+        <p className="flex items-center gap-1 text-white/60">
+          Stat
+          <span className="text-white">
+            {ROLES[best].name} (skill {pawn.skills[best].level})
+          </span>
+        </p>
+        {trained && (
           <span
             className="border border-emerald-400/50 px-1.5 text-emerald-200"
-            title={`${occupation.name}s are trained for ${ROLES[pawn.role].name}, so they work ${bonusPct}% faster.`}
+            title={`${occupation.name}s are trained for ${ROLES[best].name}, so they work ${bonusPct}% faster.`}
           >
             ★ Trained +{bonusPct}%
-          </span>
-        ) : (
-          <span className="text-white/40" title={`${occupation.name}s are trained for ${ROLES[occupation.role].name}.`}>
-            Not trained for this
           </span>
         )}
       </div>
@@ -141,13 +136,11 @@ export function CrewPanel({
   crew,
   crewLog,
   clock,
-  onRole,
 }: {
   crew: Pawn[]
   crewLog: LogEntry[]
   /** The expedition's clock, in game-hours. */
   clock: number
-  onRole: (pawnId: string, role: RoleId) => void
 }) {
   const sol = Math.floor(clock / NASA_DATA.solHours) + 1
 
@@ -159,7 +152,7 @@ export function CrewPanel({
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {crew.map((p) => (
-          <PawnCard key={p.id} pawn={p} onRole={(role) => onRole(p.id, role)} />
+          <PawnCard key={p.id} pawn={p} />
         ))}
       </div>
 

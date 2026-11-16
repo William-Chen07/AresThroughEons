@@ -37,6 +37,8 @@ function eraHistoryOf(calendar: Calendar, clock: number) {
 function App() {
   const [screen, setScreen] = useState<Screen>("menu")
   const [showCrew, setShowCrew] = useState(false)
+  // The research screen is open on the map: the Backpack and Crew buttons are hidden behind it.
+  const [researchOpen, setResearchOpen] = useState(false)
   // Goes up when the map is reset from the Build panel or a new era starts. It is the map screen's
   // key, so the screen is thrown away and built again from the changed save, landing and all.
   const [mapResets, setMapResets] = useState(0)
@@ -55,7 +57,6 @@ function App() {
   const sendExploring = useSaves((s) => s.sendExploring)
   const nextEra = useSaves((s) => s.nextEra)
   const setDeposits = useSaves((s) => s.setDeposits)
-  const setCrewRole = useSaves((s) => s.setCrewRole)
   // Once the map credits button is put away, the Backpack and Crew buttons drop down into its corner.
   const creditsDismissed = useSettings((s) => s.mapCreditsDismissed)
   // Real NASA events for the calendar are fetched while the expedition is being played.
@@ -118,6 +119,7 @@ function App() {
           deposits={save.deposits}
           onDepositsGenerated={(deposits) => activeSlot !== null && setDeposits(activeSlot, deposits)}
           onStartResearch={(projectId) => activeSlot !== null && startResearch(activeSlot, projectId)}
+          onResearchOpenChange={setResearchOpen}
           onExit={() => setScreen("menu")}
         />
 
@@ -125,6 +127,7 @@ function App() {
             button for the crew system's details for this save (sim/crewLife.ts). Fixed above the crew
             screen, so the Crew button can also close it. While the Build bar is open it all sits above it
             (--build-bar is the bar's height, see BuildPanel). */}
+        {!researchOpen && (
         <div
           className={`pointer-events-none fixed right-4 z-40 flex flex-col items-end gap-2 sm:right-6 ${creditsDismissed ? "bottom-[calc(var(--build-bar,0px)+1rem)] sm:bottom-[calc(var(--build-bar,0px)+1.5rem)]" : "bottom-[calc(var(--build-bar,0px)+5rem)] sm:bottom-[calc(var(--build-bar,0px)+6rem)]"}`}
         >
@@ -137,13 +140,13 @@ function App() {
             {showCrew ? "Close crew" : "Crew"}
           </button>
         </div>
+        )}
         {showCrew && (
           <div className="fixed inset-0 z-30 overflow-y-auto bg-[#020104]/95 pb-16 text-white">
             <CrewPanel
               crew={save.crew}
               crewLog={save.crewLog}
               clock={save.hours}
-              onRole={(pawnId, role) => activeSlot !== null && setCrewRole(activeSlot, pawnId, role)}
             />
           </div>
         )}

@@ -13,8 +13,9 @@ import {
   urgentNeedOf,
   type LiveCrewInput,
 } from "@/sim/crewLife"
-import type { CrewMember } from "@/sim/lifeSupport"
+import { SUIT_OXYGEN_FACTOR, type CrewMember } from "@/sim/lifeSupport"
 import { hasStatus, NASA_DATA, TUNING, type Pawn } from "@/sim"
+import { DAYLIGHT_HOURS, darkness, hourOfDay, isNight } from "@/sim/dayNight"
 
 /** A crew with no traits (so numbers are predictable), everyone inside a pressurized module. */
 function setup(size = 4) {
@@ -73,6 +74,36 @@ describe("getting hurt", () => {
     const r = liveCrewThrough({ crew: clumsy, resources, atBase, away: [], storm: null, hours: 0.5, clock: 0, random: () => roll })
     expect(hasStatus(byId(r.crew, p.id), "injured")).toBe(true)
     expect(r.log.some((e) => e.text.startsWith("Being clumsy,"))).toBe(true)
+  })
+
+  it("with day and night, the crew only sleep at night and are up again at sunrise", () => {
+    const { crew, resources, atBase } = setup(1)
+    const id = crew[0].id
+    const at = (rest: number, night: boolean, activity: Pawn["activity"] = "idle") => {
+      const pawn = { ...crew[0], activity, needs: { ...crew[0].needs, rest } }
+      const r = liveCrewThrough({ crew: [pawn], resources, atBase, away: [], storm: null, night, hours: 0.5, clock: 0, random: () => 0.99 })
+      return byId(r.crew, id).activity
+    }
+    // Worn out in the daytime: still up.
+    expect(at(5, false)).not.toBe("sleeping")
+    // At night anyone who isn't fully rested goes to bed.
+    expect(at(60, true)).toBe("sleeping")
+    expect(at(100, true)).not.toBe("sleeping")
+    // Sunrise wakes them, rested or not.
+    expect(at(40, false, "sleeping")).not.toBe("sleeping")
+  })
+
+  it("a day is light for DAYLIGHT_HOURS, then dark until the next one starts", () => {
+    const calendar = { startHours: 100 }
+    expect(hourOfDay(calendar, 100)).toBe(0)
+    expect(hourOfDay(calendar, 100 + 24 + 17)).toBe(17)
+    expect(isNight(DAYLIGHT_HOURS - 0.1)).toBe(false)
+    expect(isNight(DAYLIGHT_HOURS)).toBe(true)
+    expect(darkness(0)).toBe(0)
+    expect(darkness(DAYLIGHT_HOURS / 2)).toBe(0)
+    expect(darkness(DAYLIGHT_HOURS)).toBe(1)
+    expect(darkness(20)).toBe(1)
+    expect(darkness(23.99)).toBeLessThan(0.05)
   })
 
   it("nobody gets hurt in their sleep", () => {
@@ -142,19 +173,25 @@ describe("crew in the real game (crewLife)", () => {
     }
   })
 
-  it("draws oxygen, water and food from the resource bar at the game rate", () => {
+  it("draws water and food from the resource bar at the game rate, and leaves the base's oxygen alone", () => {
     const { crew, atBase, resources } = setup(1)
     const after = live({ crew, atBase, resources, away: [], storm: null }, 48)
-    for (const id of ["oxygen", "water", "food"] as const) {
+    for (const id of ["water", "food"] as const) {
       expect(used(resources, after.resources, id) / 2).toBeCloseTo(SUPPLY_PER_ASTRONAUT_DAY[id], 0)
     }
+    expect(after.resources.oxygen).toBe(resources.oxygen)
   })
 
-  it("uses oxygen twice as fast outside a pressurized module", () => {
+  it("each astronaut's own oxygen runs down outside and is filled up in a pressurized module", () => {
     const { crew, resources } = setup(1)
-    const inside = live({ crew, atBase: [{ id: crew[0].id, outside: false, pressurized: true }], resources, away: [], storm: null }, 24)
-    const unpressurized = live({ crew, atBase: [{ id: crew[0].id, outside: false, pressurized: false }], resources, away: [], storm: null }, 24)
-    expect(used(resources, unpressurized.resources, "oxygen")).toBeGreaterThan(used(resources, inside.resources, "oxygen") * 1.8)
+    const id = crew[0].id
+    const out = live({ crew, atBase: [{ id, outside: true, pressurized: false }], resources, away: [], storm: null }, 6)
+    expect(byId(out.crew, id).needs.oxygen).toBeCloseTo(100 - 6 * TUNING.consumableDecayPerHour * SUIT_OXYGEN_FACTOR, 4)
+    expect(out.resources.oxygen).toBe(resources.oxygen)
+    const back = live({ crew: out.crew, atBase: [{ id, outside: false, pressurized: true }], resources, away: [], storm: null }, 0.5)
+    expect(byId(back.crew, id).needs.oxygen).toBe(100)
+    const stayed = live({ crew: back.crew, atBase: [{ id, outside: false, pressurized: true }], resources, away: [], storm: null }, 48)
+    expect(byId(stayed.crew, id).needs.oxygen).toBe(100)
   })
 
   it("outside gets the real surface dose; inside the habitat blocks some of it", () => {
@@ -195,8 +232,8 @@ describe("crew in the real game (crewLife)", () => {
   })
 
   it("running out of oxygen leads to evacuation, not death", () => {
-    const { crew, atBase } = setup(2)
-    const resources = { ...startingResources(), oxygen: 0 }
+    const { crew, resources } = setup(2)
+    const atBase: CrewMember[] = crew.map((p) => ({ id: p.id, outside: true, pressurized: false }))
     const r = live({ crew, atBase, resources, away: [], storm: null }, 48)
     expect(r.evacuated.sort()).toEqual(crew.map((p) => p.id).sort())
     for (const p of r.crew) expect(p.evacuated?.reason).toBe("Low Oxygen")

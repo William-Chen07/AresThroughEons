@@ -31,8 +31,8 @@ import { TEST_ERUPTION_TRAVEL_HOURS, type TestSpaceEvent } from "@/sim/calendar"
 /*
  * The Build bar along the bottom of the base map, for building the base by hand while the real
  * building rules don't exist yet: place modules, lay the tubes between them, and remove either.
- * Nothing connects by itself (see sim/base.ts). Opened from Build in the Actions dropdown or the
- * ` key. Every module and tool is a card with a picture, what it costs and what it does; the row
+ * Nothing connects by itself (see sim/base.ts). Opened from Build in the Actions dropdown.
+ * Every module and tool is a card with a picture, what it costs and what it does; the row
  * scrolls sideways when it doesn't fit. For testing, it can also make every event in the game
  * happen: start or end each kind of storm (or bring one close, to see the warning), put each kind
  * of space event on the calendar, and make each explore event happen to a group out exploring.
@@ -41,6 +41,8 @@ import { TEST_ERUPTION_TRAVEL_HOURS, type TestSpaceEvent } from "@/sim/calendar"
  * The costs come from content/modules.ts and are placeholders: building doesn't use resources yet.
  * Tubes are free. A module that needs research (MODULE_RESEARCH) sits in its own Locked group,
  * after the modules that can be built, and says which project unlocks it until that research is done.
+ * Opened with the ` key instead, the bar is the dev console (`dev`): the same cards, but nothing is
+ * locked, so every module can be built whatever has been researched.
  * While it is open the bar's height is kept in the CSS variable --build-bar on the page, so the
  * things along the bottom of the screen can sit above it.
  */
@@ -233,6 +235,7 @@ function lockedReason(id: ModuleTypeId, researched: readonly string[]) {
 }
 
 export function BuildPanel({
+  dev = false,
   tool,
   researched,
   onTool,
@@ -252,6 +255,8 @@ export function BuildPanel({
   onClear,
   onClose,
 }: {
+  /** The dev console: every module is unlocked, whatever has been researched. */
+  dev?: boolean
   tool: BuildTool
   /** Ids of the research projects done: modules that need one stay locked until it is. */
   researched: readonly string[]
@@ -312,17 +317,19 @@ export function BuildPanel({
 
   const placing = tool?.kind === "place" ? tool.type : null
   // The modules that can be built now come first, then the ones still locked behind research.
-  const unlocked = MODULE_TYPES.filter((type) => moduleUnlocked(type.id, researched))
-  const locked = MODULE_TYPES.filter((type) => !moduleUnlocked(type.id, researched))
+  // In the dev console nothing is locked.
+  const unlocked = MODULE_TYPES.filter((type) => dev || moduleUnlocked(type.id, researched))
+  const locked = MODULE_TYPES.filter((type) => !dev && !moduleUnlocked(type.id, researched))
+  const title = dev ? "Dev console" : "Build"
 
   return (
     <section
       ref={barRef}
-      aria-label="Build"
+      aria-label={title}
       className="pointer-events-auto border-t border-white/15 bg-neutral-950/90 backdrop-blur-sm"
     >
       <div className="flex items-center gap-x-4 gap-y-1 px-4 pt-2 sm:px-6">
-        <h2 className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-300/90">Build</h2>
+        <h2 className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-300/90">{title}</h2>
         <p className="min-w-0 flex-1 truncate text-[11px] text-white/60">
           {hint}
           {message && <span className="text-orange-200/90"> {message}</span>}
@@ -334,7 +341,7 @@ export function BuildPanel({
         </p>
         <button
           type="button"
-          aria-label="Close the Build bar"
+          aria-label={dev ? "Close the dev console" : "Close the Build bar"}
           onClick={onClose}
           className="flex size-7 shrink-0 items-center justify-center border border-white/15 transition hover:border-orange-400/70 hover:bg-orange-500/15 focus-visible:outline-2 focus-visible:outline-orange-400"
         >
