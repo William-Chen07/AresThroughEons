@@ -184,9 +184,10 @@ export interface BodyEnv {
   /**
    * Oxygen is each astronaut's own suit tank, not a share of the base's supply: "refill" fills
    * the tank at once (they're in a building), "drain" uses it up with nothing to refill it
-   * (they're outside). Leave out for oxygen to be drawn from `supplies`, like water and food.
+   * (they're outside), "hold" leaves it as it is (they're in a building with no power to refill
+   * it). Leave out for oxygen to be drawn from `supplies`, like water and food.
    */
-  suitAir?: "refill" | "drain"
+  suitAir?: "refill" | "drain" | "hold"
   /** Out on the surface: the full radiation dose. Inside, the habitat blocks `shielding` of it. */
   outside: boolean
   /** Away from the base with their own supplies (e.g. exploring): oxygen, water, food don't drain. */
@@ -221,6 +222,7 @@ export function updateBody(pawn: Pawn, env: BodyEnv, hours: number, log: Log) {
         needs.oxygen = 100
         continue
       }
+      if (need === "oxygen" && env.suitAir === "hold") continue
       const factor = need === "oxygen" ? env.oxygenFactor : need === "water" ? (env.waterFactor ?? 1) : 1
       const decay = TUNING.consumableDecayPerHour * traitMultiplier(pawn, (m) => m.needDecay?.[need]) * factor
       needs[need] = clamp(needs[need] - decay * hours, 0, 100)

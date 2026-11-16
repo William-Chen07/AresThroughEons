@@ -184,6 +184,8 @@ export function liveCrewThrough(input: LiveCrewInput): {
   // 5. Bodies: needs, radiation, statuses, morale, health, evacuation.
   const supplies = { oxygen: resources.oxygen, water: resources.water, food: resources.food }
   const stormShare = storm ? clamp(storm.hours / hours, 0, 1) : 0
+  // The machines that fill the suit tanks run on electricity (the Power resource).
+  const hasPower = resources.power > 0
   for (const pawn of present) {
     const spot = where.get(pawn.id)
     const isAway = !spot
@@ -210,8 +212,9 @@ export function liveCrewThrough(input: LiveCrewInput): {
       supplies,
       supplyPerDay: SUPPLY_PER_ASTRONAUT_DAY,
       oxygenFactor: SUIT_OXYGEN_FACTOR,
-      // Each astronaut has their own tank: it runs down outside and is filled up in any module or tube.
-      suitAir: spot && spot.pressurized === false ? "drain" : "refill",
+      // Each astronaut has their own tank: it runs down outside and is filled up in any module or
+      // tube, as long as the base has power. With none, nothing refills it: it stays as it is indoors.
+      suitAir: spot && spot.pressurized === false ? "drain" : spot && !hasPower ? "hold" : "refill",
       // Inside or out: only for the part of the time the storm was on.
       waterFactor: inStorm && storm ? 1 + ((storm.waterUseMultiplier ?? 1) - 1) * stormShare : 1,
       outside,
@@ -279,11 +282,14 @@ export const RESEARCHER_SPEED = 1.5
 
 /**
  * How much research one astronaut in a Research Lab does, compared with an ordinary crewmate:
- * a trained Researcher does RESEARCHER_SPEED as much, and nobody researches in their sleep.
+ * a trained Researcher does RESEARCHER_SPEED as much, traits that are better or worse at
+ * Researching (Too Smart, Curious: see roleBonus in sim/traits.ts) count too, and nobody
+ * researches in their sleep.
  */
 export function researchRate(pawn: Pawn | undefined): number {
   if (!pawn || pawn.activity === "sleeping") return pawn ? 0 : 1
-  return pawn.occupation === "researcher" ? RESEARCHER_SPEED : 1
+  const trained = pawn.occupation === "researcher" ? RESEARCHER_SPEED : 1
+  return trained * traitMultiplier(pawn, (m) => m.roleBonus?.researching)
 }
 
 /** Why this crewmate can't go out exploring right now, or null if they can. */
