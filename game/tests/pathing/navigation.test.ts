@@ -72,7 +72,7 @@ test("every module and tube is pressurized and provides oxygen; open ground isn'
   assert.ok(!cells.has(12 * SIZE + 12), "the lander")
   const w = buildNavigation(flat(), base)
   const provides = (id: string) => w.stations.find((s) => s.id === moduleStationId(id))!.provides
-  assert.deepEqual(provides("hab"), ["oxygen"])
+  assert.deepEqual(provides("hab"), ["rest", "oxygen"], "a Habitat has the beds")
   assert.deepEqual(provides("lab"), ["oxygen"])
   assert.deepEqual(provides("mb"), ["oxygen"])
 })

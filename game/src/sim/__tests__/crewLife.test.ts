@@ -7,6 +7,8 @@ import {
   hurtOnTrip,
   liveCrewThrough,
   newCrew,
+  RESEARCHER_SPEED,
+  researchRate,
   urgentNeedOf,
   type LiveCrewInput,
 } from "@/sim/crewLife"
@@ -38,6 +40,48 @@ function live(input: Omit<LiveCrewInput, "hours" | "clock">, hours: number, step
 }
 
 const byId = (crew: Pawn[], id: string) => crew.find((p) => p.id === id)!
+
+describe("getting hurt", () => {
+  it("an accident costs health at once and leaves them injured, outside or in", () => {
+    const { crew, resources } = setup(2)
+    const [out, inn] = crew
+    const atBase: CrewMember[] = [
+      { id: out.id, outside: true, pressurized: false },
+      { id: inn.id, outside: false, pressurized: true },
+    ]
+    // random() = 0 makes every chance happen.
+    const r = liveCrewThrough({ crew, resources, atBase, away: [], storm: null, hours: 0.5, clock: 0, random: () => 0 })
+    for (const p of [out, inn]) {
+      const after = byId(r.crew, p.id)
+      expect(hasStatus(after, "injured")).toBe(true)
+      expect(after.health).toBeLessThanOrEqual(p.health - TUNING.injuryHealthLoss + 1)
+    }
+    expect(r.log.some((e) => e.text.includes("slipped on the rocks"))).toBe(true)
+    expect(r.log.some((e) => e.text.includes("tripped inside the base"))).toBe(true)
+  })
+
+  it("a clumsy crewmate slips more often, and the message says so", () => {
+    const { crew, resources } = setup(1)
+    const [p] = crew
+    const atBase: CrewMember[] = [{ id: p.id, outside: true, pressurized: false }]
+    // A roll just above the ordinary chance: only the clumsy one slips.
+    const roll = TUNING.injuryChancePerHour * 0.5 * 1.2
+    const plain = liveCrewThrough({ crew, resources, atBase, away: [], storm: null, hours: 0.5, clock: 0, random: () => roll })
+    expect(hasStatus(byId(plain.crew, p.id), "injured")).toBe(false)
+    const clumsy = [{ ...p, traits: ["clumsy" as const] }]
+    const r = liveCrewThrough({ crew: clumsy, resources, atBase, away: [], storm: null, hours: 0.5, clock: 0, random: () => roll })
+    expect(hasStatus(byId(r.crew, p.id), "injured")).toBe(true)
+    expect(r.log.some((e) => e.text.startsWith("Being clumsy,"))).toBe(true)
+  })
+
+  it("nobody gets hurt in their sleep", () => {
+    const { crew, resources, atBase } = setup(1)
+    crew[0].needs.rest = 5
+    const r = liveCrewThrough({ crew, resources, atBase, away: [], storm: null, hours: 0.5, clock: 0, random: () => 0 })
+    expect(byId(r.crew, crew[0].id).activity).toBe("sleeping")
+    expect(hasStatus(byId(r.crew, crew[0].id), "injured")).toBe(false)
+  })
+})
 const used = (before: Resources, after: Resources, id: keyof Resources) => before[id] - after[id]
 
 describe("crew in the real game (crewLife)", () => {
@@ -200,11 +244,22 @@ describe("crew rules steering the map (urgent needs)", () => {
     expect(urgentNeedOf(hypoxic, false, none)).toBe("shelter")
   })
 
-  it("sleeping crew go to bed only if a module provides rest", () => {
+  it("sleeping crew go to bed in a Habitat, or at least inside when there isn't one", () => {
     const [p] = newCrew(1)
     const asleep = { ...p, activity: "sleeping" as const }
     expect(urgentNeedOf(asleep, false, all)).toBe("rest")
-    expect(urgentNeedOf(asleep, false, none)).toBeNull()
+    expect(urgentNeedOf(asleep, false, none)).toBe("shelter")
+    // A bed is indoors, so it shelters them from a storm too.
+    expect(urgentNeedOf(asleep, true, all)).toBe("rest")
+  })
+
+  it("a Researcher researches faster than anyone else, and nobody researches asleep", () => {
+    const crew = newCrew(1)
+    const researcher = crew.find((p) => p.occupation === "researcher")!
+    const engineer = crew.find((p) => p.occupation === "engineer")!
+    expect(researchRate(researcher)).toBe(RESEARCHER_SPEED)
+    expect(researchRate(engineer)).toBe(1)
+    expect(researchRate({ ...researcher, activity: "sleeping" })).toBe(0)
   })
 
   it("says why someone can't go exploring", () => {

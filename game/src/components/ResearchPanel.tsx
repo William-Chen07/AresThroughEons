@@ -146,7 +146,7 @@ export function ResearchPanel({
     } else if (isActive && claimedLabs > 0) note = `Researching ${selected.name}: ${time}. An astronaut is walking to the Research Lab.`
     else if (isActive) note = `Researching ${selected.name}: ${time}. Nobody is in a Research Lab, so it has stopped.`
     else {
-      note = `${selected.name}: ${time} with one astronaut in a Research Lab. Each extra lab with an astronaut in it makes the time count down faster.`
+      note = `${selected.name}: ${time} with one astronaut in a Research Lab. A Researcher works 1.5× as fast, and each extra lab with an astronaut in it makes the time count down faster.`
     }
   }
 
