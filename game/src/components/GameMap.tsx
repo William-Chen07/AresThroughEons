@@ -1,5 +1,7 @@
+import { Menu } from "@base-ui/react/menu"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { BuildPanel, type BuildTool } from "@/components/BuildPanel"
+import { Bar } from "@/components/CrewPanel"
 import { ExploreMap } from "@/components/ExploreMap"
 import { ResearchPanel } from "@/components/ResearchPanel"
 import { ResourceBar } from "@/components/ResourceBar"
@@ -53,7 +55,7 @@ import type { Weather } from "@/sim/weather"
  * The base map screen: the ground around the expedition's landing site, built
  * from NASA imagery and elevation (see map/), with the lander and the base on
  * it. For now the base (modules, and the tubes between them) is built by hand
- * from the Build panel (the Build button or the ` key).
+ * from the Build panel (Build in the Actions dropdown, or the ` key).
  * Modules and tubes turn see-through so the crew inside can be seen and clicked: only the module
  * someone is in, and the piece of tube someone is walking along. A click on a module opens up
  * every module to look inside (another click closes them up again).
@@ -63,7 +65,7 @@ import type { Weather } from "@/sim/weather"
  * radiation limit, a crewmate heads inside and stays there.
  * Where they stand isn't saved yet, so they start beside the lander each time the map opens.
  * An astronaut whose health runs out is evacuated: gone from the map for good.
- * Astronauts sent out from the explore map (the Explore button) are off this map until they are back.
+ * Astronauts sent out from the explore map (Explore in the Actions dropdown) are off this map until they are back.
  * Crew outside the modules joined to an Airlock (out on the surface, or in a module with no
  * Airlock) breathe the base's oxygen faster (see sim/navigation.ts and sim/lifeSupport.ts).
  * The panels copy the look of MainMenu.
@@ -143,7 +145,7 @@ function describeEvent(event: PathingEvent, nameOf: NameOf): string | null {
 const kickerClass = "text-xs font-medium uppercase tracking-[0.4em] text-orange-300/80"
 const panelClass = "border border-white/15 bg-neutral-950/80 px-5 py-3 backdrop-blur-sm"
 const buttonClass =
-  "pointer-events-auto border border-white/15 bg-neutral-950/80 px-5 py-2 text-xs font-semibold uppercase tracking-[0.25em] backdrop-blur-sm transition hover:border-orange-400/70 focus-visible:outline-2 focus-visible:outline-orange-400"
+  "pointer-events-auto border border-white/15 bg-neutral-950/80 px-5 py-2 text-xs font-semibold uppercase tracking-[0.25em] backdrop-blur-sm transition hover:border-orange-400/70 hover:bg-orange-950/85 hover:text-orange-100 focus-visible:outline-2 focus-visible:outline-orange-400"
 
 type Loaded = { key: string; terrain: VoxelTerrain } | { key: string; error: string }
 
@@ -661,6 +663,12 @@ export function GameMap({
     return () => window.removeEventListener("keydown", onKey)
   }, [tubeStart, tool, researchOpen, exploreOpen])
 
+  /** Closes the Build panel and puts down whatever tool was in hand. */
+  const closeBuild = () => {
+    setBuildOpen(false)
+    pickTool(null)
+  }
+
   /** A name in the Crew panel was clicked: select that astronaut, like clicking it on the map. */
   const selectFromPanel = (id: string, shift: boolean) => {
     const crew = crewRef.current?.world
@@ -721,74 +729,58 @@ export function GameMap({
                   setTubeStart(null)
                   setMessage("Cleared the base.")
                 }}
-                onClose={() => {
-                  setBuildOpen(false)
-                  pickTool(null)
-                }}
+                onClose={closeBuild}
               />
             )}
             {landed && terrain && !tool && (
-              <div className={`${panelClass} max-w-xs`} aria-live="polite">
-                <p className={kickerClass}>Crew</p>
-                <ul className="mt-2 flex flex-col gap-1 text-sm">
+              <div className="pointer-events-auto w-60 border border-white/15 bg-neutral-950/80 px-3 py-2 backdrop-blur-sm" aria-live="polite">
+                <p className="text-[11px] font-medium uppercase tracking-[0.35em] text-orange-300/80">Crew</p>
+                <ul className="mt-1.5 flex flex-col gap-1">
                   {crew.map((member) => {
-                    const gone = evacuated.includes(member.id) || away.includes(member.id)
-                    const selected = selectedCrew.includes(member.id) && !away.includes(member.id)
+                    const isEvacuated = evacuated.includes(member.id) || !!member.evacuated
+                    const isAway = away.includes(member.id)
+                    const gone = isEvacuated || isAway
+                    const selected = selectedCrew.includes(member.id) && !isAway
                     return (
-                      <li
-                        key={member.id}
-                        className={`flex items-center gap-2 ${gone ? "text-white/30" : selected ? "text-white" : "text-white/55"}`}
-                      >
-                        {/* Clicking a name selects that astronaut, like clicking it on the map. */}
+                      <li key={member.id}>
+                        {/* One row per astronaut. Clicking it selects them, like clicking them on the map. */}
                         <button
                           type="button"
                           aria-pressed={selected}
                           disabled={gone}
                           onClick={(e) => selectFromPanel(member.id, e.shiftKey)}
-                          className="pointer-events-auto flex items-center gap-2 whitespace-nowrap enabled:hover:text-white focus-visible:outline-2 focus-visible:outline-orange-400"
+                          className={`pointer-events-auto flex w-full flex-col gap-1 border px-2 py-1.5 text-left transition focus-visible:outline-2 focus-visible:outline-orange-400 ${
+                            selected
+                              ? "border-orange-400/70 bg-orange-500/25"
+                              : gone
+                                ? "border-white/5 bg-white/[0.02] text-white/35"
+                                : "border-white/10 bg-white/5 hover:border-orange-400/70 hover:bg-orange-500/15"
+                          }`}
                         >
-                          <span className="size-2.5 rounded-full" style={{ background: member.color }} />
-                          {member.name}
-                          {selected && <span className="text-[11px] text-white/50">selected</span>}
+                          <span className="flex items-center gap-2 text-xs font-semibold">
+                            <span className="size-2.5 shrink-0 rounded-full" style={{ background: member.color }} />
+                            <span className="truncate">{member.name}</span>
+                            {isEvacuated ? (
+                              <span className="ml-auto text-[10px] uppercase tracking-[0.15em] text-orange-300/80">Evacuated</span>
+                            ) : isAway ? (
+                              <span className="ml-auto text-[10px] uppercase tracking-[0.15em] text-white/50">Exploring</span>
+                            ) : (
+                              selected && <span className="ml-auto text-[10px] uppercase tracking-[0.15em] text-orange-200">Selected</span>
+                            )}
+                          </span>
+                          {!gone && <Bar label="Health" value={member.health} />}
                         </button>
-                        {/* Health sits at the right edge of the row; it turns orange once it has dropped below half. */}
-                        {evacuated.includes(member.id) ? (
-                          <span className="ml-auto whitespace-nowrap pl-4 text-[11px] font-semibold uppercase tracking-[0.15em] text-orange-300/80">
-                            Evacuated
-                          </span>
-                        ) : away.includes(member.id) ? (
-                          <span className="ml-auto whitespace-nowrap pl-4 text-[11px] font-semibold uppercase tracking-[0.15em] text-white/50">
-                            Exploring
-                          </span>
-                        ) : (
-                          <span
-                            className={`ml-auto whitespace-nowrap pl-4 text-[11px] font-semibold uppercase tracking-[0.15em] tabular-nums ${member.health < 50 ? "text-orange-300" : "text-white/50"}`}
-                          >
-                            Health {Math.ceil(member.health)}
-                          </span>
-                        )}
                       </li>
                     )
                   })}
                 </ul>
-                <p className="mt-2 text-[11px] text-white/50">
-                  Click an astronaut (or a name here), then click where to go, or a module to go in and work. Shift-click to pick more or
-                  to queue an order. Crew go in and out of a module by the doorways in the middle of each side. With nobody selected, click a module
-                  to see inside them all. Click a selected astronaut again (or press Esc) to let go. Crew breathe the base's
-                  oxygen twice as fast outside the modules joined to an Airlock (by tubes, or wall to wall).
-                </p>
-                {crewMessage && <p className="mt-2 text-xs text-orange-200">{crewMessage}</p>}
+                {crewMessage && <p className="mt-1.5 text-[11px] text-orange-200">{crewMessage}</p>}
               </div>
             )}
           </div>
           <div className="flex flex-col items-end gap-3">
-            {/* The resources run along the top, left of Back to menu. */}
-            <div className="flex flex-wrap items-stretch justify-end gap-3">
-              <ResourceBar resources={resources} />
-              <button type="button" onClick={onExit} className={buttonClass}>
-                Back to menu
-              </button>
-            </div>
+            {/* The resources run along the top. */}
+            <ResourceBar resources={resources} />
             {/* The calendar: only the day number, never the real date (see sim/calendar.ts). */}
             <section
               aria-label="Calendar"
@@ -807,21 +799,37 @@ export function GameMap({
                 </p>
               )}
             </section>
-            {/* Opens the Build panel; the ` key toggles it too. */}
-            {!buildOpen && terrain && (
-              <button type="button" onClick={() => setBuildOpen(true)} className={buttonClass}>
-                Build
-              </button>
-            )}
+            {/* Build, Research and Explore, folded into one dropdown. The ` key still toggles Build. */}
             {terrain && (
-              <button type="button" onClick={() => setResearchOpen(true)} className={buttonClass}>
-                Research
-              </button>
-            )}
-            {terrain && landed && (
-              <button type="button" onClick={() => setExploreOpen(true)} className={buttonClass}>
-                Explore
-              </button>
+              <Menu.Root>
+                <Menu.Trigger className={`${buttonClass} flex items-center gap-3 data-popup-open:border-orange-400/70 data-popup-open:bg-orange-950/85`}>
+                  Actions
+                  <svg aria-hidden viewBox="0 0 10 6" className="size-2.5 fill-current text-white/60">
+                    <path d="M0 0h10L5 6z" />
+                  </svg>
+                </Menu.Trigger>
+                <Menu.Portal>
+                  <Menu.Positioner className="z-50 outline-hidden" side="bottom" align="end" sideOffset={4}>
+                    <Menu.Popup className="min-w-[var(--anchor-width)] border border-white/15 bg-neutral-950/95 py-1 text-white outline-hidden backdrop-blur-sm">
+                      {[
+                        { label: buildOpen ? "Close build" : "Build", onClick: () => (buildOpen ? closeBuild() : setBuildOpen(true)), show: true },
+                        { label: "Research", onClick: () => setResearchOpen(true), show: true },
+                        { label: "Explore", onClick: () => setExploreOpen(true), show: landed },
+                      ]
+                        .filter((item) => item.show)
+                        .map((item) => (
+                          <Menu.Item
+                            key={item.label}
+                            onClick={item.onClick}
+                            className="flex cursor-default items-center px-5 py-2 text-xs font-semibold uppercase tracking-[0.25em] outline-hidden select-none hover:bg-orange-500/25 hover:text-orange-100 data-highlighted:bg-orange-500/25 data-highlighted:text-orange-100"
+                          >
+                            {item.label}
+                          </Menu.Item>
+                        ))}
+                    </Menu.Popup>
+                  </Menu.Positioner>
+                </Menu.Portal>
+              </Menu.Root>
             )}
           </div>
         </div>

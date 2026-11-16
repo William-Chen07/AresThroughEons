@@ -5,7 +5,7 @@ import { MODULE_TYPES, moduleType, type ModuleTypeId } from "@/content/modules"
  * A panel for building the base by hand while the real building rules don't
  * exist yet: place modules, lay the tubes between them, and remove either.
  * Nothing connects by itself (see sim/base.ts). Shown as "Build", opened
- * from the Build button or the ` key on the base map. The modules are picked
+ * from Build in the Actions dropdown or the ` key on the base map. The modules are picked
  * from a dropdown so the panel stays short enough to fit on screen. It can also start
  * and stop a radiation storm, for trying the weather out, and reset the map.
  */
@@ -106,7 +106,7 @@ export function BuildPanel({
           type="button"
           aria-label="Close the Build panel"
           onClick={onClose}
-          className="border border-white/15 px-2 py-0.5 text-xs transition hover:border-orange-400/70 focus-visible:outline-2 focus-visible:outline-orange-400"
+          className="border border-white/15 px-2 py-0.5 text-xs transition hover:border-orange-400/70 hover:bg-orange-500/15 focus-visible:outline-2 focus-visible:outline-orange-400"
         >
           ✕
         </button>
@@ -207,7 +207,7 @@ export function BuildPanel({
       <button
         type="button"
         onClick={onNextEra}
-        className={`${toolButton} mt-2 border-white/15 bg-white/5 hover:border-orange-400/70`}
+        className={`${toolButton} mt-2 border-white/15 bg-white/5 hover:border-orange-400/70 hover:bg-orange-500/15`}
       >
         Next era
       </button>

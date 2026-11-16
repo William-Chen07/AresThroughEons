@@ -7,7 +7,7 @@ import { exploreBackdrop } from "@/map/exploreBackdrop"
 import { describeFinds, tripHours, tripReach, type Trip, type TripReport } from "@/sim/explore"
 
 /*
- * The explore map, opened from the Explore button on the base map: the land
+ * The explore map, opened from Explore in the base map's Actions dropdown: the land
  * around the base with places to visit. Click a place, pick who goes and send
  * them; they are away for a while and come back with what they found. Things
  * can happen to them on the way (content/exploreEvents.ts), listed under the trip.
@@ -92,7 +92,7 @@ export function ExploreMap({
           <h2 id="explore-title" className="text-lg font-semibold uppercase tracking-[0.25em]">
             Explore
           </h2>
-          <button type="button" onClick={onClose} className={`${button} border-white/15 hover:border-orange-400/70`}>
+          <button type="button" onClick={onClose} className={`${button} border-white/15 hover:border-orange-400/70 hover:bg-orange-500/15`}>
             Close
           </button>
         </div>
@@ -218,7 +218,7 @@ export function ExploreMap({
                           onClick={() =>
                             setPicked(chosen ? going.filter((id) => id !== member.id) : [...going, member.id])
                           }
-                          className={`flex w-full items-center gap-2 border px-3 py-1.5 text-left text-xs font-semibold transition focus-visible:outline-2 focus-visible:outline-orange-400 disabled:pointer-events-none disabled:opacity-40 ${chosen ? "border-orange-400/70 bg-orange-500/25 text-orange-100" : "border-white/15 bg-white/5 hover:border-orange-400/70"}`}
+                          className={`flex w-full items-center gap-2 border px-3 py-1.5 text-left text-xs font-semibold transition focus-visible:outline-2 focus-visible:outline-orange-400 disabled:pointer-events-none disabled:opacity-40 ${chosen ? "border-orange-400/70 bg-orange-500/25 text-orange-100" : "border-white/15 bg-white/5 hover:border-orange-400/70 hover:bg-orange-500/15"}`}
                         >
                           <span className="size-2.5 shrink-0 rounded-full" style={{ background: member.color }} />
                           {member.name}

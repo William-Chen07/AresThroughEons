@@ -201,11 +201,24 @@ export async function createMapView(
   const cellAt = (x: number, y: number) =>
     (placement ? null : (crew.crewCellAt(x, y) ?? base.moduleCellAt(x, y))) ?? pickCell(terrain, x, y)
   viewport.eventMode = "static"
+  /**
+   * Whether the pointer is over the map itself. Pixi hears pointer moves anywhere on the page, so
+   * without this a button or panel over the map would still light up (and point at) the tile behind it.
+   */
+  let overCanvas = false
   viewport.on("pointermove", (e) => {
+    if (!overCanvas) return
     const point = viewport.toLocal(e.global)
     setHovered(cellAt(point.x, point.y))
   })
-  const clearHover = () => setHovered(null)
+  const enterCanvas = () => {
+    overCanvas = true
+  }
+  const clearHover = () => {
+    overCanvas = false
+    setHovered(null)
+  }
+  app.canvas.addEventListener("pointerenter", enterCanvas)
   app.canvas.addEventListener("pointerleave", clearHover)
   // The camera reports a click only when the pointer didn't drag the map.
   viewport.on("clicked", (e) => {
@@ -238,6 +251,7 @@ export async function createMapView(
     destroy: () => {
       stopLandingSound()
       observer.disconnect()
+      app.canvas.removeEventListener("pointerenter", enterCanvas)
       app.canvas.removeEventListener("pointerleave", clearHover)
       app.destroy(
         { removeView: true, releaseGlobalResources: true },

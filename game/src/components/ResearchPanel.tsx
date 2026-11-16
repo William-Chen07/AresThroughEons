@@ -3,7 +3,7 @@ import { researchProject, researchTree, type ResearchProject } from "@/content/r
 import { researchState, type ResearchState } from "@/sim/research"
 
 /*
- * The research tree, opened from the Research button on the base map. Projects
+ * The research tree, opened from Research in the base map's Actions dropdown. Projects
  * sit in columns (tiers) with lines from what each one needs. Click a project
  * to pick it, then the Research button researches it, if everything it needs
  * is done. The screen shows only the tree and that button: no heading, no descriptions (each project's fact and NASA source
