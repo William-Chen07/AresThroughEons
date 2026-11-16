@@ -1,6 +1,6 @@
 import { Menu } from "@base-ui/react/menu"
 import { Lock } from "lucide-react"
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react"
 import { BuildPanel, type BuildTool } from "@/components/BuildPanel"
 import { Bar } from "@/components/CrewPanel"
 import { TraitChip } from "@/components/CrewChips"
@@ -74,7 +74,10 @@ import { GAME_HOURS_PER_SECOND, formatRealTime } from "@/sim/clock"
 import { DAYLIGHT_HOURS, darkness, isNight } from "@/sim/dayNight"
 import { GAME_SPEEDS, gameSpeedStore, useGameSpeed } from "@/lib/gameSpeed"
 import { hoursLeft, type ResearchProgress } from "@/sim/research"
-import { playSfx } from "@/lib/sound"
+import { onNebulaChange, playSfx, playingNebula } from "@/lib/sound"
+import { nebula as nebulaById, nebulaCodexId } from "@/content/nebulae"
+import { NebulaDialog } from "@/components/NebulaCard"
+import { progressStore } from "@/sim/progress"
 import type { Weather } from "@/sim/weather"
 import { HOURS_PER_DAY, TEST_ERUPTION_TRAVEL_HOURS, type TestSpaceEvent } from "@/sim/calendar"
 
@@ -397,6 +400,12 @@ export function GameMap({
   /** The Build bar is open as the dev console (the ` key): everything in it is unlocked. */
   const [devConsole, setDevConsole] = useState(false)
   const [researchOpen, setResearchOpen] = useState(false)
+  /** The nebula card showing over the map, and whether it was just added to the Codex. */
+  const [nebulaCard, setNebulaCard] = useState<{ id: string; isNew: boolean } | null>(null)
+  /** The nebula sonification playing in the background music right now, if any (see lib/sound.ts). */
+  const nebulaPlaying = useSyncExternalStore(onNebulaChange, playingNebula)
+  /** The playing nebula whose card has been looked at already: its "!" goes until the next one plays. */
+  const [nebulaSeen, setNebulaSeen] = useState<string | null>(null)
   /** Evacuation shuttles in flight. The "era over" screen waits for the last one to leave. */
   const [shuttles, setShuttles] = useState(0)
   /** Ids of the astronauts a shuttle is on its way for, so nobody is sent two. */
@@ -502,6 +511,32 @@ export function GameMap({
     [deposits],
   )
 
+  /**
+   * Sonification Stations that show a "!": every one still standing (not decayed from an earlier
+   * era) while a nebula sonification is playing whose card hasn't been looked at yet.
+   */
+  const nebulaAlerts = useMemo(
+    () =>
+      nebulaPlaying && nebulaPlaying !== nebulaSeen && nebulaById(nebulaPlaying)
+        ? modules.filter((module) => module.type === "observatory" && !isDecayed(module, era)).map((module) => module.id)
+        : [],
+    [modules, era, nebulaPlaying, nebulaSeen],
+  )
+  useEffect(() => {
+    view?.setAlerts(nebulaAlerts)
+  }, [view, nebulaAlerts])
+
+  /** Shows the playing nebula's card, and adds it to the Mars Codex the first time. */
+  const openNebulaCard = (id: string) => {
+    const codexId = nebulaCodexId(id)
+    const { codexIds, setProgress } = progressStore.getState()
+    const isNew = !codexIds.includes(codexId)
+    if (isNew) setProgress({ codexIds: [...codexIds, codexId] })
+    setNebulaSeen(id)
+    setNebulaCard({ id, isNew })
+    playSfx("open")
+  }
+
   const handleCellClick = (cell: Cell, keys: ClickKeys, screen: { x: number; y: number }) => {
     if (!terrain || !grid) return
     // With no dev tool picked, clicks are for the crew: pick an astronaut, then where to send them.
@@ -530,9 +565,15 @@ export function GameMap({
         return
       }
       if (closedMenu) return
+      const tile = { x: cell.col, y: cell.row }
+      // A Sonification Station with a "!": its card shows the nebula the music is playing.
+      const station = moduleAt(modules, cell)
+      if (station && nebulaAlerts.includes(station.id) && crew.selectedPawnIds.length === 0 && nebulaPlaying) {
+        openNebulaCard(nebulaPlaying)
+        return
+      }
       // With nobody selected, clicking a module (not an astronaut in it) opens up every module to
       // see inside, or closes them all again.
-      const tile = { x: cell.col, y: cell.row }
       if (moduleAt(modules, cell) && crew.selectedPawnIds.length === 0 && pawnsAt(crew, tile).length === 0) {
         setBaseOpen(!baseOpen)
         setCrewMessage(
@@ -1593,6 +1634,10 @@ export function GameMap({
           }}
           onClose={() => setExploreOpen(false)}
         />
+      )}
+
+      {nebulaCard && nebulaById(nebulaCard.id) && (
+        <NebulaDialog nebula={nebulaById(nebulaCard.id)!} isNew={nebulaCard.isNew} onClose={() => setNebulaCard(null)} />
       )}
 
       {researchShown.mounted && (

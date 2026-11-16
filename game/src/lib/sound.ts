@@ -70,6 +70,8 @@ let silenceTimer: ReturnType<typeof setTimeout> | undefined
 let fadingOut = false
 let failures = 0 // files in a row that would not play, so a broken build can't spin forever
 let ducks = 0 // sounds playing right now that the music should dip under
+/** Told whenever the background music moves on to another track (see onNebulaChange). */
+const trackListeners = new Set<() => void>()
 let context: AudioContext | null = null
 let slices: Partial<Record<SfxName, AudioBuffer>> = {}
 
@@ -181,6 +183,7 @@ function skipBrokenTrack() {
 
 function playTrack(track: Track) {
   current = track
+  for (const listener of trackListeners) listener()
   clearTimeout(silenceTimer)
   cancelAnimationFrame(musicFade)
   const el = musicElement()
@@ -227,6 +230,18 @@ export function startMusic() {
     return
   }
   if (current?.kind !== "silence" && music?.paused && !music.ended) resumeTrack()
+}
+
+/**
+ * The id of the nebula sonification playing right now (see content/nebulae.ts), or null while
+ * music or a quiet gap is on. The base map shows it on the Sonification Station.
+ */
+export const playingNebula = () => (current?.kind === "nebula" ? current.id : null)
+
+/** Calls `listener` whenever the music moves on to another track. Returns a function that stops it. */
+export function onNebulaChange(listener: () => void): () => void {
+  trackListeners.add(listener)
+  return () => trackListeners.delete(listener)
 }
 
 export function playSfx(name: SfxName) {

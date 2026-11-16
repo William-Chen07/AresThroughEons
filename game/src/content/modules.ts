@@ -35,7 +35,7 @@ export const MODULE_TYPES = [
     cost: { regolith: 10 } as BuildCost },
   // Its id stays "observatory" so saves and the research that unlocks it still match.
   { id: "observatory", name: "Sonification Station", code: "SON", width: 2, height: 2, color: 0xcfd6e0,
-    description: "Turns pictures of space into sound. When a nebula sound plays, you can see the nebula.",
+    description: "Turns pictures of space into sound. When the music plays a nebula, a ! appears on it: click it to see that nebula.",
     cost: { regolith: 25, power: 10 } as BuildCost },
   { id: "big-lounge", name: "Big Lounge", code: "BLG", width: 3, height: 2, color: 0xe8743b,
     description: "A bigger Lounge, with room for more of the crew.",

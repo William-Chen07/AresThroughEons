@@ -51,6 +51,8 @@ export interface BaseView {
    * than its footprint, so this is what a click on it means, rather than the ground cell there.
    */
   moduleCellAt: (x: number, y: number) => Cell | null
+  /** Shows a "!" over these modules (by id), e.g. a Sonification Station with a nebula to show. */
+  setAlerts: (ids: string[]) => void
 }
 
 /** A colour made lighter (factor above 1) or darker (below 1). */
@@ -91,7 +93,8 @@ export function createBaseView(terrain: VoxelTerrain, era = 1): BaseView {
   const tubes = new Container()
   const modulesLayer = new Container()
   const view = new Container()
-  view.addChild(tubes, modulesLayer)
+  const alerts = new Container()
+  view.addChild(tubes, modulesLayer, alerts)
   // One filter for the whole base, so overlapping shapes fade together instead of showing through each other.
   const fade = new AlphaFilter({ alpha: SEE_THROUGH_ALPHA })
   /** Each module's footprint and how far up its roof is drawn, front (south) first, for moduleCellAt. */
@@ -107,6 +110,8 @@ export function createBaseView(terrain: VoxelTerrain, era = 1): BaseView {
   let pieceOfCell = new Map<number, number>()
   /** Tube cells crew are in: the pieces of tube with these in them are faded. */
   let openTubeCells: Cell[] = []
+  /** Modules with a "!" over them (the marks are on the `alerts` layer, above the modules). */
+  let alertIds: string[] = []
   /** Fades the whole base, or else just the opened modules and pieces of tube. */
   const applyFade = () => {
     view.filters = wholeBaseFaded ? [fade] : []
@@ -327,6 +332,33 @@ export function createBaseView(terrain: VoxelTerrain, era = 1): BaseView {
     }
     drawnModules = ordered.map((module) => ({ rect: moduleRect(module), lift: liftOf(module) })).reverse()
     applyFade()
+    drawAlerts()
+  }
+
+  /** A round yellow badge with a "!" floating over each alerted module's roof. */
+  const drawAlerts = () => {
+    alerts.removeChildren().forEach((mark) => mark.destroy({ children: true }))
+    const modules = lastDrawn?.base.modules ?? []
+    for (const id of alertIds) {
+      const module = modules.find((m) => m.id === id)
+      if (!module) continue
+      const rect = moduleRect(module)
+      const corner = footprintCorner(rect)
+      const mark = new Container()
+      const badge = new Graphics().circle(0, 0, 7).fill(0xfacc15).stroke({ width: 2, color: OUTLINE })
+      const bang = new Text({ text: "!", style: { fontFamily: "sans-serif", fontSize: 11, fontWeight: "900", fill: OUTLINE } })
+      bang.anchor.set(0.5)
+      bang.resolution = 4
+      mark.addChild(badge, bang)
+      mark.position.set(corner.x + (rect.width * CELL_PX) / 2, corner.y - liftOf(module) - 9)
+      alerts.addChild(mark)
+    }
+  }
+
+  const setAlerts: BaseView["setAlerts"] = (ids) => {
+    if (ids.join() === alertIds.join()) return
+    alertIds = [...ids]
+    drawAlerts()
   }
 
   const setSeeThrough: BaseView["setSeeThrough"] = (on) => {
@@ -385,5 +417,5 @@ export function createBaseView(terrain: VoxelTerrain, era = 1): BaseView {
     if (lastDrawn && !view.destroyed) draw(lastDrawn.base, lastDrawn.grid)
   })
 
-  return { view, ghost, draw, showGhost, setSeeThrough, setOpenModules, setOpenTubes, moduleCellAt }
+  return { view, ghost, draw, showGhost, setSeeThrough, setOpenModules, setOpenTubes, moduleCellAt, setAlerts }
 }
