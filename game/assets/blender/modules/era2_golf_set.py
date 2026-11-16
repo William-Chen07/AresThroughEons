@@ -34,4 +34,5 @@ block("DARK_TRIM", 2, 4, 3, 1, 0, 1)
 block("METAL_GREY", 5, 4, 7, 1, 0, 1)
 block("DARK_TRIM", 12, 4, 2, 3, 0, 2)
 
-kit.finish(era=2, cells_x=1, cells_y=1, layers=6, icon=False)
+# No edge dimming: every pixel of something this small is an edge, and the ball must stay white.
+kit.finish(era=2, cells_x=1, cells_y=1, layers=6, icon=False, edge_darken=1.0)

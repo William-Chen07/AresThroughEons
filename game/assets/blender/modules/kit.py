@@ -130,10 +130,12 @@ def doors(cells_x, cells_y, reach=0.3, z_low=0.1, height=0.82, frame="METAL_GREY
         door(side, cells_x, cells_y, reach, z_low, height, frame)
 
 
-def finish(era, cells_x, cells_y, layers, icon=True):
+def finish(era, cells_x, cells_y, layers, icon=True, edge_darken=None):
     """
     Slices the module, writes its icon and review pictures, saves the .blend. Returns the files.
     `icon=False` is for pieces that never appear in the build menu: no icon or 3D preview.
+    `edge_darken=1.0` turns off the dimming of each layer's outer edge, for tiny pieces that are
+    all edge and would come out grey.
     """
     name = _collection.name
     triangles = 0
@@ -145,7 +147,8 @@ def finish(era, cells_x, cells_y, layers, icon=True):
         evaluated.to_mesh_clear()
 
     sprite_dir = os.path.join(GAME_DIR, "public", "sprites", f"era{era}")
-    written = _slicer["slice_module"](name, cells_x, cells_y, layers, sprite_dir)
+    options = {} if edge_darken is None else {"edge_darken": edge_darken}
+    written = _slicer["slice_module"](name, cells_x, cells_y, layers, sprite_dir, **options)
 
     # Only the icon ships with the game; the big preview is just for looking at.
     for path in _slicer["preview_module"](name, PREVIEW_DIR) if icon else []:

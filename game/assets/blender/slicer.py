@@ -124,12 +124,14 @@ def _save_png(path, width, height, pixels):
         bpy.data.images.remove(image)
 
 
-def slice_module(collection_name, cells_x, cells_y, layers, out_dir):
+def slice_module(collection_name, cells_x, cells_y, layers, out_dir, edge_darken=EDGE_DARKEN):
     """
     Cuts a collection into `layers` horizontal slices and writes:
       <name>_stack.png   one strip, layer 0 (the bottom) on the left
       <name>_stack.json  {name, w, h, layers, cells}
       <name>_tint.png    only if any TINT_MASK faces exist: just those pixels
+    `edge_darken` is how much the outer edge of each layer is dimmed (1.0 = not at all). Tiny
+    pieces are all edge, so dimming would grey them out completely.
     Returns the list of files written.
     """
     width = cells_x * PX_PER_CELL
@@ -218,7 +220,7 @@ def slice_module(collection_name, cells_x, cells_y, layers, out_dir):
                     or grid[py + 1][px] is None
                 )
                 if on_edge:
-                    r, g, b = r * EDGE_DARKEN, g * EDGE_DARKEN, b * EDGE_DARKEN
+                    r, g, b = r * edge_darken, g * edge_darken, b * edge_darken
                 # Blender images start at the bottom row, which is the south edge here too.
                 offset = (py * strip_width + layer * width + px) * 4
                 stack[offset : offset + 4] = (r, g, b, 1.0)
