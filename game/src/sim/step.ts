@@ -139,10 +139,21 @@ export function updateFriction(crew: Pawn[], together: (a: Pawn, b: Pawn) => boo
   }
 }
 
-/** Sleep when rest runs low, keep sleeping until rested; otherwise ready to work. */
-export function decideActivity(pawn: Pawn) {
+/**
+ * Sleep when rest runs low, keep sleeping until rested; otherwise ready to work.
+ * With `night` given (the base map's day and night, see sim/dayNight.ts) sleep only happens at
+ * night: once it is dark everyone who isn't fully rested goes to bed, and they're up again when
+ * they're rested or the sun rises, whichever comes first. Nobody falls asleep in the daytime.
+ */
+export function decideActivity(pawn: Pawn, night?: boolean) {
   const rest = pawn.needs.rest
-  if (pawn.activity === "sleeping" ? rest < TUNING.wakeAtRest : rest < TUNING.sleepAtRest) {
+  const sleepy =
+    night === undefined
+      ? pawn.activity === "sleeping"
+        ? rest < TUNING.wakeAtRest
+        : rest < TUNING.sleepAtRest
+      : night && rest < TUNING.wakeAtRest
+  if (sleepy) {
     pawn.activity = "sleeping"
     pawn.task = "Sleeping"
   } else {
@@ -168,6 +179,12 @@ export interface BodyEnv {
   supplyPerDay: Record<Consumable, number>
   /** Multiplies how fast oxygen is used, e.g. on suit air outside. */
   oxygenFactor: number
+  /**
+   * Oxygen is each astronaut's own suit tank, not a share of the base's supply: "refill" fills
+   * the tank at once (they're in a building), "drain" uses it up with nothing to refill it
+   * (they're outside). Leave out for oxygen to be drawn from `supplies`, like water and food.
+   */
+  suitAir?: "refill" | "drain"
   /** Out on the surface: the full radiation dose. Inside, the habitat blocks `shielding` of it. */
   outside: boolean
   /** Away from the base with their own supplies (e.g. exploring): oxygen, water, food don't drain. */
@@ -198,10 +215,15 @@ export function updateBody(pawn: Pawn, env: BodyEnv, hours: number, log: Log) {
   // --- Oxygen, water, food: drain, then refill from the supplies.
   if (!env.suppliesCarried) {
     for (const need of ["oxygen", "water", "food"] as const) {
+      if (need === "oxygen" && env.suitAir === "refill") {
+        needs.oxygen = 100
+        continue
+      }
       const factor = need === "oxygen" ? env.oxygenFactor : 1
       const decay = TUNING.consumableDecayPerHour * traitMultiplier(pawn, (m) => m.needDecay?.[need]) * factor
       needs[need] = clamp(needs[need] - decay * hours, 0, 100)
 
+      if (need === "oxygen" && env.suitAir === "drain") continue
       if (needs[need] < TUNING.refillBelow[need]) {
         const perDay = env.supplyPerDay[need]
         const wanted = ((100 - needs[need]) / 100) * perDay

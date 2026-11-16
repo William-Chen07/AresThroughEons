@@ -1,10 +1,10 @@
-import { Application, CanvasSource, Graphics, Sprite, Texture } from "pixi.js"
+import { Application, CanvasSource, Container, Graphics, Sprite, Texture } from "pixi.js"
 import { Viewport } from "pixi-viewport"
 import { createBaseView, type Ghost } from "@/map/baseView"
 import { createCrewView } from "@/map/crewView"
 import { createDepositView } from "@/map/depositView"
 import { playLanding } from "@/lib/sound"
-import { createLander } from "@/map/lander"
+import { createLander, flyEvacuationShuttle } from "@/map/lander"
 import {
   CELL_PX,
   cellTopLeft,
@@ -36,13 +36,20 @@ export interface MapView {
   /** Starts or stops showing the placement ghost under the pointer. */
   setPlacement: (placement: Placement | null) => void
   /** Redraws the crew where they are now (see map/crewView.ts). */
-  drawCrew: (world: World, colors: Record<string, number>) => void
+  drawCrew: (world: World, colors: Record<string, number>, oxygen?: Record<string, number>, health?: Record<string, number>) => void
   /** Fades the base so crew inside the modules can be seen (see map/baseView.ts). */
   setSeeThrough: (on: boolean) => void
   /** Fades just these modules (by id) so what's inside them shows. */
   setOpenModules: (ids: string[]) => void
   /** Fades just the pieces of tube with these cells in them, so crew walking along them show. */
   setOpenTubes: (cells: Cell[]) => void
+  /**
+   * Flies the evacuation shuttle (the craft the crew landed in) down onto a spot, given in cells
+   * and fractions of cells like a crewmate's position, and away again. `onPickup` is called
+   * while it is on the ground, `onGone` once it has left. People who ask their system for less
+   * motion get no shuttle: both are called at once.
+   */
+  flyShuttleTo: (pos: { x: number; y: number }, onPickup: () => void, onGone: () => void) => void
   /** Redraws the mineral deposits (see map/depositView.ts). */
   setDeposits: (deposits: readonly Deposit[]) => void
   /** Calls `update` every frame with the real time since the last one, in ms. Returns a function that stops it. */
@@ -142,6 +149,9 @@ export async function createMapView(
   const base = createBaseView(terrain, era)
   const crew = createCrewView(terrain)
   const deposits = createDepositView(terrain)
+  /** Evacuation shuttles in flight, drawn over the crew, and how to stop each one when the map closes. */
+  const shuttles = new Container()
+  const stopShuttles = new Set<() => void>()
   // Drawing order: terrain, mineral deposits, crew inside the base, the base, the old landers,
   // this era's lander, crew outside, then the placement ghost and hover highlight on top.
   viewport.addChild(
@@ -152,6 +162,7 @@ export async function createMapView(
     ...oldLanders.map((old) => old.view),
     lander.view,
     crew.view,
+    shuttles,
     base.ghost,
     highlight,
   )
@@ -250,10 +261,29 @@ export async function createMapView(
       placement = next
       showPointer()
     },
-    drawCrew: (world, colors) => crew.draw(world, colors),
+    drawCrew: (world, colors, oxygen, health) => crew.draw(world, colors, oxygen, health),
     setSeeThrough: (on) => base.setSeeThrough(on),
     setOpenModules: (ids) => base.setOpenModules(ids),
     setOpenTubes: (cells) => base.setOpenTubes(cells),
+    flyShuttleTo: (pos, onPickup, onGone) => {
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        onPickup()
+        onGone()
+        return
+      }
+      const cell = {
+        col: Math.min(terrain.size - 1, Math.max(0, Math.round(pos.x))),
+        row: Math.min(terrain.size - 1, Math.max(0, Math.round(pos.y))),
+      }
+      // The same spot the crewmate's feet are drawn on (see map/crewView.ts).
+      const at = { x: pos.x * CELL_PX + CELL_PX / 2, y: cellTopLeft(terrain, cell).y + CELL_PX / 2 + 4 }
+      const shuttle = flyEvacuationShuttle(at, current.era, app.ticker, onPickup, () => {
+        stopShuttles.delete(shuttle.cancel)
+        onGone()
+      })
+      stopShuttles.add(shuttle.cancel)
+      shuttles.addChild(shuttle.view)
+    },
     setDeposits: (next) => deposits.draw(next),
     onFrame: (update) => {
       const tick = () => update(app.ticker.deltaMS)
@@ -263,6 +293,8 @@ export async function createMapView(
       }
     },
     destroy: () => {
+      for (const stop of [...stopShuttles]) stop()
+      stopShuttles.clear()
       stopLandingSound()
       observer.disconnect()
       app.canvas.removeEventListener("pointerenter", enterCanvas)
