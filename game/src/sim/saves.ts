@@ -62,8 +62,8 @@ export interface SaveSlot {
   landed: boolean
   /**
    * Which era the expedition is in, from 1. When an era ends (everyone was evacuated, or later
-   * when its goals are met) the next one begins on the same map: the base stays where it is and
-   * wears down, and a new crew comes down in a newer lander (see `nextEra`).
+   * when its goals are met) the next one begins on the same map: the modules stay where they are
+   * and wear down, the tubes are gone, and a new crew comes down in a newer lander (see `nextEra`).
    */
   era: number
   /** The base: its modules, and every cell with a piece of tube on it (see sim/base.ts). */
@@ -385,7 +385,8 @@ export const savesStore = createStore<Saves & SavesActions>()(
         const slot = get().slots[index]
         if (!slot) return
         const era = slot.era + 1
-        const base: Base = { modules: slot.modules, tubes: slot.tubes, landers: slot.landers }
+        // The tubes are gone in the new era, so the new lander may come down where they were.
+        const base: Base = { modules: slot.modules, tubes: [], landers: slot.landers }
         const landers = [...landersOf(base, MAP_SIZE), nextLanderSpot(MAP_SIZE, base, era)]
         const supplies = startingResources()
         const resources = { ...slot.resources }
@@ -394,6 +395,9 @@ export const savesStore = createStore<Saves & SavesActions>()(
           ...slot,
           era,
           landers,
+          // The old modules stay, worn down, but their tubes don't last the years in between: the
+          // new crew lays tubes again.
+          tubes: [],
           landed: false,
           resources,
           crew: newCrew(era),
@@ -449,9 +453,10 @@ export const savesStore = createStore<Saves & SavesActions>()(
       // (`crew`, `crewLog`): an older save gets a fresh crew, so nobody is evacuated or out exploring.
       // Version 17 added the `calendar`: an older save's current era gets one now, starting at
       // Day 1 from the clock as it stands.
-      // Version 18 added `researchProgress` (research takes time now; an older save has nothing
+      // Version 18 removed the Storage module: any already built is taken off the map.
+      // Version 19 added `researchProgress` (research takes time now; an older save has nothing
       // being researched) and `crewSpots` (an older save's crew steps out beside the lander once more).
-      version: 18,
+      version: 19,
       migrate: (stored) => {
         const old = stored as Saves
         return {
@@ -464,7 +469,10 @@ export const savesStore = createStore<Saves & SavesActions>()(
                 landed: slot.landed ?? false,
                 era: slot.era ?? 1,
                 landers: slot.landers?.length ? slot.landers : [firstLander(MAP_SIZE)],
-                modules: (slot.modules ?? []).map((module) => ({ ...module, era: module.era ?? 1 })),
+                modules: (slot.modules ?? [])
+                  // Storage is no longer a kind of module (version 18).
+                  .filter((module) => (module.type as string) !== "storage")
+                  .map((module) => ({ ...module, era: module.era ?? 1 })),
                 tubes: slot.tubes ?? [],
                 researched: slot.researched ?? [],
                 researchProgress: slot.researchProgress ?? NO_RESEARCH,
