@@ -1,5 +1,4 @@
 import { Menu } from "@base-ui/react/menu"
-import { Heart } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { BuildPanel, type BuildTool } from "@/components/BuildPanel"
 import { Bar } from "@/components/CrewPanel"
@@ -799,7 +798,7 @@ export function GameMap({
                             </span>
                             {!gone && (
                               <span className="grid grid-cols-2 gap-x-2 gap-y-0.5">
-                                <Bar label="Health" value={member.health} icon={<Heart aria-hidden className="size-3 shrink-0 text-rose-400" strokeWidth={2.25} />} />
+                                <Bar label="Morale" value={member.needs.morale} icon={<ResourceIcon id="morale" color={resourceColor("morale")} className="size-3" />} />
                                 <Bar label="Oxygen" value={member.needs.oxygen} icon={<ResourceIcon id="oxygen" color={resourceColor("oxygen")} className="size-3" />} />
                                 <Bar label="Food" value={member.needs.food} icon={<ResourceIcon id="food" color={resourceColor("food")} className="size-3" />} />
                                 <Bar label="Water" value={member.needs.water} icon={<ResourceIcon id="water" color={resourceColor("water")} className="size-3" />} />
