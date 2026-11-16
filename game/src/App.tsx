@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { CrewPanel } from "@/components/CrewPanel"
 import { GameMap } from "@/components/GameMap"
 import { MainMenu } from "@/components/MainMenu"
 import { devSiteOverride } from "@/map/marsSite"
@@ -31,6 +32,7 @@ function eraHistoryOf(calendar: Calendar, clock: number) {
 
 function App() {
   const [screen, setScreen] = useState<Screen>("menu")
+  const [showCrew, setShowCrew] = useState(false)
   // Goes up when the map is reset from the Build panel or a new era starts. It is the map screen's
   // key, so the screen is thrown away and built again from the changed save, landing and all.
   const [mapResets, setMapResets] = useState(0)
@@ -45,6 +47,7 @@ function App() {
   const resetMap = useSaves((s) => s.resetMap)
   const sendExploring = useSaves((s) => s.sendExploring)
   const nextEra = useSaves((s) => s.nextEra)
+  const setCrewRole = useSaves((s) => s.setCrewRole)
   // Real NASA events for the calendar are fetched while the expedition is being played.
   useSpaceCalendar(activeSlot, screen === "game")
 
@@ -55,48 +58,70 @@ function App() {
   // The base map for the save's landing site. Transitions into it come later.
   if (save) {
     return (
-      <GameMap
-        key={mapResets}
-        name={save.name}
-        site={devSiteOverride() ?? save.site}
-        landed={save.landed}
-        onLanded={() => activeSlot !== null && markLanded(activeSlot)}
-        modules={save.modules}
-        tubes={save.tubes}
-        onBaseChange={(base) => activeSlot !== null && setBase(activeSlot, base)}
-        researched={save.researched}
-        resources={save.resources}
-        health={save.health}
-        evacuated={save.evacuated}
-        trips={save.trips}
-        tripLog={save.tripLog}
-        tripNews={save.tripNews}
-        onSendExploring={(placeId, crewIds) => activeSlot !== null && sendExploring(activeSlot, placeId, crewIds)}
-        weather={save.weather}
-        onWeather={(id) => activeSlot !== null && setWeather(activeSlot, id)}
-        onResetMap={() => {
-          if (activeSlot === null) return
-          resetMap(activeSlot)
-          setMapResets((count) => count + 1)
-        }}
-        era={save.era}
-        landers={save.landers}
-        day={dayOf(save.calendar, save.hours)}
-        dayProgress={(Math.max(0, save.hours - save.calendar.startHours) % HOURS_PER_DAY) / HOURS_PER_DAY}
-        spaceNews={(() => {
-          const news = latestNews(save.calendar, save.hours)
-          return news ? describeSpaceEvent(news) : null
-        })()}
-        eraHistory={eraHistoryOf(save.calendar, save.hours)}
-        onNextEra={() => {
-          if (activeSlot === null) return
-          nextEra(activeSlot)
-          setMapResets((count) => count + 1)
-        }}
-        onTimePassed={(hours, crew) => activeSlot !== null && passTime(activeSlot, hours, crew)}
-        onResearch={(projectId) => activeSlot !== null && research(activeSlot, projectId)}
-        onExit={() => setScreen("menu")}
-      />
+      <>
+        <GameMap
+          key={mapResets}
+          name={save.name}
+          site={devSiteOverride() ?? save.site}
+          landed={save.landed}
+          onLanded={() => activeSlot !== null && markLanded(activeSlot)}
+          modules={save.modules}
+          tubes={save.tubes}
+          onBaseChange={(base) => activeSlot !== null && setBase(activeSlot, base)}
+          researched={save.researched}
+          resources={save.resources}
+          crew={save.crew}
+          crewLog={save.crewLog}
+          evacuated={save.evacuated}
+          trips={save.trips}
+          tripLog={save.tripLog}
+          tripNews={save.tripNews}
+          onSendExploring={(placeId, crewIds) => activeSlot !== null && sendExploring(activeSlot, placeId, crewIds)}
+          weather={save.weather}
+          onWeather={(id) => activeSlot !== null && setWeather(activeSlot, id)}
+          onResetMap={() => {
+            if (activeSlot === null) return
+            resetMap(activeSlot)
+            setMapResets((count) => count + 1)
+          }}
+          era={save.era}
+          landers={save.landers}
+          day={dayOf(save.calendar, save.hours)}
+          dayProgress={(Math.max(0, save.hours - save.calendar.startHours) % HOURS_PER_DAY) / HOURS_PER_DAY}
+          spaceNews={(() => {
+            const news = latestNews(save.calendar, save.hours)
+            return news ? describeSpaceEvent(news) : null
+          })()}
+          eraHistory={eraHistoryOf(save.calendar, save.hours)}
+          onNextEra={() => {
+            if (activeSlot === null) return
+            nextEra(activeSlot)
+            setMapResets((count) => count + 1)
+          }}
+          onTimePassed={(hours, crew) => activeSlot !== null && passTime(activeSlot, hours, crew)}
+          onResearch={(projectId) => activeSlot !== null && research(activeSlot, projectId)}
+          onExit={() => setScreen("menu")}
+        />
+
+        {/* The crew system's details for this save (sim/crewLife.ts). Sits above the map credits button. */}
+        <button
+          type="button"
+          onClick={() => setShowCrew((v) => !v)}
+          className="fixed bottom-20 right-4 z-40 sm:bottom-24 sm:right-6 border border-white/15 bg-black/70 px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-white backdrop-blur-sm hover:border-orange-400/70"
+        >
+          {showCrew ? "Close crew" : "Crew"}
+        </button>
+        {showCrew && (
+          <div className="fixed inset-0 z-30 overflow-y-auto bg-[#020104]/95 pb-16 text-white">
+            <CrewPanel
+              crew={save.crew}
+              crewLog={save.crewLog}
+              clock={save.hours}
+              onRole={(pawnId, role) => activeSlot !== null && setCrewRole(activeSlot, pawnId, role)}
+            />
+          </div>
+        )}
+      </>
     )
   }
 

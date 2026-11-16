@@ -1,0 +1,235 @@
+import type { Resources } from "@/content/resources"
+import { TUNING } from "./constants"
+import { OCCUPATION_IDS } from "./occupations"
+import { addStatus, canGoOnEva, clamp, gainXp, hasStatus, isActive, traitMultiplier, workSpeed } from "./pawn"
+import type { UrgentNeed } from "./pathing"
+import { OXYGEN_PER_ASTRONAUT_HOUR, UNPRESSURIZED_OXYGEN_FACTOR, type CrewMember } from "./lifeSupport"
+import { createRng } from "./rng"
+import { ROLES, treatNextPatient } from "./roles"
+import { createCrew } from "./spawn"
+import { decideActivity, updateBody, updateFriction, type BodyEnv, type Consumable, type Log } from "./step"
+import type { LogEntry, Pawn, RoleId } from "./types"
+
+/*
+ * The crew system running inside the real game. The base map (sim/pathing) owns where everyone
+ * is and what they've been told to do; this owns everything about the astronauts themselves:
+ * needs, radiation, statuses, morale, friction, skills, healing and evacuation.
+ * Saves call liveCrewThrough as game time passes (see sim/saves.ts).
+ */
+
+/**
+ * Supply one astronaut uses in a day, in the resource bar's units. Oxygen keeps the base map's
+ * rate; water and food follow the same pattern. Game numbers to tune, not real figures (the real
+ * NASA rates are in NASA_DATA and are used for the glossary).
+ */
+export const SUPPLY_PER_ASTRONAUT_DAY: Record<Consumable, number> = {
+  oxygen: OXYGEN_PER_ASTRONAUT_HOUR * 24,
+  water: OXYGEN_PER_ASTRONAUT_HOUR * 24,
+  food: OXYGEN_PER_ASTRONAUT_HOUR * 24,
+}
+
+/** How many crew log lines a save keeps, oldest dropped first. */
+export const CREW_LOG_LENGTH = 30
+
+/** A brand-new crew for an era: one of each occupation, with ids unique to the era. */
+export function newCrew(era: number, random: () => number = Math.random): Pawn[] {
+  return createCrew(createRng(Math.floor(random() * 2 ** 31)), OCCUPATION_IDS, `era${era}-`)
+}
+
+export interface LiveCrewInput {
+  crew: readonly Pawn[]
+  resources: Resources
+  /** Game-hours that went by. */
+  hours: number
+  /** The expedition's clock at the start of those hours. */
+  clock: number
+  /** Astronauts on the base map, and what they were doing (from the map). */
+  atBase: readonly CrewMember[]
+  /** Ids of astronauts out exploring: off the map, on their own supplies, untouched by base weather. */
+  away: readonly string[]
+  /** A radiation storm at the base: how many of the hours it lasted, and the health it costs per hour outside. */
+  storm: { hours: number; healthLostPerHourOutside: number; name: string } | null
+  random?: () => number
+}
+
+/**
+ * What `hours` of game time do to the crew: needs drain and refill from the base's resources,
+ * radiation adds up (much faster outside, and in a storm), statuses come and go, morale drifts,
+ * crewmates who dislike who they're with get annoyed, the medic treats people, skills grow, and
+ * anyone whose health runs out is evacuated. Pure: returns new crew and resources.
+ */
+export function liveCrewThrough(input: LiveCrewInput): {
+  crew: Pawn[]
+  resources: Resources
+  log: LogEntry[]
+  evacuated: string[]
+} {
+  const { hours, clock, storm } = input
+  const random = input.random ?? Math.random
+  const crew = structuredClone(input.crew) as Pawn[]
+  const resources = { ...input.resources }
+  const log: LogEntry[] = []
+  const say: Log = (kind, text, pawnId) => log.push({ hour: clock, kind, text, pawnId })
+  if (hours <= 0) return { crew, resources, log, evacuated: [] }
+
+  const where = new Map(input.atBase.map((m) => [m.id, m]))
+  const away = new Set(input.away)
+  // Only crewmates the game knows the whereabouts of live through this time.
+  const present = crew.filter((p) => isActive(p) && (where.has(p.id) || away.has(p.id)))
+
+  // 1. What everyone is doing: asleep, or whatever the map says.
+  for (const pawn of present) {
+    decideActivity(pawn)
+    if (pawn.activity === "sleeping") continue
+    const spot = where.get(pawn.id)
+    if (!spot) {
+      pawn.activity = "eva"
+      pawn.task = "Out exploring"
+    } else if (spot.workingAt) {
+      pawn.activity = "working"
+      pawn.task = `${ROLES[pawn.role].name} in a module`
+    } else if (spot.outside) {
+      pawn.activity = "eva"
+      pawn.task = "Outside on the surface"
+    } else {
+      pawn.activity = "idle"
+      const friend = spot.chattingWith ? crew.find((p) => p.id === spot.chattingWith) : undefined
+      pawn.task = friend ? `Chatting with ${friend.name}` : "Taking a break"
+    }
+  }
+
+  // 2. The healer treats whoever needs it most, while awake and inside the base.
+  const atBaseCrew = present.filter((p) => where.has(p.id))
+  for (const pawn of atBaseCrew) {
+    if (pawn.role !== "healing" || pawn.activity === "sleeping" || pawn.activity === "eva") continue
+    const result = treatNextPatient(pawn, atBaseCrew, workSpeed(pawn, "healing"), hours, (kind, text) =>
+      say(kind, text, pawn.id),
+    )
+    if (result.activity === "working") {
+      pawn.activity = "working"
+      pawn.task = result.task
+    }
+  }
+
+  // 3. Skills grow with practice: the assigned role while working, Scouting while out exploring.
+  for (const pawn of present) {
+    const practised: RoleId | null =
+      pawn.activity === "working" ? pawn.role : pawn.activity === "eva" && away.has(pawn.id) ? "scouting" : null
+    if (practised && gainXp(pawn, practised, hours)) {
+      const level = pawn.skills[practised].level
+      say("good", `${pawn.name} got better at ${ROLES[practised].name} (skill ${level}).`, pawn.id)
+    }
+  }
+
+  // 4. Friction: chatting together, or working in the same module.
+  const together = (a: Pawn, b: Pawn) => {
+    const sa = where.get(a.id)
+    const sb = where.get(b.id)
+    if (!sa || !sb || a.activity === "sleeping" || b.activity === "sleeping") return false
+    return sa.chattingWith === b.id || sb.chattingWith === a.id || (!!sa.workingAt && sa.workingAt === sb.workingAt)
+  }
+  updateFriction(atBaseCrew, together, clock, say)
+
+  // 5. Bodies: needs, radiation, statuses, morale, health, evacuation.
+  const supplies = { oxygen: resources.oxygen, water: resources.water, food: resources.food }
+  const stormShare = storm ? clamp(storm.hours / hours, 0, 1) : 0
+  for (const pawn of present) {
+    const spot = where.get(pawn.id)
+    const isAway = !spot
+    const outside = isAway || spot.outside
+    const inStorm = !isAway && stormShare > 0
+    // Walking around outside can go wrong (traits make it more or less likely).
+    if (spot?.outside && pawn.activity !== "sleeping") {
+      const chance = TUNING.injuryChancePerHour * traitMultiplier(pawn, (m) => m.injuryChance) * hours
+      if (random() < chance && addStatus(pawn, "injured", clock)) {
+        say("warning", `${pawn.name} slipped on the rocks and got hurt.`, pawn.id)
+      }
+    }
+    const env: BodyEnv = {
+      hour: clock,
+      supplies,
+      supplyPerDay: SUPPLY_PER_ASTRONAUT_DAY,
+      oxygenFactor: spot && spot.pressurized === false ? UNPRESSURIZED_OXYGEN_FACTOR : 1,
+      outside,
+      suppliesCarried: isAway,
+      shielding: TUNING.habitatShielding,
+      doseBudgetMsv: TUNING.evaDoseBudgetMsv,
+      solarStorm: inStorm,
+      dustStorm: false,
+      hazard:
+        inStorm && outside && storm
+          ? { healthPerHour: storm.healthLostPerHourOutside * stormShare, label: storm.name }
+          : null,
+    }
+    updateBody(pawn, env, hours, say)
+  }
+  resources.oxygen = supplies.oxygen
+  resources.water = supplies.water
+  resources.food = supplies.food
+  const morale = crewMorale(crew)
+  if (morale !== null) resources.morale = morale
+
+  const evacuated = present.filter((p) => p.evacuated).map((p) => p.id)
+  return { crew, resources, log, evacuated }
+}
+
+/** Average morale of the crew still on the expedition, or null if nobody is left. */
+export function crewMorale(crew: readonly Pawn[]): number | null {
+  const active = crew.filter(isActive)
+  if (active.length === 0) return null
+  return Math.round(active.reduce((sum, p) => sum + p.needs.morale, 0) / active.length)
+}
+
+/**
+ * Something on an exploring trip hurt these crewmates: they lose health (never below 1, so
+ * nobody is evacuated from out in the field) and are injured until treated or healed. Pure.
+ */
+export function hurtOnTrip(
+  crew: readonly Pawn[],
+  ids: readonly string[],
+  amount: number,
+  clock: number,
+): { crew: Pawn[]; log: LogEntry[] } {
+  const next = structuredClone(crew) as Pawn[]
+  const log: LogEntry[] = []
+  for (const pawn of next) {
+    if (!ids.includes(pawn.id) || !isActive(pawn)) continue
+    pawn.health = Math.max(1, pawn.health - amount)
+    if (addStatus(pawn, "injured", clock)) {
+      log.push({ hour: clock, kind: "warning", text: `${pawn.name} got hurt while exploring.`, pawnId: pawn.id })
+    }
+  }
+  return { crew: next, log }
+}
+
+/** Morale found on a trip (in the resource bar's units) cheers up the whole crew. Pure. */
+export function cheerUp(crew: readonly Pawn[], amount: number): Pawn[] {
+  const next = structuredClone(crew) as Pawn[]
+  for (const pawn of next) if (isActive(pawn)) pawn.needs.morale = clamp(pawn.needs.morale + amount, 0, 100)
+  return next
+}
+
+/** Why this crewmate can't go out exploring right now, or null if they can. */
+export function cannotExplore(pawn: Pawn | undefined): string | null {
+  if (!pawn) return "Unknown crewmate"
+  if (pawn.evacuated) return "Evacuated"
+  if (pawn.activity === "sleeping") return "Sleeping"
+  return canGoOnEva(pawn) ? null : "Must stay inside"
+}
+
+/**
+ * The most urgent thing a crewmate on the map needs to drop their orders for, or null.
+ * `storm`: a radiation storm is on. `canFix(need)`: something on the map provides it.
+ */
+export function urgentNeedOf(
+  pawn: Pawn | undefined,
+  storm: boolean,
+  canFix: (need: Exclude<UrgentNeed, "shelter">) => boolean,
+): UrgentNeed | null {
+  if (!pawn || pawn.evacuated) return null
+  if (hasStatus(pawn, "hypoxic") && canFix("oxygen")) return "oxygen"
+  // Storms, injuries, low oxygen and the radiation limit all mean: get (and stay) inside.
+  if (storm || !canGoOnEva(pawn)) return "shelter"
+  if (pawn.activity === "sleeping" && canFix("rest")) return "rest"
+  return null
+}
