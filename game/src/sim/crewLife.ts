@@ -90,14 +90,19 @@ export interface LiveCrewInput {
   atBase: readonly CrewMember[]
   /** Ids of astronauts out exploring: off the map, on their own supplies, untouched by base weather. */
   away: readonly string[]
-  /** A radiation storm at the base: how many of the hours it lasted, and the health it costs per hour outside. */
-  storm: { hours: number; healthLostPerHourOutside: number; name: string } | null
+  /**
+   * A radiation storm at the base: how many of the hours it lasted, the health it costs per hour
+   * outside, and how many times faster the crew at the base get thirsty while it lasts (1 or left
+   * out: no faster).
+   */
+  storm: { hours: number; healthLostPerHourOutside: number; name: string; waterUseMultiplier?: number } | null
   random?: () => number
 }
 
 /**
  * What `hours` of game time do to the crew: needs drain and refill from the base's resources,
- * radiation adds up (much faster outside, and in a storm), statuses come and go, morale drifts,
+ * radiation adds up (much faster outside, and in a storm), a storm makes everyone at the base
+ * thirsty faster, statuses come and go, morale drifts,
  * crewmates who dislike who they're with get annoyed, the medic treats people, skills grow, and
  * anyone whose health runs out is evacuated. Pure: returns new crew and resources.
  */
@@ -203,6 +208,8 @@ export function liveCrewThrough(input: LiveCrewInput): {
       supplies,
       supplyPerDay: SUPPLY_PER_ASTRONAUT_DAY,
       oxygenFactor: spot && spot.pressurized === false ? UNPRESSURIZED_OXYGEN_FACTOR : 1,
+      // Inside or out: only for the part of the time the storm was on.
+      waterFactor: inStorm && storm ? 1 + ((storm.waterUseMultiplier ?? 1) - 1) * stormShare : 1,
       outside,
       suppliesCarried: isAway,
       shielding: TUNING.habitatShielding,

@@ -168,6 +168,8 @@ export interface BodyEnv {
   supplyPerDay: Record<Consumable, number>
   /** Multiplies how fast oxygen is used, e.g. on suit air outside. */
   oxygenFactor: number
+  /** Multiplies how fast water is used, e.g. in a solar storm. Leave out for the normal rate. */
+  waterFactor?: number
   /** Out on the surface: the full radiation dose. Inside, the habitat blocks `shielding` of it. */
   outside: boolean
   /** Away from the base with their own supplies (e.g. exploring): oxygen, water, food don't drain. */
@@ -198,7 +200,7 @@ export function updateBody(pawn: Pawn, env: BodyEnv, hours: number, log: Log) {
   // --- Oxygen, water, food: drain, then refill from the supplies.
   if (!env.suppliesCarried) {
     for (const need of ["oxygen", "water", "food"] as const) {
-      const factor = need === "oxygen" ? env.oxygenFactor : 1
+      const factor = need === "oxygen" ? env.oxygenFactor : need === "water" ? (env.waterFactor ?? 1) : 1
       const decay = TUNING.consumableDecayPerHour * traitMultiplier(pawn, (m) => m.needDecay?.[need]) * factor
       needs[need] = clamp(needs[need] - decay * hours, 0, 100)
 

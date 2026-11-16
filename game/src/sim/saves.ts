@@ -24,7 +24,7 @@ import { CREW_LOG_LENGTH, cannotExplore, cheerUp, hurtOnTrip, liveCrewThrough, n
 import { assignCrewRole } from "@/sim/step"
 import type { LogEntry, Pawn, RoleId } from "@/sim/types"
 import { NO_RESEARCH, addResearchWork, startResearch, type ResearchProgress } from "@/sim/research"
-import { advanceSky, calmHours, quietFillHours, startWeather, type Weather } from "@/sim/weather"
+import { advanceSky, calmHours, poweredShare, quietFillHours, startWeather, type Weather } from "@/sim/weather"
 import { addWindow, newCalendar, testSpaceEvents, type Calendar, type SpaceEvent, type TestSpaceEvent } from "@/sim/calendar"
 import { depositIdOf, mine, type Deposit } from "@/sim/deposits"
 import { workSpeed } from "@/sim/pawn"
@@ -310,7 +310,12 @@ export const savesStore = createStore<Saves & SavesActions>()(
         const event = slot.weather ? weatherEvent(slot.weather.id) : null
         const storm =
           event && sky.stormHours > 0
-            ? { hours: sky.stormHours, healthLostPerHourOutside: event.healthLostPerHourOutside, name: event.name }
+            ? {
+                hours: sky.stormHours,
+                healthLostPerHourOutside: event.healthLostPerHourOutside,
+                name: event.name,
+                waterUseMultiplier: event.waterUseMultiplier,
+              }
             : null
         // The crew live through the time (sim/crewLife.ts): needs, radiation, health, evacuation.
         const lived = liveCrewThrough({
@@ -356,7 +361,9 @@ export const savesStore = createStore<Saves & SavesActions>()(
           resources = addFinds(resources, { ...finds, morale: 0 })
           reports.unshift({ id: trip.id, placeId: trip.placeId, crew: trip.crew, finds, events: trip.events })
         }
-        const research = addResearchWork(slot.researchProgress, slot.researched, labHours)
+        // A storm that knocks the power out stops the Research Labs while it lasts (content/weather.ts).
+        const powered = poweredShare(hours, sky.stormHours, event?.powerOut ?? false)
+        const research = addResearchWork(slot.researchProgress, slot.researched, labHours * powered)
         const next: SaveSlot = {
           ...slot,
           hours: clock,
