@@ -73,6 +73,15 @@ def box(material, low, high, rotation=None):
     return obj
 
 
+def block(material, x, y, wide, deep, z_from, z_to):
+    """
+    A box placed by pixel, for parts too small to risk landing between pixels: `x`, `y` from the
+    south-west corner, `wide` by `deep` pixels, from layer `z_from` up to layer `z_to`.
+    """
+    pixel = 1 / 16
+    return box(material, (x * pixel, y * pixel, z_from * pixel), ((x + wide) * pixel, (y + deep) * pixel, z_to * pixel))
+
+
 def cylinder(material, center, radius, z_low, z_high, top_radius=None, sides=32, rotation=None):
     """An upright cylinder at `center` (x, y). Give `top_radius` for a cone or a tapered roof."""
     location = (center[0], center[1], (z_low + z_high) / 2)
