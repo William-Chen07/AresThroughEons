@@ -12,6 +12,7 @@ import {
   TRIP_LOG_LENGTH,
   addFinds,
   advanceTrips,
+  forceTripEvent,
   rollFinds,
   startTrip,
   type Trip,
@@ -24,7 +25,7 @@ import { assignCrewRole } from "@/sim/step"
 import type { LogEntry, Pawn, RoleId } from "@/sim/types"
 import { NO_RESEARCH, addResearchWork, startResearch, type ResearchProgress } from "@/sim/research"
 import { advanceSky, calmHours, quietFillHours, startWeather, type Weather } from "@/sim/weather"
-import { addWindow, newCalendar, type Calendar, type SpaceEvent } from "@/sim/calendar"
+import { addWindow, newCalendar, testSpaceEvents, type Calendar, type SpaceEvent, type TestSpaceEvent } from "@/sim/calendar"
 import { depositIdOf, mine, type Deposit } from "@/sim/deposits"
 import { workSpeed } from "@/sim/pawn"
 
@@ -161,6 +162,19 @@ interface SavesActions {
   setCrewRole: (index: number, pawnId: string, role: RoleId) => void
   /** Starts a weather event right now, or with null ends the one going on. For the Build panel. */
   setWeather: (index: number, id: WeatherId | null) => void
+  /**
+   * Makes the random storm come once its warning time is up, so the warning shows straight away
+   * (unless a solar eruption on the calendar comes first). For the Build panel.
+   */
+  stormSoon: (index: number) => void
+  /**
+   * Puts a test space event on the calendar now (see testSpaceEvents in sim/calendar.ts): it shows
+   * in the news, and an eruption aimed at Mars brings a storm. Left out of the era's real history.
+   * For the Build panel.
+   */
+  addTestSpaceEvent: (index: number, kind: TestSpaceEvent) => void
+  /** Makes an explore event happen straight away to the first group out exploring. For the Build panel. */
+  forceTripEvent: (index: number, eventId: string) => void
   /**
    * Starts the expedition over at the same landing site, as if it were being opened for the
    * first time: not landed yet (so the landing plays again), no base, nothing researched, the
@@ -378,6 +392,24 @@ export const savesStore = createStore<Saves & SavesActions>()(
         const calm = slot.calendar.failed ? calmHours(Math.random()) : quietFillHours(Math.random())
         const next = id ? { ...slot, weather: startWeather(id) } : { ...slot, weather: null, nextWeatherAt: slot.hours + calm }
         set({ slots: withSlot(get().slots, index, next) })
+      },
+      stormSoon: (index) => {
+        const slot = get().slots[index]
+        if (!slot) return
+        const next = { ...slot, weather: null, nextWeatherAt: slot.hours + weatherEvent("radiation-storm").warnHours - 0.01 }
+        set({ slots: withSlot(get().slots, index, next) })
+      },
+      addTestSpaceEvent: (index, kind) => {
+        const slot = get().slots[index]
+        if (!slot) return
+        const events = [...slot.calendar.events, ...testSpaceEvents(kind, slot.calendar, slot.hours)].sort((a, b) => a.hour - b.hour)
+        set({ slots: withSlot(get().slots, index, { ...slot, calendar: { ...slot.calendar, events } }) })
+      },
+      forceTripEvent: (index, eventId) => {
+        const slot = get().slots[index]
+        if (!slot || slot.trips.length === 0) return
+        const trips = [forceTripEvent(slot.trips[0], eventId), ...slot.trips.slice(1)]
+        set({ slots: withSlot(get().slots, index, { ...slot, trips }) })
       },
       resetMap: (index) => {
         const slot = get().slots[index]

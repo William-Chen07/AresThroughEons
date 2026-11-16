@@ -75,6 +75,7 @@ import { GAME_HOURS_PER_SECOND, formatRealTime } from "@/sim/clock"
 import { hoursLeft, type ResearchProgress } from "@/sim/research"
 import { playSfx } from "@/lib/sound"
 import type { Weather } from "@/sim/weather"
+import { TEST_ERUPTION_TRAVEL_HOURS, type TestSpaceEvent } from "@/sim/calendar"
 
 /*
  * The base map screen: the ground around the expedition's landing site, built
@@ -228,6 +229,10 @@ export function GameMap({
   onSendExploring,
   weather,
   onWeather,
+  stormWarning,
+  onStormSoon,
+  onSpaceEvent,
+  onTripEvent,
   onResetMap,
   era,
   landers,
@@ -276,6 +281,14 @@ export function GameMap({
   weather: Weather
   /** Starts a weather event now, or with null ends the one going on (from the Build panel). */
   onWeather: (id: WeatherId | null) => void
+  /** The storm coming soon and the game-hours until it starts (see stormWarning in sim/weather.ts), or null. */
+  stormWarning: { id: WeatherId; hoursLeft: number } | null
+  /** For testing from the Build panel: brings a radiation storm close, so its warning shows. */
+  onStormSoon: () => void
+  /** For testing from the Build panel: puts a test space event on the calendar now. */
+  onSpaceEvent: (kind: TestSpaceEvent) => void
+  /** For testing from the Build panel: makes an explore event happen to the first group out exploring. */
+  onTripEvent: (eventId: string) => void
   /**
    * Starts the expedition over at the same landing site, as if opened for the first time (from
    * the Build panel). This whole screen is then thrown away and built again, so the landing replays.
@@ -966,7 +979,7 @@ export function GameMap({
     <main className="relative h-dvh w-full overflow-hidden bg-[#020104] text-white">
       <div ref={hostRef} className="absolute inset-0 touch-none" />
       {/* The storm's glow and clouds over the map. */}
-      {weather && terrain && <StormOverlay />}
+      {weather && terrain && <StormOverlay storm={weather.id} />}
 
       {/* Panels sit over the map but let drags and clicks through to it. */}
       {/* While the Build bar is open, what sits along the bottom moves up above it (see BuildPanel). */}
@@ -1230,8 +1243,28 @@ export function GameMap({
             tubeCells={tubes.length}
             groupCount={groupCount}
             message={message}
-            stormActive={weather !== null}
-            onStorm={() => onWeather(weather ? null : "radiation-storm")}
+            weather={weather?.id ?? null}
+            onWeather={(id) => {
+              onWeather(id)
+              setMessage(id ? `Started a ${weatherEvent(id).name.toLowerCase()}.` : "Ended the storm.")
+            }}
+            onStormSoon={() => {
+              onStormSoon()
+              setMessage(`A radiation storm is coming in ${weatherEvent("radiation-storm").warnHours} h: watch for the warning.`)
+            }}
+            onSpaceEvent={(kind) => {
+              onSpaceEvent(kind)
+              setMessage(
+                kind === "eruptionToMars"
+                  ? `Test eruption sent towards Mars: its storm hits in ${TEST_ERUPTION_TRAVEL_HOURS} h.`
+                  : "Test space event added: see the Space news under the day.",
+              )
+            }}
+            tripsOut={trips.length}
+            onTripEvent={(id) => {
+              onTripEvent(id)
+              setMessage(`${exploreEvent(id)?.name ?? "The event"} will happen to the group out exploring.`)
+            }}
             onResetMap={() => {
               resettingRef.current = true
               onResetMap()
@@ -1250,11 +1283,34 @@ export function GameMap({
         </div>
       )}
 
+      {/* A storm coming soon: which one, how long until it hits, and to get the crew in. */}
+      {!weather && stormWarning && terrain && (
+        <div className="pointer-events-none absolute inset-x-0 top-20 z-10 flex justify-center px-4" role="alert">
+          <div className="max-w-md border border-amber-300/70 bg-neutral-950/90 px-5 py-3 backdrop-blur-sm">
+            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-amber-200">
+              {weatherEvent(stormWarning.id).name} coming
+              <span className="ml-3 tracking-[0.15em] text-white/60">
+                in {Math.ceil(stormWarning.hoursLeft)} h
+                <span className="ml-1.5 normal-case tracking-normal">(about {formatRealTime(stormWarning.hoursLeft)})</span>
+              </span>
+            </p>
+            <p className="mt-1 text-sm text-white/90">{weatherEvent(stormWarning.id).soon}</p>
+          </div>
+        </div>
+      )}
+
       {/* A weather event going on: what it is, what to do, and how long is left. */}
       {weather && terrain && (
         <div className="pointer-events-none absolute inset-x-0 top-20 z-10 flex justify-center px-4" role="alert">
-          <div className="max-w-md border border-orange-400/70 bg-neutral-950/90 px-5 py-3 backdrop-blur-sm">
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-300">
+          {/* A solar storm's banner is yellow and orange, like its glow on the map. */}
+          <div
+            className={`max-w-md border px-5 py-3 backdrop-blur-sm ${
+              weather.id === "solar-storm"
+                ? "border-yellow-400/80 bg-linear-to-br from-orange-950/95 to-neutral-950/90"
+                : "border-orange-400/70 bg-neutral-950/90"
+            }`}
+          >
+            <p className={`text-xs font-semibold uppercase tracking-[0.3em] ${weather.id === "solar-storm" ? "text-yellow-300" : "text-orange-300"}`}>
               {weatherEvent(weather.id).name}
               <span className="ml-3 tracking-[0.15em] text-white/50">{Math.ceil(weather.hoursLeft)} h left</span>
             </p>

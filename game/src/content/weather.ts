@@ -4,8 +4,12 @@
  *
  * `hours` is how long the event lasts, in game-hours. `healthLostPerHourOutside`
  * is the health an astronaut loses in each game-hour spent outside while it lasts.
- * Both are game numbers to tune, not real figures. `text` is a real fact from the
- * NASA page in `source`.
+ * `warnHours` is how long before it starts the player is warned (see stormWarning
+ * in sim/weather.ts), and `soon` is what the warning says. These are game numbers
+ * to tune, not real figures, but the warning times follow how much notice there
+ * really is: NASA's models predict a solar eruption's arrival days ahead, while
+ * fast particles from the Sun give much less notice. `text` is a real fact from
+ * the NASA page in `source`.
  */
 export const WEATHER_EVENTS = [
   {
@@ -13,6 +17,8 @@ export const WEATHER_EVENTS = [
     name: "Radiation Storm",
     hours: 6,
     healthLostPerHourOutside: 10,
+    warnHours: 8,
+    soon: "Fast particles from the Sun are on their way. Get the crew inside before they arrive!",
     warning: "Get the crew inside! Anyone outside is losing health.",
     text: "The Sun sometimes blasts out a burst of fast particles. Radiation is invisible energy that can hurt your body, and Mars has only thin air to block it. In September 2017 a solar storm more than doubled the radiation NASA's Curiosity rover measured on the ground.",
     source: {
@@ -26,6 +32,8 @@ export const WEATHER_EVENTS = [
     name: "Solar Storm",
     hours: 6,
     healthLostPerHourOutside: 10,
+    warnHours: 24,
+    soon: "A real solar eruption is heading for Mars, and NASA's models say when it will hit. Get the crew inside before it arrives!",
     warning: "A real solar eruption is hitting Mars. Get the crew inside!",
     text: "A solar eruption (a coronal mass ejection) is a giant cloud of hot gas and magnetism thrown off by the Sun. NASA tracks every one and uses computer models to predict which planets it will hit. This storm is real: NASA's records show an eruption reaching Mars on this very day in history.",
     source: {

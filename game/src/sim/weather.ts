@@ -57,11 +57,40 @@ export function advanceWeather(
 }
 
 /**
+ * The next storm on an expedition with a calendar (see sim/calendar.ts), looking from `clock`:
+ * which one and when it starts on the expedition's clock. It's the next solar eruption on the
+ * calendar reaching Mars ("solar-storm"), unless the random one due at `nextAt` comes first.
+ * Doesn't look at the weather going on now: see stormWarning for that.
+ */
+export function upcomingStorm(calendar: Calendar, nextAt: number, clock: number): { id: WeatherId; at: number } {
+  const real = nextRealStorm(calendar, clock)
+  return real !== null && real <= nextAt ? { id: "solar-storm", at: real } : { id: "radiation-storm", at: nextAt }
+}
+
+/**
+ * The warning to show before a storm: which storm is coming and how many game-hours until it
+ * starts, once that's within its `warnHours` (content/weather.ts). Null in calm weather with no
+ * storm close, and while a storm is going on.
+ */
+export function stormWarning(
+  weather: Weather,
+  nextAt: number,
+  calendar: Calendar,
+  clock: number,
+): { id: WeatherId; hoursLeft: number } | null {
+  if (weather) return null
+  const next = upcomingStorm(calendar, nextAt, clock)
+  const hoursLeft = next.at - clock
+  return hoursLeft > 0 && hoursLeft <= weatherEvent(next.id).warnHours ? { id: next.id, hoursLeft } : null
+}
+
+/**
  * The weather after `hours` game-hours on an expedition with a calendar (see sim/calendar.ts),
- * on a clock that read `clock - hours` before. While the calendar has real NASA events, the next
- * storm is the next real solar eruption reaching Mars ("solar-storm"), unless it's been quiet for
- * so long that the random one at `nextAt` comes first; the quiet timer restarts whenever a storm
- * ends. If loading the real events failed, storms come at random as before.
+ * on a clock that read `clock - hours` before. The next storm is the next solar eruption on the
+ * calendar reaching Mars ("solar-storm"), unless it's been quiet for so long that the random one at
+ * `nextAt` comes first (see upcomingStorm); the quiet timer restarts whenever a storm ends. If
+ * loading the real events failed, random storms come every CALM_HOURS instead, as well as any
+ * eruptions already on the calendar.
  */
 export function advanceSky(
   weather: Weather,
@@ -71,10 +100,10 @@ export function advanceSky(
   hours: number,
   random: () => number,
 ): { weather: Weather; nextAt: number; stormHours: number } {
-  if (calendar.failed) return advanceWeather(weather, nextAt, clock, hours, random())
-  const real = nextRealStorm(calendar, clock - hours)
-  const realFirst = real !== null && real <= nextAt
-  const sky = advanceWeather(weather, realFirst ? real : nextAt, clock, hours, random(), realFirst ? "solar-storm" : "radiation-storm")
+  const next = upcomingStorm(calendar, nextAt, clock - hours)
+  const sky = advanceWeather(weather, next.at, clock, hours, random(), next.id)
   const ended = weather !== null && sky.weather === null
-  return { ...sky, nextAt: ended ? clock + quietFillHours(random()) : nextAt }
+  if (!ended) return { ...sky, nextAt }
+  // advanceWeather has already set the calm after the storm, CALM_HOURS, for when loading failed.
+  return calendar.failed ? sky : { ...sky, nextAt: clock + quietFillHours(random()) }
 }
