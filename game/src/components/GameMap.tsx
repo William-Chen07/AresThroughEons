@@ -78,7 +78,7 @@ import type { Weather } from "@/sim/weather"
  * The base map screen: the ground around the expedition's landing site, built
  * from NASA imagery and elevation (see map/), with the lander and the base on
  * it. For now the base (modules, and the tubes between them) is built by hand
- * from the Build panel (Build in the Actions dropdown, or the ` key).
+ * from the Build bar (Build in the Actions dropdown, or the ` key).
  * Modules and tubes turn see-through so the crew inside can be seen and clicked: only the module
  * someone is in, and the piece of tube someone is walking along. A click on a module opens up
  * every module to look inside (another click closes them up again).
@@ -174,8 +174,6 @@ function describeEvent(event: PathingEvent, nameOf: NameOf): string | null {
       return `${nameOf(event.pawnId)}: ${event.reason}`
     case "needInterrupt":
       return event.need === "shelter" ? `${nameOf(event.pawnId)} is heading inside to shelter.` : null
-    case "airlockCycling":
-      return `${nameOf(event.pawnId)} is cycling through the airlock.`
     case "exposureChanged":
       return event.exposure === "outside"
         ? `${nameOf(event.pawnId)} stepped outside onto the surface.`
@@ -942,7 +940,11 @@ export function GameMap({
       {weather && terrain && <StormOverlay />}
 
       {/* Panels sit over the map but let drags and clicks through to it. */}
-      <div className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between p-4 sm:p-6">
+      {/* While the Build bar is open, what sits along the bottom moves up above it (see BuildPanel). */}
+      <div
+        className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between p-4 sm:p-6"
+        style={buildOpen ? { paddingBottom: "calc(var(--build-bar, 0px) + 1rem)" } : undefined}
+      >
         <div className="flex items-start justify-between gap-4">
           <div className="flex flex-col items-start gap-3">
             {/* The calendar: only the day number, never the real date (see sim/calendar.ts). */}
@@ -963,33 +965,6 @@ export function GameMap({
                 </p>
               )}
             </section>
-            {buildOpen && terrain && (
-              <BuildPanel
-                tool={tool}
-                onTool={pickTool}
-                tubeStarted={tubeStart !== null}
-                moduleCount={modules.length}
-                tubeCells={tubes.length}
-                groupCount={groupCount}
-                message={message}
-                stormActive={weather !== null}
-                onStorm={() => onWeather(weather ? null : "radiation-storm")}
-                onResetMap={() => {
-                  resettingRef.current = true
-                  onResetMap()
-                }}
-                onNextEra={() => {
-                  resettingRef.current = true
-                  onNextEra()
-                }}
-                onClear={() => {
-                  onBaseChange({ modules: [], tubes: [] })
-                  setTubeStart(null)
-                  setMessage("Cleared the base.")
-                }}
-                onClose={closeBuild}
-              />
-            )}
             {landed && terrain && !tool && (
               <div className="pointer-events-auto w-48 border border-white/15 bg-neutral-950/80 px-2 py-1.5 backdrop-blur-sm" aria-live="polite">
                 {/* The header folds the list away, so it doesn't always cover the map. */}
@@ -1205,6 +1180,38 @@ export function GameMap({
           )}
         </div>
       </div>
+
+      {/* The Build bar, along the bottom of the screen. */}
+      {buildOpen && terrain && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20">
+          <BuildPanel
+            tool={tool}
+            researched={researched}
+            onTool={pickTool}
+            tubeStarted={tubeStart !== null}
+            moduleCount={modules.length}
+            tubeCells={tubes.length}
+            groupCount={groupCount}
+            message={message}
+            stormActive={weather !== null}
+            onStorm={() => onWeather(weather ? null : "radiation-storm")}
+            onResetMap={() => {
+              resettingRef.current = true
+              onResetMap()
+            }}
+            onNextEra={() => {
+              resettingRef.current = true
+              onNextEra()
+            }}
+            onClear={() => {
+              onBaseChange({ modules: [], tubes: [] })
+              setTubeStart(null)
+              setMessage("Cleared the base.")
+            }}
+            onClose={closeBuild}
+          />
+        </div>
+      )}
 
       {/* A weather event going on: what it is, what to do, and how long is left. */}
       {weather && terrain && (
